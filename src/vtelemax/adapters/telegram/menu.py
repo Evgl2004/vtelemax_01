@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
-BUTTON_SEND_PHONE = "Отправить номер телефона"
-BUTTON_MAIN_MENU = "Главное меню"
-BUTTON_PROFILE = "Мой профиль"
-BUTTON_HELP = "Помощь"
-BUTTON_ABOUT = "О проекте"
+from vtelemax.core import (
+    BUTTON_ABOUT,
+    BUTTON_BALANCE,
+    BUTTON_HELP,
+    BUTTON_MAIN_MENU,
+    BUTTON_PROFILE,
+    BUTTON_SEND_PHONE,
+    BUTTON_SUPPORT,
+    BUTTON_VACANCIES,
+    BUTTON_VIRTUAL_CARD,
+)
 
 
 def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
@@ -33,6 +39,8 @@ def build_main_menu_keyboard() -> ReplyKeyboardMarkup:
 
     return ReplyKeyboardMarkup(
         keyboard=[
+            [KeyboardButton(text=BUTTON_BALANCE), KeyboardButton(text=BUTTON_VIRTUAL_CARD)],
+            [KeyboardButton(text=BUTTON_SUPPORT), KeyboardButton(text=BUTTON_VACANCIES)],
             [KeyboardButton(text=BUTTON_PROFILE), KeyboardButton(text=BUTTON_HELP)],
             [KeyboardButton(text=BUTTON_ABOUT), KeyboardButton(text=BUTTON_MAIN_MENU)],
         ],

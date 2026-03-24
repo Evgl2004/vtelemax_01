@@ -183,3 +183,39 @@ def test_telegram_adapter_returns_unknown_for_unexpected_action() -> None:
     result = adapter.handle_menu_action(telegram_user_id=1001, action_text="какая-то команда")
 
     assert result.status == "unknown_action"
+
+
+def test_telegram_adapter_returns_support_screen_for_support_action() -> None:
+    """Проверяет переход в экран поддержки по кнопке меню."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="🆘 Отдел заботы")
+
+    assert result.status == "support"
+    assert "Отдел заботы" in result.message
+
+
+def test_telegram_adapter_returns_vacancies_screen_for_vacancies_action() -> None:
+    """Проверяет экран вакансий по кнопке главного меню."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="💼 Вакансии")
+
+    assert result.status == "vacancies"
+    assert "team.sobolevalliance.su/vacancy" in result.message

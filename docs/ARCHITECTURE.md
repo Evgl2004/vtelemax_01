@@ -26,6 +26,7 @@
 2. Доменные ошибки (`errors.py`).
 3. Порты репозиториев (`ports.py`).
 4. Use-case регистрации/привязки аккаунта (`use_cases.py`).
+5. Единый контракт меню и текстов (`menu_contract.py`, `guest_content.py`).
 
 ### 2.2 Adapters
 
@@ -39,7 +40,8 @@
 
 1. Первый Telegram-адаптер регистрации (`adapters/telegram/identity_adapter.py`).
 2. Aiogram router для `/start` и обработки контакта (`adapters/telegram/router.py`).
-3. Главное меню Telegram с кнопками профиля/помощи/информации о проекте.
+3. Telegram-меню синхронизировано по эталонным текстам Telegram-прототипа.
+4. Стартовый VK-адаптер меню на общем контракте (`adapters/vk/menu_adapter.py`).
 
 ### 2.3 Infrastructure
 

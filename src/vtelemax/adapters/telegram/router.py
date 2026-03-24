@@ -63,7 +63,11 @@ def build_telegram_identity_router(identity_adapter: TelegramIdentityAdapter) ->
             telegram_user_id=message.from_user.id,
             action_text="/menu",
         )
-        await message.answer(result.message, reply_markup=main_menu_keyboard)
+        await message.answer(
+            result.message,
+            parse_mode=result.parse_mode,
+            reply_markup=main_menu_keyboard,
+        )
 
     @router.message(F.text)
     async def text_menu_handler(message: Message) -> None:
@@ -80,6 +84,10 @@ def build_telegram_identity_router(identity_adapter: TelegramIdentityAdapter) ->
             action_text=message.text,
         )
         reply_markup = request_contact_keyboard if result.requires_contact_keyboard else main_menu_keyboard
-        await message.answer(result.message, reply_markup=reply_markup)
+        await message.answer(
+            result.message,
+            parse_mode=result.parse_mode,
+            reply_markup=reply_markup,
+        )
 
     return router
