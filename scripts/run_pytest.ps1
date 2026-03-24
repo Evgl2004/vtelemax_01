@@ -18,7 +18,7 @@ if (-not $PytestArgs -or $PytestArgs.Count -eq 0) {
 $canUseVenvPython = $false
 if (Test-Path $venvPython) {
     try {
-        & $venvPython --version | Out-Null
+        & $venvPython --version 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) {
             $canUseVenvPython = $true
         }
