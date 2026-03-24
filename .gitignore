@@ -1,0 +1,33 @@
+# Виртуальные окружения
+.venv/
+.venv_tooling/
+
+# Python-кэш и артефакты сборки
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Отчеты покрытия и логи
+.coverage
+.coverage.*
+htmlcov/
+logs/
+
+# Локальные IDE/OS-файлы
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Локальные переменные окружения
+.env
+.env.*
+!.env.example
+
+# Local temp directory created by setup scripts
+.tmp/
