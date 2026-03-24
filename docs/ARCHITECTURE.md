@@ -35,6 +35,11 @@
 2. Маппинг ответов ядра в сообщения/кнопки конкретной платформы.
 3. Технические особенности SDK (callback, attachment, state-контекст).
 
+Уже реализовано на текущем этапе:
+
+1. Первый Telegram-адаптер регистрации (`adapters/telegram/identity_adapter.py`).
+2. Aiogram router для `/start` и обработки контакта (`adapters/telegram/router.py`).
+
 ### 2.3 Infrastructure
 
 В `infrastructure` будут:
@@ -49,6 +54,11 @@
 2. Стартовая SQL-миграция схемы (`migrations/sql/0001_strict_identity.sql`).
 3. SQLAlchemy-репозиторий strict identity (`infrastructure/postgres/repository.py`).
 4. Транзакционный Unit Of Work (`infrastructure/postgres/uow.py`).
+
+### 2.4 Settings и приложения
+
+1. Централизованные настройки через `AppSettings` (`settings.py`).
+2. Первая точка входа приложения: `apps/telegram_app.py`.
 
 ## 3. Строгая идентификация (Strict Identity)
 

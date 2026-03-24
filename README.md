@@ -42,6 +42,12 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integration/test_postgres_live_identity_repository.py
 ```
 
+Запуск первого адаптера Telegram (локально, без Docker):
+
+```powershell
+.\.venv\Scripts\python.exe -m vtelemax.apps.telegram_app
+```
+
 ## 4. Структура
 
 ```text
@@ -54,6 +60,7 @@ vtelemax/
       adapters/
       core/
       infrastructure/
+      apps/
   tests/
     unit/
 ```

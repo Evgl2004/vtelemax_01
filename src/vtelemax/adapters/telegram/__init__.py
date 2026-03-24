@@ -7,3 +7,11 @@
 3. Маппинг ответов ядра -> Telegram сообщения и клавиатуры.
 """
 
+from .identity_adapter import TelegramIdentityAdapter, TelegramRegistrationResult
+from .router import build_telegram_identity_router
+
+__all__ = [
+    "TelegramIdentityAdapter",
+    "TelegramRegistrationResult",
+    "build_telegram_identity_router",
+]

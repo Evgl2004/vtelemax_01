@@ -5,6 +5,8 @@
 1. `core` — доменное ядро и единые бизнес-правила.
 2. `adapters` — платформенные адаптеры Telegram/VK/MAX.
 3. `infrastructure` — инфраструктурные реализации репозиториев и сервисов.
+4. `apps` — точки входа приложений ботов.
+5. `settings` — централизованная модель конфигурации.
 """
 
-__all__ = ["core", "adapters", "infrastructure"]
+__all__ = ["core", "adapters", "infrastructure", "apps", "settings"]
