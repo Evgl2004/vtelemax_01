@@ -219,3 +219,101 @@ def test_telegram_adapter_returns_vacancies_screen_for_vacancies_action() -> Non
 
     assert result.status == "vacancies"
     assert "team.sobolevalliance.su/vacancy" in result.message
+
+
+def test_telegram_start_interaction_for_new_user_requires_rules_consent() -> None:
+    """Проверяет старт onboarding для нового пользователя через шаг согласия."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    result = adapter.start_interaction(telegram_user_id=3003)
+
+    assert result.status == "rules_consent_required"
+    assert "Согласен" in result.message
+
+
+def test_telegram_onboarding_moves_from_rules_to_phone() -> None:
+    """Проверяет переход onboarding из шага правил в шаг отправки телефона."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    adapter.start_interaction(telegram_user_id=3003)
+    result = adapter.handle_menu_action(telegram_user_id=3003, action_text="✅ Согласен")
+
+    assert result.status == "phone_required"
+    assert result.requires_contact_keyboard is True
+
+
+def test_telegram_onboarding_phone_waiting_returns_reminder_for_dirty_input() -> None:
+    """Проверяет грязный сценарий: текст вместо отправки контакта на шаге телефона."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    adapter.start_interaction(telegram_user_id=3003)
+    adapter.handle_menu_action(telegram_user_id=3003, action_text="✅ Согласен")
+    result = adapter.handle_menu_action(telegram_user_id=3003, action_text="хочу меню")
+
+    assert result.status == "phone_required"
+    assert result.requires_contact_keyboard is True
+
+
+def test_telegram_start_interaction_for_registered_user_returns_menu() -> None:
+    """Проверяет `/start` для уже зарегистрированного пользователя."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    result = adapter.start_interaction(telegram_user_id=1001)
+
+    assert result.status == "menu"
+    assert "главном меню" in result.message
+
+
+def test_telegram_legacy_upgrade_flow_reuses_phone_confirmation() -> None:
+    """Проверяет legacy-ветку с подтверждением телефона через общий onboarding-flow."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    legacy_start = adapter.start_interaction(telegram_user_id=1001, force_legacy_upgrade=True)
+    confirm = adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+
+    assert legacy_start.status == "legacy_phone_confirmation_required"
+    assert legacy_start.requires_contact_keyboard is True
+    assert confirm.is_success is True
+    assert "legacy успешно обновлен" in confirm.message

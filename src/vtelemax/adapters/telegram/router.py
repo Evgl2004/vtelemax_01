@@ -21,10 +21,37 @@ def build_telegram_identity_router(identity_adapter: TelegramIdentityAdapter) ->
     async def start_handler(message: Message) -> None:
         """Обработчик команды `/start`."""
 
+        if message.from_user is None:
+            await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
+            return
+
+        result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
+        if result.requires_contact_keyboard:
+            reply_markup = request_contact_keyboard
+        elif result.status == "menu":
+            reply_markup = main_menu_keyboard
+        else:
+            reply_markup = None
+
         await message.answer(
-            identity_adapter.build_start_message(),
-            reply_markup=request_contact_keyboard,
+            result.message,
+            reply_markup=reply_markup,
         )
+
+    @router.message(Command("legacy"))
+    async def legacy_start_handler(message: Message) -> None:
+        """Явный запуск legacy-ветки обновления профиля."""
+
+        if message.from_user is None:
+            await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
+            return
+
+        result = identity_adapter.start_interaction(
+            telegram_user_id=message.from_user.id,
+            force_legacy_upgrade=True,
+        )
+        reply_markup = request_contact_keyboard if result.requires_contact_keyboard else None
+        await message.answer(result.message, reply_markup=reply_markup)
 
     @router.message(F.contact)
     async def contact_handler(message: Message) -> None:
@@ -63,10 +90,16 @@ def build_telegram_identity_router(identity_adapter: TelegramIdentityAdapter) ->
             telegram_user_id=message.from_user.id,
             action_text="/menu",
         )
+        if result.requires_contact_keyboard:
+            reply_markup = request_contact_keyboard
+        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
+            reply_markup = None
+        else:
+            reply_markup = main_menu_keyboard
         await message.answer(
             result.message,
             parse_mode=result.parse_mode,
-            reply_markup=main_menu_keyboard,
+            reply_markup=reply_markup,
         )
 
     @router.message(F.text)
@@ -83,7 +116,12 @@ def build_telegram_identity_router(identity_adapter: TelegramIdentityAdapter) ->
             telegram_user_id=message.from_user.id,
             action_text=message.text,
         )
-        reply_markup = request_contact_keyboard if result.requires_contact_keyboard else main_menu_keyboard
+        if result.requires_contact_keyboard:
+            reply_markup = request_contact_keyboard
+        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
+            reply_markup = None
+        else:
+            reply_markup = main_menu_keyboard
         await message.answer(
             result.message,
             parse_mode=result.parse_mode,

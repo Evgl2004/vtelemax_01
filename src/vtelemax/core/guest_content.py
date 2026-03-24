@@ -28,6 +28,7 @@ BUTTON_PROFILE = "Мой профиль"
 BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
 BUTTON_SEND_PHONE = "Отправить номер телефона"
+BUTTON_ACCEPT_RULES = "✅ Согласен"
 
 
 def normalize_menu_text(raw_text: str) -> str:
@@ -78,7 +79,10 @@ def build_start_rules_screen() -> MenuScreenContract:
             "Добро пожаловать к нам в гости!\n\n"
             "📜 Для начала нам необходимо получить твоё согласие на обработку персональных данных "
             "и согласие с политикой конфиденциальности.\n\n"
-            "👉 Ознакомься с документами по ссылке ниже и нажми «✅ Согласен»."
+            "👉 Ознакомься с документами по ссылке ниже и отправь сообщение «✅ Согласен»."
+        ),
+        buttons=(
+            MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_ACCEPT_RULES),
         ),
     )
 
@@ -91,6 +95,26 @@ def build_start_contact_screen() -> MenuScreenContract:
         text=(
             "📱 Чтобы подключиться к программе лояльности, нажми кнопку «Поделиться контактом».\n"
             "После этого мы будем знакомы чуть ближе."
+        ),
+        buttons=(
+            MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_SEND_PHONE),
+        ),
+    )
+
+
+def build_legacy_upgrade_screen() -> MenuScreenContract:
+    """Экран запуска обновления для legacy-пользователя.
+
+    Сценарий intentionally пересекается с обычной регистрацией:
+    на первом этапе мы также запрашиваем подтверждение номера телефона.
+    """
+
+    return MenuScreenContract(
+        screen_id="legacy_upgrade",
+        text=(
+            "🔄 Мы обнаружили профиль из предыдущей версии бота.\n\n"
+            "Чтобы обновить данные и продолжить работу, подтвердите ваш номер телефона "
+            "через кнопку «Отправить номер телефона»."
         ),
         buttons=(
             MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_SEND_PHONE),

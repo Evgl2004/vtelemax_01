@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from vtelemax.core import (
+    BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
     BUTTON_BALANCE,
     BUTTON_HELP,
@@ -16,6 +17,8 @@ from vtelemax.core import (
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
     GuestMenuAction,
+    OnboardingFlowService,
+    OnboardingState,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     IdentityConflictError,
@@ -26,7 +29,7 @@ from vtelemax.core import (
     build_main_menu_screen,
     build_profile_not_found_screen,
     build_profile_screen,
-    build_start_contact_screen,
+    build_start_rules_screen,
     build_support_contacts_screen,
     build_support_feedback_screen,
     build_support_menu_screen,
@@ -67,9 +70,52 @@ class TelegramIdentityAdapter:
     ) -> None:
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
+        self._onboarding_flow = OnboardingFlowService()
+        self._onboarding_state_by_user_id: dict[int, OnboardingState] = {}
+
+    def start_interaction(
+        self,
+        telegram_user_id: int,
+        *,
+        force_legacy_upgrade: bool = False,
+    ) -> TelegramMenuActionResult:
+        """Запускает стартовый сценарий onboarding/меню для пользователя."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
+        )
+
+        if person is None:
+            transition = self._onboarding_flow.begin_new_user()
+            self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            return TelegramMenuActionResult(
+                status=transition.status,
+                message=transition.message,
+                requires_contact_keyboard=transition.requires_contact_keyboard,
+            )
+
+        if force_legacy_upgrade:
+            transition = self._onboarding_flow.begin_legacy_upgrade()
+            self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            return TelegramMenuActionResult(
+                status=transition.status,
+                message=transition.message,
+                requires_contact_keyboard=transition.requires_contact_keyboard,
+            )
+
+        self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+        return TelegramMenuActionResult(
+            status="menu",
+            message=self.build_menu_overview_message(),
+        )
 
     def register_contact(self, telegram_user_id: int, raw_phone: str) -> TelegramRegistrationResult:
         """Регистрирует Telegram-аккаунт пользователя по переданному телефону."""
+
+        previous_state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
 
         try:
             person = self._registration_use_case.execute(
@@ -95,20 +141,29 @@ class TelegramIdentityAdapter:
                 message="Не удалось обработать телефон. Проверьте формат и отправьте контакт еще раз.",
             )
 
+        self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+        if previous_state == OnboardingState.WAITING_LEGACY_PHONE:
+            success_message = (
+                "Профиль legacy успешно обновлен. Ваш номер подтвержден в единой базе.\n"
+                "Откройте Главное меню и выберите нужный раздел."
+            )
+        else:
+            success_message = (
+                "Регистрация успешно подтверждена. Ваш номер сохранен в единой базе.\n"
+                "Откройте Главное меню и выберите нужный раздел."
+            )
+
         return TelegramRegistrationResult(
             is_success=True,
             status="success",
-            message=(
-                "Регистрация успешно подтверждена. Ваш номер сохранен в единой базе.\n"
-                "Откройте Главное меню и выберите нужный раздел."
-            ),
+            message=success_message,
             person_id=person.person_id,
         )
 
     def build_start_message(self) -> str:
         """Возвращает стартовый текст приветствия."""
 
-        return build_start_contact_screen().text
+        return build_start_rules_screen().text
 
     def build_menu_overview_message(self) -> str:
         """Возвращает текст обзора главного меню."""
@@ -117,6 +172,36 @@ class TelegramIdentityAdapter:
 
     def handle_menu_action(self, telegram_user_id: int, action_text: str) -> TelegramMenuActionResult:
         """Обрабатывает текстовые действия главного меню Telegram."""
+
+        onboarding_state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
+        if onboarding_state == OnboardingState.WAITING_RULES_CONSENT:
+            transition = self._onboarding_flow.handle_rules_input(action_text)
+            self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            return TelegramMenuActionResult(
+                status=transition.status,
+                message=transition.message,
+                requires_contact_keyboard=transition.requires_contact_keyboard,
+            )
+
+        if onboarding_state == OnboardingState.WAITING_PHONE:
+            return TelegramMenuActionResult(
+                status="phone_required",
+                message=(
+                    "Следующий шаг регистрации: отправьте номер телефона через кнопку "
+                    f"«{BUTTON_SEND_PHONE}»."
+                ),
+                requires_contact_keyboard=True,
+            )
+
+        if onboarding_state == OnboardingState.WAITING_LEGACY_PHONE:
+            return TelegramMenuActionResult(
+                status="legacy_phone_required",
+                message=(
+                    "Для обновления legacy-профиля отправьте номер телефона через кнопку "
+                    f"«{BUTTON_SEND_PHONE}»."
+                ),
+                requires_contact_keyboard=True,
+            )
 
         action = resolve_guest_menu_action(action_text)
         if action is None:
@@ -131,7 +216,7 @@ class TelegramIdentityAdapter:
                     "Команда не распознана. Используйте кнопки меню: "
                     f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
                     f"'{BUTTON_PROFILE}', '{BUTTON_HELP}', '{BUTTON_ABOUT}', '{BUTTON_MAIN_MENU}', "
-                    f"'{BUTTON_SEND_PHONE}'."
+                    f"'{BUTTON_SEND_PHONE}', '{BUTTON_ACCEPT_RULES}'."
                 ),
             )
 
@@ -256,6 +341,6 @@ class TelegramIdentityAdapter:
                 "Команда не распознана. Используйте кнопки меню: "
                 f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
                 f"'{BUTTON_PROFILE}', '{BUTTON_HELP}', '{BUTTON_ABOUT}', '{BUTTON_MAIN_MENU}', "
-                f"'{BUTTON_SEND_PHONE}'."
+                f"'{BUTTON_SEND_PHONE}', '{BUTTON_ACCEPT_RULES}'."
             ),
         )

@@ -9,6 +9,7 @@
 
 from .errors import IdentityConflictError
 from .guest_content import (
+    BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
     BUTTON_BALANCE,
     BUTTON_HELP,
@@ -24,6 +25,7 @@ from .guest_content import (
     BUTTON_VIRTUAL_CARD,
     build_about_screen,
     build_balance_screen,
+    build_legacy_upgrade_screen,
     build_help_screen,
     build_main_menu_screen,
     build_profile_not_found_screen,
@@ -38,6 +40,7 @@ from .guest_content import (
     normalize_menu_text,
     resolve_guest_menu_action,
 )
+from .onboarding import OnboardingFlowService, OnboardingState, OnboardingTransition
 from .identity import StrictIdentityService
 from .in_memory_identity_repository import InMemoryIdentityRepository
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
@@ -72,6 +75,7 @@ __all__ = [
     "RegisterOrAttachAccountTransactionalUseCase",
     "RegisterOrAttachAccountUseCase",
     "BUTTON_ABOUT",
+    "BUTTON_ACCEPT_RULES",
     "BUTTON_BALANCE",
     "BUTTON_HELP",
     "BUTTON_MAIN_MENU",
@@ -87,6 +91,7 @@ __all__ = [
     "build_about_screen",
     "build_balance_screen",
     "build_help_screen",
+    "build_legacy_upgrade_screen",
     "build_main_menu_screen",
     "build_profile_not_found_screen",
     "build_profile_screen",
@@ -101,4 +106,7 @@ __all__ = [
     "resolve_guest_menu_action",
     "StrictIdentityService",
     "normalize_phone",
+    "OnboardingFlowService",
+    "OnboardingState",
+    "OnboardingTransition",
 ]

@@ -71,6 +71,8 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 9. MAX-адаптер меню/payload/identity и рендер MAX-клавиатур.
 10. Валидация MAX-настроек в `AppSettings`.
 11. Adapter-contract тесты согласованности поведения Telegram/VK/MAX.
+12. Единый onboarding-flow `core` (регистрация + legacy) и его dirty-сценарии.
+13. Telegram onboarding/legacy-ветка (`/start` + `/legacy`) на общем flow.
 
 ## 7. Живые тесты на локальном PostgreSQL
 

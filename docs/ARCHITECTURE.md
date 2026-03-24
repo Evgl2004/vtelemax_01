@@ -27,6 +27,7 @@
 3. Порты репозиториев (`ports.py`).
 4. Use-case регистрации/привязки аккаунта (`use_cases.py`).
 5. Единый контракт меню и текстов (`menu_contract.py`, `guest_content.py`).
+6. Единый onboarding-flow регистрации/legacy (`onboarding.py`).
 
 ### 2.2 Adapters
 
@@ -41,10 +42,11 @@
 1. Первый Telegram-адаптер регистрации (`adapters/telegram/identity_adapter.py`).
 2. Aiogram router для `/start` и обработки контакта (`adapters/telegram/router.py`).
 3. Telegram-меню синхронизировано по эталонным текстам Telegram-прототипа.
-4. Стартовый VK-адаптер меню на общем контракте (`adapters/vk/menu_adapter.py`).
-5. VK identity-адаптер и `vkbottle` router (`adapters/vk/identity_adapter.py`, `adapters/vk/router.py`).
-6. MAX menu/identity/router-адаптеры на том же контракте (`adapters/max/*`).
-7. Контрактные тесты согласованности Telegram/VK/MAX (`tests/adapter_contract/*`).
+4. Telegram подключен к общему onboarding-flow (правила -> телефон) и legacy-ветке (`/legacy`).
+5. Стартовый VK-адаптер меню на общем контракте (`adapters/vk/menu_adapter.py`).
+6. VK identity-адаптер и `vkbottle` router (`adapters/vk/identity_adapter.py`, `adapters/vk/router.py`).
+7. MAX menu/identity/router-адаптеры на том же контракте (`adapters/max/*`).
+8. Контрактные тесты согласованности Telegram/VK/MAX (`tests/adapter_contract/*`).
 
 ### 2.3 Infrastructure
 
