@@ -46,3 +46,30 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 
 1. Выполняются на SQLite in-memory через SQLAlchemy metadata.
 2. Проверяют контракты репозитория и транзакционное поведение (`commit`/`rollback`).
+
+## 6. Обязательная практика "грязных" тестов
+
+Для каждого нового сценария мы проверяем не только happy path, но и негативные ветки:
+
+1. Невалидные или "грязные" входные данные (`None`, пустые значения, неверный формат).
+2. Конфликтные состояния strict identity (дубли, перепривязка, нарушения `UNIQUE`).
+3. Поведение транзакций при ошибках (rollback и отсутствие частично сохраненных данных).
+4. Трансляцию инфраструктурных ошибок в доменные ошибки.
+
+Это правило считается обязательным для всех следующих этапов разработки.
+
+## 7. Живые тесты на локальном PostgreSQL
+
+По умолчанию живые тесты отключены. Для запуска:
+
+1. В `.env` выставить `VTELEMAX_RUN_POSTGRES_LIVE_TESTS=1`.
+2. Проверить параметры подключения:
+   `POSTGRES_HOST=localhost`, `POSTGRES_PORT=5433`,
+   `POSTGRES_DB=postgres`, `POSTGRES_USER=postgres`, `POSTGRES_PASSWORD=1234`.
+3. Запустить общий `pytest` или только live-тесты:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integration/test_postgres_live_identity_repository.py
+```
+
+Live-тесты создают временную схему в PostgreSQL и удаляют ее после завершения.

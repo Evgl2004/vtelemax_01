@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from types import TracebackType
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from vtelemax.core.errors import IdentityConflictError
 from vtelemax.core.ports import IdentityUnitOfWork
 
 from .repository import SQLAlchemyIdentityRepository
@@ -56,7 +58,14 @@ class SQLAlchemyIdentityUnitOfWork(IdentityUnitOfWork):
 
         if self._session is None:
             raise RuntimeError("Нельзя выполнить commit вне контекста UnitOfWork.")
-        self._session.commit()
+        try:
+            self._session.commit()
+        except IntegrityError as error:
+            # Трансляция низкоуровневой DB-ошибки в доменную ошибку.
+            self._session.rollback()
+            raise IdentityConflictError(
+                "Конфликт strict identity на уровне БД: нарушены ограничения уникальности."
+            ) from error
 
     def rollback(self) -> None:
         """Откатывает транзакцию."""
@@ -64,4 +73,3 @@ class SQLAlchemyIdentityUnitOfWork(IdentityUnitOfWork):
         if self._session is None:
             raise RuntimeError("Нельзя выполнить rollback вне контекста UnitOfWork.")
         self._session.rollback()
-

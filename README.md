@@ -36,6 +36,12 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1
 powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_identity.py
 ```
 
+Живые тесты на PostgreSQL запускаются отдельно (после включения флага в `.env`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integration/test_postgres_live_identity_repository.py
+```
+
 ## 4. Структура
 
 ```text

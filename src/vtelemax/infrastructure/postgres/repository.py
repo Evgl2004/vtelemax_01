@@ -77,8 +77,6 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                     external_id=account.external_id,
                 )
             )
-        # Flush нужен, чтобы ошибки ограничений проявлялись внутри текущего шага.
-        self._session.flush()
 
     def attach_account(self, person_id: UUID, account: PlatformAccount) -> None:
         """Привязывает платформенный аккаунт к существующему человеку."""
@@ -91,7 +89,6 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                 external_id=account.external_id,
             )
         )
-        self._session.flush()
 
     def _build_person(self, person_id: UUID, phone_e164: str) -> Person:
         """Собирает доменную модель человека с полным набором аккаунтов."""
@@ -106,4 +103,3 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             for account_row in account_rows
         }
         return Person(person_id=person_id, phone_e164=phone_e164, accounts=accounts)
-

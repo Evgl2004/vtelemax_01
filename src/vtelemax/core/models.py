@@ -14,6 +14,7 @@ from typing import Literal
 from uuid import UUID
 
 PlatformName = Literal["telegram", "vk", "max"]
+SUPPORTED_PLATFORMS: tuple[PlatformName, ...] = ("telegram", "vk", "max")
 
 
 @dataclass(frozen=True, slots=True)

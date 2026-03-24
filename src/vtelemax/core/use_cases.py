@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from .errors import IdentityConflictError
-from .models import Person, PlatformAccount, PlatformName
+from .models import Person, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .phone import normalize_phone
 from .ports import IdentityRepository, IdentityUnitOfWork
 
@@ -43,6 +43,11 @@ class RegisterOrAttachAccountUseCase:
     def execute(self, command: RegisterOrAttachAccountCommand) -> Person:
         """Выполняет сценарий регистрации/привязки аккаунта."""
 
+        if command.platform not in SUPPORTED_PLATFORMS:
+            raise ValueError(
+                "Платформа не поддерживается. Допустимые значения: telegram, vk, max."
+            )
+
         external_id_value = str(command.external_id).strip()
         if not external_id_value:
             raise ValueError("Внешний идентификатор аккаунта не может быть пустым.")
@@ -70,7 +75,12 @@ class RegisterOrAttachAccountUseCase:
             )
 
         account = PlatformAccount(platform=command.platform, external_id=external_id_value)
+        if account in person.accounts:
+            # Идемпотентное поведение: повторная привязка того же аккаунта не изменяет состояние.
+            return person
+
         self._repository.attach_account(person.person_id, account)
+        person.accounts.add(account)
         return person
 
 

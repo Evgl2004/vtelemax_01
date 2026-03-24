@@ -10,7 +10,7 @@
 from .errors import IdentityConflictError
 from .identity import StrictIdentityService
 from .in_memory_identity_repository import InMemoryIdentityRepository
-from .models import Person, PlatformAccount, PlatformName
+from .models import Person, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .phone import normalize_phone
 from .ports import IdentityRepository, IdentityUnitOfWork
 from .use_cases import (
@@ -27,6 +27,7 @@ __all__ = [
     "Person",
     "PlatformAccount",
     "PlatformName",
+    "SUPPORTED_PLATFORMS",
     "RegisterOrAttachAccountCommand",
     "RegisterOrAttachAccountTransactionalUseCase",
     "RegisterOrAttachAccountUseCase",

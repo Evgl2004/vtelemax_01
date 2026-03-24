@@ -122,3 +122,43 @@ def test_unit_of_work_rolls_back_if_commit_not_called(
 
     assert person is None
 
+
+def test_transactional_use_case_rejects_unknown_platform(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет валидацию неизвестной платформы на уровне use-case."""
+
+    use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: SQLAlchemyIdentityUnitOfWork(session_factory)
+    )
+
+    with pytest.raises(ValueError):
+        use_case.execute(
+            RegisterOrAttachAccountCommand(
+                platform="discord",  # type: ignore[arg-type]
+                external_id="1001",
+                raw_phone="+79123456789",
+            )
+        )
+
+
+def test_unit_of_work_converts_db_integrity_error_to_domain_conflict(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет трансляцию DB-конфликта в `IdentityConflictError`."""
+
+    with SQLAlchemyIdentityUnitOfWork(session_factory) as unit_of_work:
+        unit_of_work.identity_repository.add_person(
+            Person(
+                person_id=uuid4(),
+                phone_e164="+79121111111",
+            )
+        )
+        unit_of_work.identity_repository.add_person(
+            Person(
+                person_id=uuid4(),
+                phone_e164="+79121111111",
+            )
+        )
+        with pytest.raises(IdentityConflictError):
+            unit_of_work.commit()

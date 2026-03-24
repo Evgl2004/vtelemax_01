@@ -24,14 +24,15 @@ def test_normalize_phone_accepts_common_russian_formats(raw_phone: str, expected
     "raw_phone",
     [
         "",
+        "   ",
         "abc",
         "+12345",
         "+380991234567",
+        None,
     ],
 )
-def test_normalize_phone_rejects_unsupported_values(raw_phone: str) -> None:
+def test_normalize_phone_rejects_unsupported_values(raw_phone: str | None) -> None:
     """Проверяет, что неподдерживаемые форматы отвергаются."""
 
     with pytest.raises(ValueError):
         normalize_phone(raw_phone)
-

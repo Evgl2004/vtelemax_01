@@ -82,3 +82,60 @@ def test_use_case_raises_conflict_for_cross_binding() -> None:
                 raw_phone="+79123456789",
             )
         )
+
+
+def test_use_case_is_idempotent_for_same_account() -> None:
+    """Проверяет, что повторный вызов с тем же аккаунтом не создает конфликт."""
+
+    repository = InMemoryIdentityRepository()
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    first = use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="1001",
+            raw_phone="+79123456789",
+        )
+    )
+    second = use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="1001",
+            raw_phone="8 (912) 345-67-89",
+        )
+    )
+
+    assert first.person_id == second.person_id
+    assert len(second.accounts) == 1
+
+
+def test_use_case_rejects_empty_external_id() -> None:
+    """Проверяет отклонение пустого или пробельного external_id."""
+
+    repository = InMemoryIdentityRepository()
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    with pytest.raises(ValueError):
+        use_case.execute(
+            RegisterOrAttachAccountCommand(
+                platform="telegram",
+                external_id="   ",
+                raw_phone="+79123456789",
+            )
+        )
+
+
+def test_use_case_rejects_unknown_platform() -> None:
+    """Проверяет отклонение неподдерживаемого значения платформы."""
+
+    repository = InMemoryIdentityRepository()
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    with pytest.raises(ValueError):
+        use_case.execute(
+            RegisterOrAttachAccountCommand(
+                platform="discord",  # type: ignore[arg-type]
+                external_id="1001",
+                raw_phone="+79123456789",
+            )
+        )
