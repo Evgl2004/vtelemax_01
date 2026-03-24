@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import uuid4
 
 from .errors import IdentityConflictError
 from .models import Person, PlatformAccount, PlatformName
 from .phone import normalize_phone
-from .ports import IdentityRepository
+from .ports import IdentityRepository, IdentityUnitOfWork
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,3 +72,23 @@ class RegisterOrAttachAccountUseCase:
         account = PlatformAccount(platform=command.platform, external_id=external_id_value)
         self._repository.attach_account(person.person_id, account)
         return person
+
+
+class RegisterOrAttachAccountTransactionalUseCase:
+    """Транзакционный use-case strict identity через UnitOfWork.
+
+    Используется в инфраструктурных окружениях (например, PostgreSQL),
+    где важна атомарность нескольких операций в одной транзакции.
+    """
+
+    def __init__(self, unit_of_work_factory: Callable[[], IdentityUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: RegisterOrAttachAccountCommand) -> Person:
+        """Выполняет сценарий внутри транзакции с commit/rollback."""
+
+        with self._unit_of_work_factory() as unit_of_work:
+            use_case = RegisterOrAttachAccountUseCase(unit_of_work.identity_repository)
+            person = use_case.execute(command)
+            unit_of_work.commit()
+            return person

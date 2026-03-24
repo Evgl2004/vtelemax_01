@@ -47,6 +47,8 @@
 
 1. Базовая SQLAlchemy-схема strict identity (`infrastructure/postgres/schema.py`).
 2. Стартовая SQL-миграция схемы (`migrations/sql/0001_strict_identity.sql`).
+3. SQLAlchemy-репозиторий strict identity (`infrastructure/postgres/repository.py`).
+4. Транзакционный Unit Of Work (`infrastructure/postgres/uow.py`).
 
 ## 3. Строгая идентификация (Strict Identity)
 

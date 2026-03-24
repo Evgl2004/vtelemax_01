@@ -19,8 +19,9 @@
 2. Базовое доменное ядро строгой идентификации.
 3. Базовая SQLAlchemy-схема strict identity для PostgreSQL.
 4. SQL-миграция `migrations/sql/0001_strict_identity.sql`.
-5. Тесты на `pytest` для ядра и ограничений схемы.
-6. Скрипты Windows для настройки `.venv` и запуска тестов.
+5. SQLAlchemy-репозиторий и Unit Of Work для strict identity.
+6. Тесты на `pytest` для ядра, ограничений схемы и integration-сценариев репозитория.
+7. Скрипты Windows для настройки `.venv` и запуска тестов.
 
 ## 3. Быстрый старт (Windows)
 
