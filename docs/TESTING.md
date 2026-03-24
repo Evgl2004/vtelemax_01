@@ -68,6 +68,9 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 6. Стартовый VK-адаптер меню и payload-конвертер.
 7. VK identity-адаптер (регистрация по телефону, меню, сценарий обращения в поддержку).
 8. Рендер VK-клавиатур и валидация VK-настроек в `AppSettings`.
+9. MAX-адаптер меню/payload/identity и рендер MAX-клавиатур.
+10. Валидация MAX-настроек в `AppSettings`.
+11. Adapter-contract тесты согласованности поведения Telegram/VK/MAX.
 
 ## 7. Живые тесты на локальном PostgreSQL
 

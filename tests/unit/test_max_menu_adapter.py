@@ -1,0 +1,45 @@
+"""Тесты стартового MAX-адаптера меню."""
+
+from __future__ import annotations
+
+from vtelemax.adapters.max import (
+    MaxGuestMenuAdapter,
+    build_max_payload,
+    resolve_action_from_max_payload,
+)
+from vtelemax.core import GuestMenuAction
+
+
+def test_max_payload_build_and_resolve_roundtrip() -> None:
+    """Проверяет корректную конвертацию action <-> payload."""
+
+    payload = build_max_payload(GuestMenuAction.SUPPORT)
+
+    assert payload == "support"
+    assert resolve_action_from_max_payload(payload) == GuestMenuAction.SUPPORT
+
+
+def test_max_main_menu_contains_expected_first_buttons() -> None:
+    """Проверяет ключевые первые кнопки главного меню."""
+
+    adapter = MaxGuestMenuAdapter()
+    screen = adapter.build_main_menu_screen(user_name="Гость")
+
+    assert screen.rows[0][0].label == "💰 Мой баланс"
+    assert screen.rows[1][0].label == "🪪 Виртуальная карта"
+    assert screen.rows[2][0].label == "🆘 Отдел заботы"
+
+
+def test_max_support_menu_respects_my_tickets_flag() -> None:
+    """Проверяет условную кнопку «Мои обращения» в MAX-меню поддержки."""
+
+    adapter = MaxGuestMenuAdapter()
+    without_tickets = adapter.build_support_menu_screen(has_tickets=False)
+    with_tickets = adapter.build_support_menu_screen(has_tickets=True)
+
+    labels_without = [button.label for row in without_tickets.rows for button in row]
+    labels_with = [button.label for row in with_tickets.rows for button in row]
+
+    assert "📋 Мои обращения" not in labels_without
+    assert "📋 Мои обращения" in labels_with
+

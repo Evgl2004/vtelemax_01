@@ -43,6 +43,8 @@ class AppSettings(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     vk_bot_token: str = Field(default="", alias="VK_BOT_TOKEN")
     vk_group_id: int = Field(default=0, alias="VK_GROUP_ID")
+    max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
+    max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
 
     @property
     def postgres_sqlalchemy_dsn(self) -> str:
@@ -66,3 +68,9 @@ class AppSettings(BaseSettings):
 
         if not self.vk_bot_token.strip():
             raise ValueError("Не задан VK_BOT_TOKEN. Укажите токен в .env или переменной окружения.")
+
+    def validate_max_ready(self) -> None:
+        """Проверяет, что настройки достаточны для запуска MAX-бота."""
+
+        if not self.max_bot_token.strip():
+            raise ValueError("Не задан MAX_BOT_TOKEN. Укажите токен в .env или переменной окружения.")

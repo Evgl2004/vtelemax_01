@@ -38,3 +38,12 @@ def test_settings_validate_vk_ready_raises_for_empty_token() -> None:
 
     with pytest.raises(ValueError):
         settings.validate_vk_ready()
+
+
+def test_settings_validate_max_ready_raises_for_empty_token() -> None:
+    """Проверяет обязательность токена MAX для запуска бота."""
+
+    settings = AppSettings(MAX_BOT_TOKEN="   ")
+
+    with pytest.raises(ValueError):
+        settings.validate_max_ready()

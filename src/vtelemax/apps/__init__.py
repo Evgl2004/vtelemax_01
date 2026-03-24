@@ -4,5 +4,5 @@
 
 1. `telegram_app` — запуск Telegram-бота.
 2. `vk_app` — запуск VK-бота.
-3. В дальнейшем: `max_app`.
+3. `max_app` — запуск MAX-бота.
 """

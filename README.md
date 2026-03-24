@@ -22,8 +22,9 @@
 5. SQLAlchemy-репозиторий и Unit Of Work для strict identity.
 6. Тесты на `pytest` для ядра, ограничений схемы и integration-сценариев репозитория.
 7. Единый контракт гостевого меню/текстов в `core` (эталон: Telegram-прототип).
-8. Стартовый VK-адаптер меню на общем контракте.
+8. Рабочие адаптеры Telegram/VK/MAX на общем контракте меню и strict identity.
 9. Скрипты Windows для настройки `.venv` и запуска тестов.
+10. Adapter-contract тесты для согласованности поведения между Telegram/VK/MAX.
 
 ## 3. Быстрый старт (Windows)
 
@@ -56,6 +57,12 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 .\.venv\Scripts\python.exe -m vtelemax.apps.vk_app
 ```
 
+Запуск MAX-адаптера (локально, без Docker):
+
+```powershell
+.\.venv\Scripts\python.exe -m vtelemax.apps.max_app
+```
+
 Текущие команды/кнопки Telegram-бота:
 
 1. `/start` — приветствие и запрос контакта для регистрации.
@@ -64,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 4. `Мой профиль` — показать телефон и число привязанных аккаунтов.
 5. `Помощь` — подсказки по регистрации и работе с ботом.
 6. `О проекте` — краткая информация о платформе.
-7. Те же пункты синхронизированы в стартовом VK-адаптере через `vkbottle` payload-кнопки.
+7. Те же пункты синхронизированы в VK- и MAX-адаптерах через callback/payload-кнопки.
 
 ## 4. Структура
 

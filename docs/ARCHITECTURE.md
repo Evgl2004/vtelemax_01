@@ -43,6 +43,8 @@
 3. Telegram-меню синхронизировано по эталонным текстам Telegram-прототипа.
 4. Стартовый VK-адаптер меню на общем контракте (`adapters/vk/menu_adapter.py`).
 5. VK identity-адаптер и `vkbottle` router (`adapters/vk/identity_adapter.py`, `adapters/vk/router.py`).
+6. MAX menu/identity/router-адаптеры на том же контракте (`adapters/max/*`).
+7. Контрактные тесты согласованности Telegram/VK/MAX (`tests/adapter_contract/*`).
 
 ### 2.3 Infrastructure
 
@@ -65,6 +67,7 @@
 2. Первая точка входа приложения: `apps/telegram_app.py`.
 3. Telegram-приложение использует два use-case: регистрация и чтение профиля по аккаунту.
 4. Добавлена точка входа VK-приложения: `apps/vk_app.py`.
+5. Добавлена точка входа MAX-приложения: `apps/max_app.py`.
 
 ## 3. Строгая идентификация (Strict Identity)
 
