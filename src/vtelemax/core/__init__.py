@@ -12,12 +12,13 @@ from .identity import StrictIdentityService
 from .in_memory_identity_repository import InMemoryIdentityRepository
 from .models import Person, PlatformAccount, PlatformName
 from .phone import normalize_phone
-from .ports import IdentityRepository
+from .ports import IdentityRepository, IdentityUnitOfWork
 from .use_cases import RegisterOrAttachAccountCommand, RegisterOrAttachAccountUseCase
 
 __all__ = [
     "IdentityConflictError",
     "IdentityRepository",
+    "IdentityUnitOfWork",
     "InMemoryIdentityRepository",
     "Person",
     "PlatformAccount",

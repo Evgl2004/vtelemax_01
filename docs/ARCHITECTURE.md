@@ -43,6 +43,11 @@
 2. Реализация хранилища состояний (Redis).
 3. Реализация внешних клиентов (iiko и др.).
 
+Уже реализовано на текущем этапе:
+
+1. Базовая SQLAlchemy-схема strict identity (`infrastructure/postgres/schema.py`).
+2. Стартовая SQL-миграция схемы (`migrations/sql/0001_strict_identity.sql`).
+
 ## 3. Строгая идентификация (Strict Identity)
 
 Правило проекта:
@@ -53,11 +58,15 @@
 
 ## 4. Целевая схема данных (эскиз)
 
-Планируем разделить сущности:
+Текущий контур strict identity включает:
 
 1. `persons` — единый профиль человека.
-2. `bot_accounts` — привязка `platform + external_id -> person_id`.
-3. `tickets`, `ticket_messages` — через `person_id`.
+2. `phones` — канонический телефон человека (`UNIQUE phone_e164`, `UNIQUE person_id`).
+3. `platform_accounts` — привязка `platform + external_id -> person_id` с `UNIQUE(platform, external_id)`.
+
+Будущее расширение:
+
+1. `tickets`, `ticket_messages` — связь через `person_id`.
 
 Это позволит:
 

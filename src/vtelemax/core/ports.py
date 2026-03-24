@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
@@ -27,3 +28,30 @@ class IdentityRepository(Protocol):
 
     def attach_account(self, person_id: UUID, account: PlatformAccount) -> None:
         """Привязывает аккаунт к существующему человеку."""
+
+
+class IdentityUnitOfWork(Protocol):
+    """Контракт unit-of-work для операций strict identity.
+
+    Через unit-of-work use-case работает с транзакцией как с единой
+    атомарной границей сохранения.
+    """
+
+    identity_repository: IdentityRepository
+
+    def __enter__(self) -> "IdentityUnitOfWork":
+        """Открывает транзакционный контекст."""
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Закрывает транзакционный контекст."""
+
+    def commit(self) -> None:
+        """Подтверждает транзакцию."""
+
+    def rollback(self) -> None:
+        """Откатывает транзакцию."""

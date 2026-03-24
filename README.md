@@ -17,8 +17,10 @@
 
 1. Пакет `vtelemax` в `src/`.
 2. Базовое доменное ядро строгой идентификации.
-3. Тесты на `pytest` для нормализации телефона и strict identity.
-4. Скрипты Windows для настройки `.venv` и запуска тестов.
+3. Базовая SQLAlchemy-схема strict identity для PostgreSQL.
+4. SQL-миграция `migrations/sql/0001_strict_identity.sql`.
+5. Тесты на `pytest` для ядра и ограничений схемы.
+6. Скрипты Windows для настройки `.venv` и запуска тестов.
 
 ## 3. Быстрый старт (Windows)
 
@@ -38,11 +40,13 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 ```text
 vtelemax/
   docs/
+  migrations/
   scripts/
   src/
     vtelemax/
       adapters/
       core/
+      infrastructure/
   tests/
     unit/
 ```
@@ -67,4 +71,5 @@ vtelemax/
 1. Архитектура: `docs/ARCHITECTURE.md`.
 2. Процесс и правила разработки: `docs/DEVELOPMENT_WORKFLOW.md`.
 3. Зафиксированный пошаговый план: `docs/DEVELOPMENT_PLAN.md`.
-4. Тестирование: `docs/TESTING.md`.
+4. Схема БД strict identity: `docs/DB_SCHEMA.md`.
+5. Тестирование: `docs/TESTING.md`.

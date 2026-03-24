@@ -32,4 +32,4 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 
 1. Нормализации телефона.
 2. Строгой модели идентификации аккаунтов по телефону.
-
+3. Ограничений SQLAlchemy-схемы strict identity (`persons`, `phones`, `platform_accounts`).
