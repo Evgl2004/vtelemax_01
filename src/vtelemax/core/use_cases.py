@@ -102,3 +102,51 @@ class RegisterOrAttachAccountTransactionalUseCase:
             person = use_case.execute(command)
             unit_of_work.commit()
             return person
+
+
+@dataclass(frozen=True, slots=True)
+class GetPersonByAccountCommand:
+    """Команда получения человека по аккаунту платформы.
+
+    Args:
+        platform: Платформа аккаунта (`telegram`, `vk`, `max`).
+        external_id: Идентификатор аккаунта на платформе.
+    """
+
+    platform: PlatformName
+    external_id: str
+
+
+class GetPersonByAccountUseCase:
+    """Use-case чтения человека по платформенному аккаунту."""
+
+    def __init__(self, repository: IdentityRepository) -> None:
+        self._repository = repository
+
+    def execute(self, command: GetPersonByAccountCommand) -> Person | None:
+        """Возвращает человека по платформенному аккаунту или `None`."""
+
+        if command.platform not in SUPPORTED_PLATFORMS:
+            raise ValueError(
+                "Платформа не поддерживается. Допустимые значения: telegram, vk, max."
+            )
+
+        external_id_value = str(command.external_id).strip()
+        if not external_id_value:
+            raise ValueError("Внешний идентификатор аккаунта не может быть пустым.")
+
+        return self._repository.get_person_by_account(command.platform, external_id_value)
+
+
+class GetPersonByAccountTransactionalUseCase:
+    """Транзакционный use-case чтения по аккаунту через UnitOfWork."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], IdentityUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: GetPersonByAccountCommand) -> Person | None:
+        """Читает данные внутри UoW-контекста без явного commit."""
+
+        with self._unit_of_work_factory() as unit_of_work:
+            use_case = GetPersonByAccountUseCase(unit_of_work.identity_repository)
+            return use_case.execute(command)

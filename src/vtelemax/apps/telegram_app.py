@@ -11,7 +11,10 @@ from aiogram.enums import ParseMode
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.adapters.telegram import TelegramIdentityAdapter, build_telegram_identity_router
-from vtelemax.core import RegisterOrAttachAccountTransactionalUseCase
+from vtelemax.core import (
+    GetPersonByAccountTransactionalUseCase,
+    RegisterOrAttachAccountTransactionalUseCase,
+)
 from vtelemax.infrastructure.postgres import (
     Base,
     SQLAlchemyIdentityUnitOfWork,
@@ -42,12 +45,24 @@ def build_identity_use_case(
     return RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_person_lookup_use_case(
+    session_factory: sessionmaker[Session],
+) -> GetPersonByAccountTransactionalUseCase:
+    """Собирает транзакционный use-case чтения пользователя по аккаунту."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return GetPersonByAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def build_dispatcher(settings: AppSettings) -> Dispatcher:
     """Собирает Dispatcher Telegram-бота с подключенным маршрутом идентификации."""
 
     session_factory = build_postgres_session_factory(settings)
-    use_case = build_identity_use_case(session_factory)
-    identity_adapter = TelegramIdentityAdapter(use_case)
+    registration_use_case = build_identity_use_case(session_factory)
+    person_lookup_use_case = build_person_lookup_use_case(session_factory)
+    identity_adapter = TelegramIdentityAdapter(registration_use_case, person_lookup_use_case)
 
     dispatcher = Dispatcher()
     dispatcher.include_router(build_telegram_identity_router(identity_adapter))

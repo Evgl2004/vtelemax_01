@@ -39,6 +39,7 @@
 
 1. Первый Telegram-адаптер регистрации (`adapters/telegram/identity_adapter.py`).
 2. Aiogram router для `/start` и обработки контакта (`adapters/telegram/router.py`).
+3. Главное меню Telegram с кнопками профиля/помощи/информации о проекте.
 
 ### 2.3 Infrastructure
 
@@ -59,6 +60,7 @@
 
 1. Централизованные настройки через `AppSettings` (`settings.py`).
 2. Первая точка входа приложения: `apps/telegram_app.py`.
+3. Telegram-приложение использует два use-case: регистрация и чтение профиля по аккаунту.
 
 ## 3. Строгая идентификация (Strict Identity)
 

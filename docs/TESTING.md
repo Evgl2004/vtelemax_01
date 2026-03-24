@@ -62,6 +62,8 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 
 1. Модель настроек `AppSettings`.
 2. Telegram-адаптер регистрации и его негативные сценарии.
+3. Telegram-меню (профиль/помощь/неизвестные команды/незарегистрированный пользователь).
+4. Use-case чтения пользователя по аккаунту платформы.
 
 ## 7. Живые тесты на локальном PostgreSQL
 

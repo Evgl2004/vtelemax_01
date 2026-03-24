@@ -6,6 +6,7 @@ from types import TracebackType
 
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
 from vtelemax.core import (
+    GetPersonByAccountTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
     InMemoryIdentityRepository,
@@ -41,10 +42,13 @@ def test_telegram_adapter_registers_contact_successfully() -> None:
     """Проверяет успешную регистрацию Telegram-контакта."""
 
     repository = InMemoryIdentityRepository()
-    use_case = RegisterOrAttachAccountTransactionalUseCase(
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    adapter = TelegramIdentityAdapter(use_case)
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
     result = adapter.register_contact(telegram_user_id=1001, raw_phone="+7 (912) 345-67-89")
 
@@ -57,10 +61,13 @@ def test_telegram_adapter_is_idempotent_for_repeated_registration() -> None:
     """Проверяет, что повторная регистрация того же аккаунта не создает дубликатов."""
 
     repository = InMemoryIdentityRepository()
-    use_case = RegisterOrAttachAccountTransactionalUseCase(
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    adapter = TelegramIdentityAdapter(use_case)
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
     first = adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
     second = adapter.register_contact(telegram_user_id=1001, raw_phone="8 (912) 345-67-89")
@@ -74,10 +81,13 @@ def test_telegram_adapter_returns_validation_error_for_bad_phone() -> None:
     """Проверяет ответ адаптера при невалидном формате телефона."""
 
     repository = InMemoryIdentityRepository()
-    use_case = RegisterOrAttachAccountTransactionalUseCase(
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    adapter = TelegramIdentityAdapter(use_case)
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
     result = adapter.register_contact(telegram_user_id=1001, raw_phone="abc")
 
@@ -89,13 +99,87 @@ def test_telegram_adapter_returns_conflict_when_rebind_attempted() -> None:
     """Проверяет конфликт при попытке перепривязать тот же аккаунт к другому номеру."""
 
     repository = InMemoryIdentityRepository()
-    use_case = RegisterOrAttachAccountTransactionalUseCase(
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    adapter = TelegramIdentityAdapter(use_case)
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
     result = adapter.register_contact(telegram_user_id=1001, raw_phone="+79991234567")
 
     assert result.is_success is False
     assert result.status == "conflict"
+
+
+def test_telegram_adapter_returns_profile_for_registered_user() -> None:
+    """Проверяет меню-пункт профиля для зарегистрированного пользователя."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="Мой профиль")
+
+    assert result.status == "profile"
+    assert "+79123456789" in result.message
+
+
+def test_telegram_adapter_returns_not_registered_for_missing_profile() -> None:
+    """Проверяет меню-пункт профиля для незарегистрированного пользователя."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    result = adapter.handle_menu_action(telegram_user_id=2002, action_text="Мой профиль")
+
+    assert result.status == "not_registered"
+    assert result.requires_contact_keyboard is True
+
+
+def test_telegram_adapter_returns_help_for_help_action() -> None:
+    """Проверяет ответ меню по кнопке помощи."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="Помощь")
+
+    assert result.status == "help"
+
+
+def test_telegram_adapter_returns_unknown_for_unexpected_action() -> None:
+    """Проверяет корректный ответ на неизвестную команду."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="какая-то команда")
+
+    assert result.status == "unknown_action"

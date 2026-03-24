@@ -14,6 +14,9 @@ from .models import Person, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .phone import normalize_phone
 from .ports import IdentityRepository, IdentityUnitOfWork
 from .use_cases import (
+    GetPersonByAccountCommand,
+    GetPersonByAccountTransactionalUseCase,
+    GetPersonByAccountUseCase,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RegisterOrAttachAccountUseCase,
@@ -28,6 +31,9 @@ __all__ = [
     "PlatformAccount",
     "PlatformName",
     "SUPPORTED_PLATFORMS",
+    "GetPersonByAccountCommand",
+    "GetPersonByAccountUseCase",
+    "GetPersonByAccountTransactionalUseCase",
     "RegisterOrAttachAccountCommand",
     "RegisterOrAttachAccountTransactionalUseCase",
     "RegisterOrAttachAccountUseCase",
