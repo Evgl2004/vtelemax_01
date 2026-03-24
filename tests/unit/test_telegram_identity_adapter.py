@@ -6,11 +6,16 @@ from types import TracebackType
 
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
 from vtelemax.core import (
+    CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
+    GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
     InMemoryIdentityRepository,
+    InMemorySupportRepository,
+    RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
+    RouteModeratorReplyTransactionalUseCase,
 )
 
 
@@ -36,6 +41,14 @@ class InMemoryIdentityUnitOfWork(IdentityUnitOfWork):
 
     def rollback(self) -> None:
         return
+
+
+class InMemorySupportUnitOfWork(InMemoryIdentityUnitOfWork):
+    """Тестовый UoW с поддержкой тикетов."""
+
+    def __init__(self, repository: IdentityRepository, support_repository: InMemorySupportRepository) -> None:
+        super().__init__(repository)
+        self.support_repository = support_repository
 
 
 def test_telegram_adapter_registers_contact_successfully() -> None:
@@ -317,3 +330,81 @@ def test_telegram_legacy_upgrade_flow_reuses_phone_confirmation() -> None:
     assert legacy_start.requires_contact_keyboard is True
     assert confirm.is_success is True
     assert "legacy успешно обновлен" in confirm.message
+
+
+def test_telegram_support_question_creates_ticket_when_support_use_case_connected() -> None:
+    """Проверяет создание тикета после шага `SUPPORT_QUESTION`."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
+    result = adapter.handle_menu_action(
+        telegram_user_id=1001,
+        action_text="Подскажите, как активировать карту?",
+    )
+
+    assert result.status == "support_question_submitted"
+    assert "Создан тикет #" in result.message
+
+
+def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> None:
+    """Проверяет `/modreply` и `/modticket` в Telegram-адаптере."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        moderator_reply_use_case=moderator_reply_use_case,
+        ticket_details_use_case=ticket_details_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-777",
+            raw_phone="+79123456789",
+        )
+    )
+
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
+    ticket_result = adapter.handle_menu_action(telegram_user_id=1001, action_text="Нужна помощь")
+    ticket_id = ticket_result.message.split("#")[1].split("\n")[0].strip()
+
+    reply = adapter.handle_menu_action(
+        telegram_user_id=9999,
+        action_text=f"/modreply {ticket_id} --to=vk Ответ отправлен.",
+    )
+    details = adapter.handle_menu_action(telegram_user_id=9999, action_text=f"/modticket {ticket_id}")
+
+    assert "Маршрут доставки: vk" in reply.message
+    assert "Канал создания: telegram" in details.message

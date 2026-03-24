@@ -57,6 +57,21 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
         person_row, phone_row, _ = row
         return self._build_person(person_id=person_row.person_id, phone_e164=phone_row.phone_e164)
 
+    def get_person_by_id(self, person_id: UUID) -> Person | None:
+        """Возвращает человека по внутреннему идентификатору."""
+
+        statement = (
+            select(PersonRow, PhoneRow)
+            .join(PhoneRow, PhoneRow.person_id == PersonRow.person_id)
+            .where(PersonRow.person_id == person_id)
+        )
+        row = self._session.execute(statement).first()
+        if row is None:
+            return None
+
+        person_row, phone_row = row
+        return self._build_person(person_id=person_row.person_id, phone_e164=phone_row.phone_e164)
+
     def add_person(self, person: Person) -> None:
         """Сохраняет нового человека с телефоном и уже известными аккаунтами."""
 

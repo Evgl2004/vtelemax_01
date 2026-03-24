@@ -19,13 +19,16 @@
 2. Базовое доменное ядро строгой идентификации.
 3. Базовая SQLAlchemy-схема strict identity для PostgreSQL.
 4. SQL-миграция `migrations/sql/0001_strict_identity.sql`.
-5. SQLAlchemy-репозиторий и Unit Of Work для strict identity.
-6. Тесты на `pytest` для ядра, ограничений схемы и integration-сценариев репозитория.
+5. SQL-миграция `migrations/sql/0002_support_tickets.sql` для тикетов поддержки и сообщений модерации.
+6. SQLAlchemy-репозиторий и Unit Of Work для strict identity и поддержки.
 7. Единый контракт гостевого меню/текстов в `core` (эталон: Telegram-прототип).
-8. Рабочие адаптеры Telegram/VK/MAX на общем контракте меню и strict identity.
-9. Скрипты Windows для настройки `.venv` и запуска тестов.
-10. Adapter-contract тесты для согласованности поведения между Telegram/VK/MAX.
-11. Единый onboarding-flow в `core` (регистрация + legacy-ветка), подключенный в Telegram.
+8. Единый onboarding-flow в `core` (регистрация + legacy-ветка), подключенный в Telegram/VK/MAX.
+9. Единый сценарный слой поддержки/модерации в `core` с кросс-мессенджерной маршрутизацией ответа.
+10. Рабочие адаптеры Telegram/VK/MAX на общем контракте меню, onboarding и support-модерации.
+11. Команды модерации `/modreply` и `/modticket` доступны во всех трех адаптерах.
+12. Скрипты Windows для настройки `.venv` и запуска тестов.
+13. Adapter-contract тесты для согласованности поведения между Telegram/VK/MAX.
+14. Тесты на `pytest` для ядра, ограничений схемы и integration/live-сценариев репозиториев.
 
 ## 3. Быстрый старт (Windows)
 
@@ -43,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 Живые тесты на PostgreSQL запускаются отдельно (после включения флага в `.env`):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integration/test_postgres_live_identity_repository.py
+powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integration/test_postgres_live_identity_repository.py tests/integration/test_postgres_live_support_repository.py
 ```
 
 Запуск первого адаптера Telegram (локально, без Docker):
@@ -75,6 +78,9 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 7. `/legacy` — ручной запуск ветки обновления legacy-профиля (подтверждение телефона).
 8. Те же пункты синхронизированы в VK- и MAX-адаптерах через callback/payload-кнопки.
 9. Onboarding-flow (правила -> телефон + legacy-подтверждение) теперь единый для Telegram/VK/MAX.
+10. `🆘 Отдел заботы` переводит в сценарий вопроса, где создается тикет поддержки и фиксируется исходная платформа гостя.
+11. `/modreply <ticket_id> [--to=telegram|vk|max] <текст>` — ответ модератора из любого бота с маршрутизацией в целевой канал гостя.
+12. `/modticket <ticket_id>` — карточка тикета (источник обращения, последняя платформа гостя, список привязанных платформ).
 
 ## 4. Структура
 
@@ -90,6 +96,8 @@ vtelemax/
       infrastructure/
       apps/
   tests/
+    adapter_contract/
+    integration/
     unit/
 ```
 

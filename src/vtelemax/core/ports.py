@@ -23,6 +23,9 @@ class IdentityRepository(Protocol):
     def get_person_by_account(self, platform: PlatformName, external_id: str) -> Person | None:
         """Возвращает человека по аккаунту платформы."""
 
+    def get_person_by_id(self, person_id: UUID) -> Person | None:
+        """Возвращает человека по внутреннему идентификатору."""
+
     def add_person(self, person: Person) -> None:
         """Сохраняет нового человека."""
 

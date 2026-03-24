@@ -8,14 +8,27 @@ from __future__ import annotations
 
 from sqlalchemy import CheckConstraint, UniqueConstraint
 
-from vtelemax.infrastructure.postgres.schema import Base, PersonRow, PhoneRow, PlatformAccountRow
+from vtelemax.infrastructure.postgres.schema import (
+    Base,
+    PersonRow,
+    PhoneRow,
+    PlatformAccountRow,
+    SupportMessageRow,
+    SupportTicketRow,
+)
 
 
 def test_metadata_contains_strict_identity_tables() -> None:
     """Проверяет наличие ключевых таблиц strict identity в metadata."""
 
     table_names = set(Base.metadata.tables.keys())
-    assert {"persons", "phones", "platform_accounts"}.issubset(table_names)
+    assert {
+        "persons",
+        "phones",
+        "platform_accounts",
+        "support_tickets",
+        "support_messages",
+    }.issubset(table_names)
 
 
 def test_phones_table_has_required_unique_constraints() -> None:
@@ -65,3 +78,30 @@ def test_person_table_primary_key_name() -> None:
 
     pk_columns = list(PersonRow.__table__.primary_key.columns.keys())
     assert pk_columns == ["person_id"]
+
+
+def test_support_tickets_constraints_are_strict() -> None:
+    """Проверяет базовые ограничения тикетов поддержки."""
+
+    check_constraints = {
+        constraint.name
+        for constraint in SupportTicketRow.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert "ck_support_tickets_status_allowed" in check_constraints
+    assert "ck_support_tickets_source_platform_allowed" in check_constraints
+    assert "ck_support_tickets_last_guest_platform_allowed" in check_constraints
+
+
+def test_support_messages_constraints_are_strict() -> None:
+    """Проверяет ограничения сообщений поддержки и маршрутизации."""
+
+    check_constraints = {
+        constraint.name
+        for constraint in SupportMessageRow.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert "ck_support_messages_author_allowed" in check_constraints
+    assert "ck_support_messages_source_platform_allowed" in check_constraints
+    assert "ck_support_messages_target_platform_allowed" in check_constraints
+    assert "ck_support_messages_delivery_status_allowed" in check_constraints

@@ -6,11 +6,16 @@ from types import TracebackType
 
 from vtelemax.adapters.vk import VkIdentityAdapter
 from vtelemax.core import (
+    CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
+    GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
     InMemoryIdentityRepository,
+    InMemorySupportRepository,
+    RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
+    RouteModeratorReplyTransactionalUseCase,
 )
 
 
@@ -38,15 +43,63 @@ class InMemoryIdentityUnitOfWork(IdentityUnitOfWork):
         return
 
 
-def _build_adapter() -> VkIdentityAdapter:
+class InMemorySupportUnitOfWork(InMemoryIdentityUnitOfWork):
+    """Тестовый UoW с поддержкой тикетов."""
+
+    def __init__(self, repository: IdentityRepository, support_repository: InMemorySupportRepository) -> None:
+        super().__init__(repository)
+        self.support_repository = support_repository
+
+
+def _build_adapter(with_support: bool = False) -> VkIdentityAdapter:
     repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
     lookup_use_case = GetPersonByAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    return VkIdentityAdapter(registration_use_case, lookup_use_case)
+    if not with_support:
+        return VkIdentityAdapter(registration_use_case, lookup_use_case)
+
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    return VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        moderator_reply_use_case=moderator_reply_use_case,
+        ticket_details_use_case=ticket_details_use_case,
+    )
+
+
+def _build_adapter_with_support_context() -> tuple[
+    VkIdentityAdapter,
+    RegisterOrAttachAccountTransactionalUseCase,
+]:
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    adapter = VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        moderator_reply_use_case=moderator_reply_use_case,
+        ticket_details_use_case=ticket_details_use_case,
+    )
+    return adapter, registration_use_case
 
 
 def _complete_vk_registration(adapter: VkIdentityAdapter, vk_user_id: int = 1001) -> None:
@@ -164,3 +217,32 @@ def test_vk_legacy_start_requests_phone_confirmation() -> None:
     assert legacy_start.screen.screen_id == "start_contact"
     assert "legacy успешно обновлен" in confirm.text
 
+
+def test_vk_moderator_reply_can_route_to_another_messenger() -> None:
+    """Проверяет модерацию: ответ из VK с доставкой в другой канал."""
+
+    adapter, register_use_case = _build_adapter_with_support_context()
+    _complete_vk_registration(adapter, vk_user_id=1001)
+
+    # Добавляем вторую привязку того же Person через Telegram в доменном use-case.
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-777",
+            raw_phone="+79123456789",
+        )
+    )
+
+    adapter.handle_incoming(vk_user_id=1001, text="❓ Мне только спросить", payload=None)
+    ticket_response = adapter.handle_incoming(vk_user_id=1001, text="Нужна помощь", payload=None)
+    ticket_id = ticket_response.text.split("#")[1].split("\n")[0].strip()
+
+    reply = adapter.handle_incoming(
+        vk_user_id=9999,
+        text=f"/modreply {ticket_id} --to=telegram Ответ отправлен.",
+        payload=None,
+    )
+    details = adapter.handle_incoming(vk_user_id=9999, text=f"/modticket {ticket_id}", payload=None)
+
+    assert "Маршрут доставки: telegram" in reply.text
+    assert "Канал создания: vk" in details.text

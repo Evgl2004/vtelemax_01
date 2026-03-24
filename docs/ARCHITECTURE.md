@@ -28,6 +28,8 @@
 4. Use-case регистрации/привязки аккаунта (`use_cases.py`).
 5. Единый контракт меню и текстов (`menu_contract.py`, `guest_content.py`).
 6. Единый onboarding-flow регистрации/legacy (`onboarding.py`).
+7. Доменные модели и порты поддержки/модерации (`support_models.py`, `support_ports.py`).
+8. Use-case создания тикета, маршрутизации ответа модератора и чтения карточки тикета (`support_use_cases.py`).
 
 ### 2.2 Adapters
 
@@ -47,6 +49,8 @@
 6. MAX подключен к общему onboarding-flow и legacy-ветке (`adapters/max/identity_adapter.py`).
 7. VK/MAX router-слой поддерживает явный запуск legacy-сценария по команде.
 8. Контрактные тесты согласованности Telegram/VK/MAX (`tests/adapter_contract/*`).
+9. Сценарий создания тикета поддержки подключен в Telegram/VK/MAX через единый core use-case.
+10. Команды модератора `/modreply` и `/modticket` реализованы в Telegram/VK/MAX.
 
 ### 2.3 Infrastructure
 
@@ -62,6 +66,8 @@
 2. Стартовая SQL-миграция схемы (`migrations/sql/0001_strict_identity.sql`).
 3. SQLAlchemy-репозиторий strict identity (`infrastructure/postgres/repository.py`).
 4. Транзакционный Unit Of Work (`infrastructure/postgres/uow.py`).
+5. SQLAlchemy-схема и SQL-миграция support-таблиц (`support_tickets`, `support_messages`, `migrations/sql/0002_support_tickets.sql`).
+6. SQLAlchemy-репозиторий поддержки (`infrastructure/postgres/support_repository.py`).
 
 ### 2.4 Settings и приложения
 
@@ -70,6 +76,7 @@
 3. Telegram-приложение использует два use-case: регистрация и чтение профиля по аккаунту.
 4. Добавлена точка входа VK-приложения: `apps/vk_app.py`.
 5. Добавлена точка входа MAX-приложения: `apps/max_app.py`.
+6. Во всех приложениях подключены use-case поддержки/модерации (создание тикета, маршрутизация ответа, карточка тикета).
 
 ## 3. Строгая идентификация (Strict Identity)
 
@@ -79,19 +86,18 @@
 2. Один телефон не может соответствовать двум разным людям.
 3. Конфликтные перепривязки аккаунтов должны поднимать доменную ошибку.
 
-## 4. Целевая схема данных (эскиз)
+## 4. Текущая схема данных
 
-Текущий контур strict identity включает:
+Текущий контур strict identity и поддержки включает:
 
 1. `persons` — единый профиль человека.
 2. `phones` — канонический телефон человека (`UNIQUE phone_e164`, `UNIQUE person_id`).
 3. `platform_accounts` — привязка `platform + external_id -> person_id` с `UNIQUE(platform, external_id)`.
-
-Будущее расширение:
-
-1. `tickets`, `ticket_messages` — связь через `person_id`.
+4. `support_tickets` — тикеты поддержки, привязанные к `person_id`.
+5. `support_messages` — сообщения тикета и данные маршрутизации модераторского ответа.
 
 Это позволит:
 
 1. Хранить одну анкету на человека.
 2. Связывать одного человека с Telegram, VK и MAX одновременно.
+3. Принимать обращение в одном мессенджере и отправлять ответ модератора в другой канал того же пользователя.

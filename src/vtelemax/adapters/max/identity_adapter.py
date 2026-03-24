@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
+    CreateSupportTicketCommand,
+    CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
+    GetSupportTicketDetailsTransactionalUseCase,
     GuestMenuAction,
     IdentityConflictError,
+    ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
+    RouteModeratorReplyTransactionalUseCase,
+    SUPPORTED_PLATFORMS,
     resolve_guest_menu_action,
 )
 
@@ -42,12 +49,18 @@ class MaxIdentityAdapter:
         registration_use_case: RegisterOrAttachAccountTransactionalUseCase,
         person_lookup_use_case: GetPersonByAccountTransactionalUseCase,
         menu_adapter: MaxGuestMenuAdapter | None = None,
+        create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
+        moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
+        ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
     ) -> None:
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
         self._menu_adapter = menu_adapter or MaxGuestMenuAdapter()
         self._state_by_user_id: dict[int, str] = {}
         self._onboarding_flow = OnboardingFlowService()
+        self._create_support_ticket_use_case = create_support_ticket_use_case
+        self._moderator_reply_use_case = moderator_reply_use_case
+        self._ticket_details_use_case = ticket_details_use_case
 
     def handle_start(self, max_user_id: int) -> MaxAdapterResponse:
         """Обрабатывает стартовый вход пользователя в MAX-бот."""
@@ -91,6 +104,10 @@ class MaxIdentityAdapter:
             return self._handle_phone_input(max_user_id=max_user_id, text=text, is_legacy=True)
         if state == _STATE_WAITING_SUPPORT_QUESTION:
             return self._handle_support_question(max_user_id=max_user_id, text=text)
+
+        moderator_response = self._try_handle_moderator_command(text)
+        if moderator_response is not None:
+            return moderator_response
 
         action = resolve_action_from_max_payload(payload)
         if action is None:
@@ -202,14 +219,147 @@ class MaxIdentityAdapter:
 
         self._state_by_user_id.pop(max_user_id, None)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+        if self._create_support_ticket_use_case is None:
+            ticket_message = (
+                "📨 Ваш вопрос принят!\n"
+                "Модератор рассмотрит обращение в ближайшее время."
+            )
+        else:
+            try:
+                created = self._create_support_ticket_use_case.execute(
+                    CreateSupportTicketCommand(
+                        platform="max",
+                        external_id=str(max_user_id),
+                        question_text=question,
+                    )
+                )
+            except ValueError as error:
+                return MaxAdapterResponse(
+                    text=(
+                        "Не удалось зарегистрировать обращение в системе модерации.\n"
+                        f"Причина: {error}"
+                    )
+                )
+            ticket_message = (
+                "📨 Ваш вопрос принят!\n"
+                f"🎫 Создан тикет #{created.ticket_id}\n"
+                "Канал обращения: max\n"
+                "Модератор рассмотрит обращение в ближайшее время."
+            )
+
         return MaxAdapterResponse(
             text=(
-                "📨 Ваш вопрос принят!\n"
-                "Модератор рассмотрит обращение в ближайшее время.\n\n"
+                f"{ticket_message}\n\n"
                 f"{main_screen.text}"
             ),
             screen=main_screen,
         )
+
+    def _try_handle_moderator_command(self, text: str) -> MaxAdapterResponse | None:
+        """Пытается обработать команду модератора."""
+
+        raw = (text or "").strip()
+        lowered = raw.lower()
+        if lowered.startswith("/modreply"):
+            return self._handle_modreply_command(raw)
+        if lowered.startswith("/modticket"):
+            return self._handle_modticket_command(raw)
+        return None
+
+    def _handle_modreply_command(self, raw: str) -> MaxAdapterResponse:
+        """Обрабатывает команду модератора `/modreply`."""
+
+        if self._moderator_reply_use_case is None:
+            return MaxAdapterResponse(
+                text=(
+                    "Команда модерации пока недоступна: сценарий маршрутизации не подключен.\n"
+                    "Обратитесь к администратору проекта."
+                )
+            )
+
+        parts = raw.split()
+        if len(parts) < 3:
+            return MaxAdapterResponse(
+                text="Формат: /modreply <ticket_id> [--to=telegram|vk|max] <текст ответа>"
+            )
+
+        ticket_id = self._parse_ticket_id(parts[1])
+        if ticket_id is None:
+            return MaxAdapterResponse(text="Некорректный ticket_id. Ожидается UUID.")
+
+        preferred_target: str | None = None
+        message_start_index = 2
+        if len(parts) >= 4 and parts[2].lower().startswith("--to="):
+            preferred_target = parts[2].split("=", maxsplit=1)[1].strip().lower()
+            message_start_index = 3
+
+        message_text = " ".join(parts[message_start_index:]).strip()
+        if not message_text:
+            return MaxAdapterResponse(text="Текст ответа модератора не может быть пустым.")
+
+        if preferred_target is not None and preferred_target not in SUPPORTED_PLATFORMS:
+            return MaxAdapterResponse(text="Недопустимая целевая платформа в --to.")
+
+        try:
+            route = self._moderator_reply_use_case.execute(
+                ModeratorReplyCommand(
+                    ticket_id=ticket_id,
+                    moderator_platform="max",
+                    reply_text=message_text,
+                    preferred_target_platform=preferred_target,  # type: ignore[arg-type]
+                )
+            )
+        except ValueError as error:
+            return MaxAdapterResponse(text=f"Не удалось маршрутизировать ответ: {error}")
+
+        return MaxAdapterResponse(
+            text=(
+                "Ответ модератора зарегистрирован.\n"
+                f"Тикет: {route.ticket_id}\n"
+                f"Канал исходного обращения: {route.guest_source_platform}\n"
+                f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n"
+                f"ID сообщения: {route.message_id}"
+            )
+        )
+
+    def _handle_modticket_command(self, raw: str) -> MaxAdapterResponse:
+        """Обрабатывает команду модератора `/modticket`."""
+
+        if self._ticket_details_use_case is None:
+            return MaxAdapterResponse(
+                text="Команда карточки тикета пока недоступна: details-use-case не подключен."
+            )
+
+        parts = raw.split()
+        if len(parts) != 2:
+            return MaxAdapterResponse(text="Формат: /modticket <ticket_id>")
+
+        ticket_id = self._parse_ticket_id(parts[1])
+        if ticket_id is None:
+            return MaxAdapterResponse(text="Некорректный ticket_id. Ожидается UUID.")
+
+        try:
+            details = self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            return MaxAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
+
+        linked = ", ".join(details.linked_platforms)
+        return MaxAdapterResponse(
+            text=(
+                f"Тикет: {details.ticket_id}\n"
+                f"Статус: {details.status}\n"
+                f"Канал создания: {details.source_platform}\n"
+                f"Последний канал гостя: {details.last_guest_platform or '-'}\n"
+                f"Каналы гостя: {linked}"
+            )
+        )
+
+    @staticmethod
+    def _parse_ticket_id(raw_ticket_id: str) -> UUID | None:
+        try:
+            return UUID(raw_ticket_id)
+        except ValueError:
+            return None
 
     def _handle_action(self, max_user_id: int, action: GuestMenuAction) -> MaxAdapterResponse:
         """Обрабатывает пункт меню для зарегистрированного пользователя."""

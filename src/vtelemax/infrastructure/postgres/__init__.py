@@ -1,8 +1,16 @@
 """PostgreSQL-инфраструктура strict identity."""
 
 from .repository import SQLAlchemyIdentityRepository
-from .schema import Base, PersonRow, PhoneRow, PlatformAccountRow
+from .schema import (
+    Base,
+    PersonRow,
+    PhoneRow,
+    PlatformAccountRow,
+    SupportMessageRow,
+    SupportTicketRow,
+)
 from .session import build_engine, build_session_factory
+from .support_repository import SQLAlchemySupportRepository
 from .uow import SQLAlchemyIdentityUnitOfWork
 
 __all__ = [
@@ -10,7 +18,10 @@ __all__ = [
     "PersonRow",
     "PhoneRow",
     "PlatformAccountRow",
+    "SupportTicketRow",
+    "SupportMessageRow",
     "SQLAlchemyIdentityRepository",
+    "SQLAlchemySupportRepository",
     "SQLAlchemyIdentityUnitOfWork",
     "build_engine",
     "build_session_factory",

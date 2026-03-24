@@ -12,6 +12,7 @@ from vtelemax.core.errors import IdentityConflictError
 from vtelemax.core.ports import IdentityUnitOfWork
 
 from .repository import SQLAlchemyIdentityRepository
+from .support_repository import SQLAlchemySupportRepository
 
 
 class SQLAlchemyIdentityUnitOfWork(IdentityUnitOfWork):
@@ -25,12 +26,14 @@ class SQLAlchemyIdentityUnitOfWork(IdentityUnitOfWork):
         self._session_factory = session_factory
         self._session: Session | None = None
         self.identity_repository: SQLAlchemyIdentityRepository
+        self.support_repository: SQLAlchemySupportRepository
 
     def __enter__(self) -> "SQLAlchemyIdentityUnitOfWork":
         """Открывает SQLAlchemy Session и репозиторий для текущей транзакции."""
 
         self._session = self._session_factory()
         self.identity_repository = SQLAlchemyIdentityRepository(self._session)
+        self.support_repository = SQLAlchemySupportRepository(self._session)
         return self
 
     def __exit__(
@@ -61,11 +64,14 @@ class SQLAlchemyIdentityUnitOfWork(IdentityUnitOfWork):
         try:
             self._session.commit()
         except IntegrityError as error:
-            # Трансляция низкоуровневой DB-ошибки в доменную ошибку.
             self._session.rollback()
-            raise IdentityConflictError(
-                "Конфликт strict identity на уровне БД: нарушены ограничения уникальности."
-            ) from error
+            if self._is_strict_identity_conflict(error):
+                # Трансляция только strict identity-конфликтов в доменную ошибку.
+                raise IdentityConflictError(
+                    "Конфликт strict identity на уровне БД: нарушены ограничения уникальности."
+                ) from error
+            # Для остальных целостностных ошибок (например, support FK) сохраняем исходную причину.
+            raise
 
     def rollback(self) -> None:
         """Откатывает транзакцию."""
@@ -73,3 +79,19 @@ class SQLAlchemyIdentityUnitOfWork(IdentityUnitOfWork):
         if self._session is None:
             raise RuntimeError("Нельзя выполнить rollback вне контекста UnitOfWork.")
         self._session.rollback()
+
+    @staticmethod
+    def _is_strict_identity_conflict(error: IntegrityError) -> bool:
+        """Определяет, относится ли ошибка целостности к strict identity-ограничениям."""
+
+        error_text = str(error).lower()
+        hints = (
+            "uq_phones_phone_e164",
+            "uq_phones_person_id",
+            "uq_platform_accounts_platform_external_id",
+            "phones.phone_e164",
+            "phones.person_id",
+            "platform_accounts.platform, platform_accounts.external_id",
+            "platform_accounts.platform, external_id",
+        )
+        return any(hint in error_text for hint in hints)

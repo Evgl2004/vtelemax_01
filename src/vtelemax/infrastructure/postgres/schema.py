@@ -16,7 +16,16 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -98,6 +107,89 @@ class PlatformAccountRow(Base):
     )
     platform: Mapped[str] = mapped_column(String(16), nullable=False)
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class SupportTicketRow(Base):
+    """Таблица `support_tickets` — тикеты поддержки, привязанные к Person."""
+
+    __tablename__ = "support_tickets"
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'closed')", name="ck_support_tickets_status_allowed"),
+        CheckConstraint(
+            "source_platform IN ('telegram', 'vk', 'max')",
+            name="ck_support_tickets_source_platform_allowed",
+        ),
+        CheckConstraint(
+            "last_guest_platform IS NULL OR last_guest_platform IN ('telegram', 'vk', 'max')",
+            name="ck_support_tickets_last_guest_platform_allowed",
+        ),
+        Index("ix_support_tickets_person_id", "person_id"),
+        Index("ix_support_tickets_status", "status"),
+    )
+
+    ticket_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    person_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("persons.person_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="open")
+    source_platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    last_guest_platform: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SupportMessageRow(Base):
+    """Таблица `support_messages` — сообщения тикета и маршрутизация доставки."""
+
+    __tablename__ = "support_messages"
+    __table_args__ = (
+        CheckConstraint("author IN ('guest', 'moderator')", name="ck_support_messages_author_allowed"),
+        CheckConstraint(
+            "source_platform IN ('telegram', 'vk', 'max')",
+            name="ck_support_messages_source_platform_allowed",
+        ),
+        CheckConstraint(
+            "target_platform IS NULL OR target_platform IN ('telegram', 'vk', 'max')",
+            name="ck_support_messages_target_platform_allowed",
+        ),
+        CheckConstraint(
+            "delivery_status IS NULL OR delivery_status IN ('created', 'sent', 'failed')",
+            name="ck_support_messages_delivery_status_allowed",
+        ),
+        Index("ix_support_messages_ticket_id", "ticket_id"),
+        Index("ix_support_messages_target_platform_status", "target_platform", "delivery_status"),
+    )
+
+    message_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    ticket_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("support_tickets.ticket_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author: Mapped[str] = mapped_column(String(16), nullable=False)
+    body: Mapped[str] = mapped_column(Text(), nullable=False)
+    source_platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_platform: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    target_external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    delivery_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    delivery_error: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

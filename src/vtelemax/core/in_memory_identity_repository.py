@@ -38,6 +38,11 @@ class InMemoryIdentityRepository(IdentityRepository):
             return None
         return self._persons_by_id[person_id]
 
+    def get_person_by_id(self, person_id: UUID) -> Person | None:
+        """Возвращает человека по внутреннему идентификатору."""
+
+        return self._persons_by_id.get(person_id)
+
     def add_person(self, person: Person) -> None:
         """Сохраняет нового человека и его индексы."""
 

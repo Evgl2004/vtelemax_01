@@ -16,7 +16,11 @@ from vtelemax.core import (
     BUTTON_SUPPORT,
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
+    CreateSupportTicketCommand,
+    CreateSupportTicketTransactionalUseCase,
     GuestMenuAction,
+    GetSupportTicketDetailsTransactionalUseCase,
+    ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
     GetPersonByAccountCommand,
@@ -24,6 +28,8 @@ from vtelemax.core import (
     IdentityConflictError,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
+    RouteModeratorReplyTransactionalUseCase,
+    SUPPORTED_PLATFORMS,
     build_about_screen,
     build_help_screen,
     build_main_menu_screen,
@@ -60,6 +66,9 @@ class TelegramMenuActionResult:
     parse_mode: str | None = None
 
 
+_STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
+
+
 class TelegramIdentityAdapter:
     """Сервисный адаптер Telegram -> use-case strict identity."""
 
@@ -67,11 +76,18 @@ class TelegramIdentityAdapter:
         self,
         registration_use_case: RegisterOrAttachAccountTransactionalUseCase,
         person_lookup_use_case: GetPersonByAccountTransactionalUseCase,
+        create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
+        moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
+        ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
     ) -> None:
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
         self._onboarding_flow = OnboardingFlowService()
         self._onboarding_state_by_user_id: dict[int, OnboardingState] = {}
+        self._dialog_state_by_user_id: dict[int, str] = {}
+        self._create_support_ticket_use_case = create_support_ticket_use_case
+        self._moderator_reply_use_case = moderator_reply_use_case
+        self._ticket_details_use_case = ticket_details_use_case
 
     def start_interaction(
         self,
@@ -91,6 +107,7 @@ class TelegramIdentityAdapter:
         if person is None:
             transition = self._onboarding_flow.begin_new_user()
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
             return TelegramMenuActionResult(
                 status=transition.status,
                 message=transition.message,
@@ -100,6 +117,7 @@ class TelegramIdentityAdapter:
         if force_legacy_upgrade:
             transition = self._onboarding_flow.begin_legacy_upgrade()
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
             return TelegramMenuActionResult(
                 status=transition.status,
                 message=transition.message,
@@ -107,6 +125,7 @@ class TelegramIdentityAdapter:
             )
 
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+        self._dialog_state_by_user_id.pop(telegram_user_id, None)
         return TelegramMenuActionResult(
             status="menu",
             message=self.build_menu_overview_message(),
@@ -142,6 +161,7 @@ class TelegramIdentityAdapter:
             )
 
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+        self._dialog_state_by_user_id.pop(telegram_user_id, None)
         if previous_state == OnboardingState.WAITING_LEGACY_PHONE:
             success_message = (
                 "Профиль legacy успешно обновлен. Ваш номер подтвержден в единой базе.\n"
@@ -202,6 +222,14 @@ class TelegramIdentityAdapter:
                 ),
                 requires_contact_keyboard=True,
             )
+
+        moderator_result = self._try_handle_moderator_command(action_text)
+        if moderator_result is not None:
+            return moderator_result
+
+        dialog_state = self._dialog_state_by_user_id.get(telegram_user_id)
+        if dialog_state == _STATE_WAITING_SUPPORT_QUESTION:
+            return self._handle_support_question_input(telegram_user_id=telegram_user_id, question_text=action_text)
 
         action = resolve_guest_menu_action(action_text)
         if action is None:
@@ -294,6 +322,7 @@ class TelegramIdentityAdapter:
             )
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
+            self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
             screen = build_support_question_screen()
             return TelegramMenuActionResult(
                 status="support_question",
@@ -344,3 +373,185 @@ class TelegramIdentityAdapter:
                 f"'{BUTTON_SEND_PHONE}', '{BUTTON_ACCEPT_RULES}'."
             ),
         )
+
+    def _handle_support_question_input(
+        self,
+        telegram_user_id: int,
+        question_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает текст вопроса после шага `SUPPORT_QUESTION`."""
+
+        question = str(question_text).strip()
+        if not question:
+            return TelegramMenuActionResult(
+                status="support_question_empty",
+                message="Пожалуйста, введите вопрос текстом, чтобы мы передали его модератору.",
+            )
+
+        self._dialog_state_by_user_id.pop(telegram_user_id, None)
+        if self._create_support_ticket_use_case is None:
+            return TelegramMenuActionResult(
+                status="support_question_submitted",
+                message=(
+                    "📨 Ваш вопрос принят!\n"
+                    "Модератор рассмотрит обращение в ближайшее время."
+                ),
+            )
+
+        try:
+            created = self._create_support_ticket_use_case.execute(
+                CreateSupportTicketCommand(
+                    platform="telegram",
+                    external_id=str(telegram_user_id),
+                    question_text=question,
+                )
+            )
+        except ValueError as error:
+            return TelegramMenuActionResult(
+                status="support_question_error",
+                message=(
+                    "Не удалось зарегистрировать обращение в системе модерации.\n"
+                    f"Причина: {error}"
+                ),
+            )
+
+        return TelegramMenuActionResult(
+            status="support_question_submitted",
+            message=(
+                "📨 Ваш вопрос принят!\n"
+                f"🎫 Создан тикет #{created.ticket_id}\n"
+                "Канал обращения: telegram\n"
+                "Модератор рассмотрит обращение в ближайшее время."
+            ),
+        )
+
+    def _try_handle_moderator_command(self, action_text: str) -> TelegramMenuActionResult | None:
+        """Пытается обработать команды модератора."""
+
+        raw = (action_text or "").strip()
+        lowered = raw.lower()
+        if lowered.startswith("/modreply"):
+            return self._handle_modreply_command(raw)
+        if lowered.startswith("/modticket"):
+            return self._handle_modticket_command(raw)
+        return None
+
+    def _handle_modreply_command(self, raw: str) -> TelegramMenuActionResult:
+        """Обрабатывает команду `/modreply`."""
+
+        if self._moderator_reply_use_case is None:
+            return TelegramMenuActionResult(
+                status="moderation_unavailable",
+                message=(
+                    "Команда модерации пока недоступна: сценарий маршрутизации не подключен."
+                ),
+            )
+
+        parts = raw.split()
+        if len(parts) < 3:
+            return TelegramMenuActionResult(
+                status="moderation_usage",
+                message="Формат: /modreply <ticket_id> [--to=telegram|vk|max] <текст ответа>",
+            )
+
+        ticket_id = self._parse_ticket_id(parts[1])
+        if ticket_id is None:
+            return TelegramMenuActionResult(
+                status="moderation_bad_ticket",
+                message="Некорректный ticket_id. Ожидается UUID.",
+            )
+
+        preferred_target: str | None = None
+        message_start_index = 2
+        if len(parts) >= 4 and parts[2].lower().startswith("--to="):
+            preferred_target = parts[2].split("=", maxsplit=1)[1].strip().lower()
+            message_start_index = 3
+
+        message_text = " ".join(parts[message_start_index:]).strip()
+        if not message_text:
+            return TelegramMenuActionResult(
+                status="moderation_empty_reply",
+                message="Текст ответа модератора не может быть пустым.",
+            )
+
+        if preferred_target is not None and preferred_target not in SUPPORTED_PLATFORMS:
+            return TelegramMenuActionResult(
+                status="moderation_bad_platform",
+                message="Недопустимая целевая платформа в --to.",
+            )
+
+        try:
+            route = self._moderator_reply_use_case.execute(
+                ModeratorReplyCommand(
+                    ticket_id=ticket_id,
+                    moderator_platform="telegram",
+                    reply_text=message_text,
+                    preferred_target_platform=preferred_target,  # type: ignore[arg-type]
+                )
+            )
+        except ValueError as error:
+            return TelegramMenuActionResult(
+                status="moderation_error",
+                message=f"Не удалось маршрутизировать ответ: {error}",
+            )
+
+        return TelegramMenuActionResult(
+            status="moderation_routed",
+            message=(
+                "Ответ модератора зарегистрирован.\n"
+                f"Тикет: {route.ticket_id}\n"
+                f"Канал исходного обращения: {route.guest_source_platform}\n"
+                f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n"
+                f"ID сообщения: {route.message_id}"
+            ),
+        )
+
+    def _handle_modticket_command(self, raw: str) -> TelegramMenuActionResult:
+        """Обрабатывает команду `/modticket`."""
+
+        if self._ticket_details_use_case is None:
+            return TelegramMenuActionResult(
+                status="moderation_details_unavailable",
+                message="Команда карточки тикета пока недоступна: details-use-case не подключен.",
+            )
+
+        parts = raw.split()
+        if len(parts) != 2:
+            return TelegramMenuActionResult(
+                status="moderation_details_usage",
+                message="Формат: /modticket <ticket_id>",
+            )
+
+        ticket_id = self._parse_ticket_id(parts[1])
+        if ticket_id is None:
+            return TelegramMenuActionResult(
+                status="moderation_details_bad_ticket",
+                message="Некорректный ticket_id. Ожидается UUID.",
+            )
+
+        try:
+            details = self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            return TelegramMenuActionResult(
+                status="moderation_details_error",
+                message=f"Не удалось загрузить тикет: {error}",
+            )
+
+        linked = ", ".join(details.linked_platforms)
+        return TelegramMenuActionResult(
+            status="moderation_details",
+            message=(
+                f"Тикет: {details.ticket_id}\n"
+                f"Статус: {details.status}\n"
+                f"Канал создания: {details.source_platform}\n"
+                f"Последний канал гостя: {details.last_guest_platform or '-'}\n"
+                f"Каналы гостя: {linked}"
+            ),
+        )
+
+    @staticmethod
+    def _parse_ticket_id(raw_ticket_id: str) -> UUID | None:
+        try:
+            return UUID(raw_ticket_id)
+        except ValueError:
+            return None

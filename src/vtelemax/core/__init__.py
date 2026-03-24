@@ -43,10 +43,29 @@ from .guest_content import (
 from .onboarding import OnboardingFlowService, OnboardingState, OnboardingTransition
 from .identity import StrictIdentityService
 from .in_memory_identity_repository import InMemoryIdentityRepository
+from .in_memory_support_repository import InMemorySupportRepository
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
 from .models import Person, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .phone import normalize_phone
 from .ports import IdentityRepository, IdentityUnitOfWork
+from .support_models import (
+    SupportDeliveryStatus,
+    SupportMessage,
+    SupportMessageAuthor,
+    SupportTicket,
+    SupportTicketStatus,
+)
+from .support_ports import SupportRepository, SupportUnitOfWork
+from .support_use_cases import (
+    CreateSupportTicketCommand,
+    CreateSupportTicketTransactionalUseCase,
+    CreatedSupportTicketResult,
+    GetSupportTicketDetailsTransactionalUseCase,
+    ModeratorReplyCommand,
+    ModeratorReplyRoutingResult,
+    RouteModeratorReplyTransactionalUseCase,
+    SupportTicketDetails,
+)
 from .use_cases import (
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
@@ -60,7 +79,10 @@ __all__ = [
     "IdentityConflictError",
     "IdentityRepository",
     "IdentityUnitOfWork",
+    "SupportRepository",
+    "SupportUnitOfWork",
     "InMemoryIdentityRepository",
+    "InMemorySupportRepository",
     "GuestMenuAction",
     "MenuButtonContract",
     "MenuScreenContract",
@@ -109,4 +131,17 @@ __all__ = [
     "OnboardingFlowService",
     "OnboardingState",
     "OnboardingTransition",
+    "SupportTicketStatus",
+    "SupportMessageAuthor",
+    "SupportDeliveryStatus",
+    "SupportTicket",
+    "SupportMessage",
+    "CreateSupportTicketCommand",
+    "CreatedSupportTicketResult",
+    "CreateSupportTicketTransactionalUseCase",
+    "ModeratorReplyCommand",
+    "ModeratorReplyRoutingResult",
+    "RouteModeratorReplyTransactionalUseCase",
+    "SupportTicketDetails",
+    "GetSupportTicketDetailsTransactionalUseCase",
 ]

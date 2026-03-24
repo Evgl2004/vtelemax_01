@@ -1,0 +1,238 @@
+"""Use-case сценарии поддержки и кросс-мессенджер модерации."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from uuid import UUID, uuid4
+
+from .models import PlatformName, SUPPORTED_PLATFORMS
+from .support_models import (
+    SupportDeliveryStatus,
+    SupportMessage,
+    SupportMessageAuthor,
+    SupportTicket,
+    SupportTicketStatus,
+)
+from .support_ports import SupportUnitOfWork
+
+
+@dataclass(frozen=True, slots=True)
+class CreateSupportTicketCommand:
+    """Команда создания тикета из сообщения гостя."""
+
+    platform: PlatformName
+    external_id: str
+    question_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class CreatedSupportTicketResult:
+    """Результат создания тикета поддержки."""
+
+    ticket_id: UUID
+    person_id: UUID
+    source_platform: PlatformName
+    message_id: UUID
+
+
+class CreateSupportTicketTransactionalUseCase:
+    """Создает тикет и первое сообщение гостя в рамках транзакции."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: CreateSupportTicketCommand) -> CreatedSupportTicketResult:
+        """Создает тикет по гостевому сообщению."""
+
+        if command.platform not in SUPPORTED_PLATFORMS:
+            raise ValueError("Платформа не поддерживается. Допустимые значения: telegram, vk, max.")
+
+        external_id = str(command.external_id).strip()
+        if not external_id:
+            raise ValueError("Внешний идентификатор аккаунта не может быть пустым.")
+
+        question_text = str(command.question_text).strip()
+        if not question_text:
+            raise ValueError("Текст обращения не может быть пустым.")
+
+        with self._unit_of_work_factory() as unit_of_work:
+            person = unit_of_work.identity_repository.get_person_by_account(command.platform, external_id)
+            if person is None:
+                raise ValueError(
+                    "Нельзя создать тикет: аккаунт не зарегистрирован в strict identity."
+                )
+
+            ticket_id = uuid4()
+            message_id = uuid4()
+            unit_of_work.support_repository.create_ticket(
+                SupportTicket(
+                    ticket_id=ticket_id,
+                    person_id=person.person_id,
+                    source_platform=command.platform,
+                    status=SupportTicketStatus.OPEN,
+                    last_guest_platform=command.platform,
+                )
+            )
+            unit_of_work.support_repository.add_message(
+                SupportMessage(
+                    message_id=message_id,
+                    ticket_id=ticket_id,
+                    author=SupportMessageAuthor.GUEST,
+                    body=question_text,
+                    source_platform=command.platform,
+                )
+            )
+            unit_of_work.commit()
+            return CreatedSupportTicketResult(
+                ticket_id=ticket_id,
+                person_id=person.person_id,
+                source_platform=command.platform,
+                message_id=message_id,
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ModeratorReplyCommand:
+    """Команда маршрутизации ответа модератора."""
+
+    ticket_id: UUID
+    moderator_platform: PlatformName
+    reply_text: str
+    preferred_target_platform: PlatformName | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ModeratorReplyRoutingResult:
+    """Результат маршрутизации ответа модератора."""
+
+    ticket_id: UUID
+    message_id: UUID
+    guest_source_platform: PlatformName
+    target_platform: PlatformName
+    target_external_id: str
+
+
+class RouteModeratorReplyTransactionalUseCase:
+    """Маршрутизирует ответ модератора в целевой канал гостя."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: ModeratorReplyCommand) -> ModeratorReplyRoutingResult:
+        """Создает сообщение модератора и определяет канал доставки."""
+
+        if command.moderator_platform not in SUPPORTED_PLATFORMS:
+            raise ValueError("Платформа модератора не поддерживается.")
+        if command.preferred_target_platform is not None and (
+            command.preferred_target_platform not in SUPPORTED_PLATFORMS
+        ):
+            raise ValueError("Целевая платформа доставки не поддерживается.")
+
+        reply_text = str(command.reply_text).strip()
+        if not reply_text:
+            raise ValueError("Текст ответа модератора не может быть пустым.")
+
+        with self._unit_of_work_factory() as unit_of_work:
+            ticket = unit_of_work.support_repository.get_ticket(command.ticket_id)
+            if ticket is None:
+                raise ValueError("Тикет не найден.")
+            if ticket.status != SupportTicketStatus.OPEN:
+                raise ValueError("Нельзя ответить: тикет уже закрыт.")
+
+            person = unit_of_work.identity_repository.get_person_by_id(ticket.person_id)
+            if person is None:
+                raise ValueError("Пользователь тикета не найден в strict identity.")
+
+            account_by_platform = {account.platform: account.external_id for account in person.accounts}
+            if not account_by_platform:
+                raise ValueError("У пользователя нет привязанных аккаунтов для доставки ответа.")
+
+            target_platform = self._resolve_target_platform(
+                preferred=command.preferred_target_platform,
+                last_guest=ticket.last_guest_platform,
+                available_platforms=set(account_by_platform.keys()),
+            )
+            target_external_id = account_by_platform[target_platform]
+
+            message_id = uuid4()
+            unit_of_work.support_repository.add_message(
+                SupportMessage(
+                    message_id=message_id,
+                    ticket_id=ticket.ticket_id,
+                    author=SupportMessageAuthor.MODERATOR,
+                    body=reply_text,
+                    source_platform=command.moderator_platform,
+                    target_platform=target_platform,
+                    target_external_id=target_external_id,
+                    delivery_status=SupportDeliveryStatus.CREATED,
+                )
+            )
+            unit_of_work.commit()
+
+            guest_source = ticket.last_guest_platform or ticket.source_platform
+            return ModeratorReplyRoutingResult(
+                ticket_id=ticket.ticket_id,
+                message_id=message_id,
+                guest_source_platform=guest_source,
+                target_platform=target_platform,
+                target_external_id=target_external_id,
+            )
+
+    @staticmethod
+    def _resolve_target_platform(
+        *,
+        preferred: PlatformName | None,
+        last_guest: PlatformName | None,
+        available_platforms: set[PlatformName],
+    ) -> PlatformName:
+        """Определяет целевой канал доставки ответа модератора."""
+
+        if preferred is not None and preferred in available_platforms:
+            return preferred
+        if last_guest is not None and last_guest in available_platforms:
+            return last_guest
+        # Детерминированный fallback, чтобы маршрутизация не зависела от порядка set.
+        return sorted(available_platforms)[0]
+
+
+@dataclass(frozen=True, slots=True)
+class SupportTicketDetails:
+    """Карточка тикета для модератора."""
+
+    ticket_id: UUID
+    person_id: UUID
+    status: SupportTicketStatus
+    source_platform: PlatformName
+    last_guest_platform: PlatformName | None
+    linked_platforms: tuple[PlatformName, ...]
+
+
+class GetSupportTicketDetailsTransactionalUseCase:
+    """Возвращает карточку тикета и платформы гостя."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, ticket_id: UUID) -> SupportTicketDetails:
+        """Читает карточку тикета для модератора."""
+
+        with self._unit_of_work_factory() as unit_of_work:
+            ticket = unit_of_work.support_repository.get_ticket(ticket_id)
+            if ticket is None:
+                raise ValueError("Тикет не найден.")
+
+            person = unit_of_work.identity_repository.get_person_by_id(ticket.person_id)
+            if person is None:
+                raise ValueError("Пользователь тикета не найден в strict identity.")
+
+            linked_platforms = tuple(sorted(account.platform for account in person.accounts))
+            return SupportTicketDetails(
+                ticket_id=ticket.ticket_id,
+                person_id=ticket.person_id,
+                status=ticket.status,
+                source_platform=ticket.source_platform,
+                last_guest_platform=ticket.last_guest_platform,
+                linked_platforms=linked_platforms,
+            )
+

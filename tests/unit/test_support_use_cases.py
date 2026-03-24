@@ -1,0 +1,237 @@
+"""Тесты use-case сценариев поддержки и модерации."""
+
+from __future__ import annotations
+
+from types import TracebackType
+
+import pytest
+
+from vtelemax.core import (
+    CreateSupportTicketCommand,
+    CreateSupportTicketTransactionalUseCase,
+    GetSupportTicketDetailsTransactionalUseCase,
+    IdentityRepository,
+    IdentityUnitOfWork,
+    InMemoryIdentityRepository,
+    InMemorySupportRepository,
+    ModeratorReplyCommand,
+    RouteModeratorReplyTransactionalUseCase,
+    SupportDeliveryStatus,
+    SupportRepository,
+    SupportUnitOfWork,
+    RegisterOrAttachAccountCommand,
+    RegisterOrAttachAccountTransactionalUseCase,
+)
+
+
+class InMemorySupportUnitOfWork(IdentityUnitOfWork, SupportUnitOfWork):
+    """Тестовый UoW с in-memory identity + support репозиториями."""
+
+    def __init__(self, identity_repository: IdentityRepository, support_repository: SupportRepository) -> None:
+        self.identity_repository = identity_repository
+        self.support_repository = support_repository
+
+    def __enter__(self) -> "InMemorySupportUnitOfWork":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return
+
+    def commit(self) -> None:
+        return
+
+    def rollback(self) -> None:
+        return
+
+
+def test_support_use_case_creates_ticket_for_registered_user() -> None:
+    """Проверяет создание тикета из обращения гостя."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="1001",
+            raw_phone="+79123456789",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+    result = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="1001",
+            question_text="Когда начисляются бонусы?",
+        )
+    )
+
+    ticket = support_repository.get_ticket(result.ticket_id)
+    messages = support_repository.list_messages(result.ticket_id)
+
+    assert ticket is not None
+    assert ticket.source_platform == "vk"
+    assert ticket.last_guest_platform == "vk"
+    assert len(messages) == 1
+    assert messages[0].body == "Когда начисляются бонусы?"
+
+
+def test_support_use_case_rejects_unregistered_account() -> None:
+    """Проверяет грязный сценарий: тикет без регистрации запрещен."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+    with pytest.raises(ValueError):
+        create_use_case.execute(
+            CreateSupportTicketCommand(
+                platform="vk",
+                external_id="missing-user",
+                question_text="Помогите",
+            )
+        )
+
+
+def test_route_moderator_reply_prefers_last_guest_platform() -> None:
+    """Проверяет автоматический выбор канала доставки по последней активности гостя."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-1001",
+            raw_phone="+79123456789",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-2002",
+            raw_phone="+79123456789",
+        )
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-2002",
+            question_text="Подскажите, где посмотреть баланс?",
+        )
+    )
+
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    routing = route_use_case.execute(
+        ModeratorReplyCommand(
+            ticket_id=created.ticket_id,
+            moderator_platform="telegram",
+            reply_text="Проверяем, сейчас вернемся с ответом.",
+        )
+    )
+
+    assert routing.target_platform == "vk"
+    assert routing.target_external_id == "vk-2002"
+
+    moderation_messages = support_repository.pull_pending_moderator_messages("vk")
+    assert len(moderation_messages) == 1
+    assert moderation_messages[0].delivery_status == SupportDeliveryStatus.CREATED
+
+
+def test_route_moderator_reply_allows_cross_platform_override() -> None:
+    """Проверяет ручной override канала доставки модераторского ответа."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-1001",
+            raw_phone="+79123456789",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-2002",
+            raw_phone="+79123456789",
+        )
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-2002",
+            question_text="Подскажите, где посмотреть баланс?",
+        )
+    )
+
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    routing = route_use_case.execute(
+        ModeratorReplyCommand(
+            ticket_id=created.ticket_id,
+            moderator_platform="vk",
+            reply_text="Ответим в Telegram по вашему запросу.",
+            preferred_target_platform="telegram",
+        )
+    )
+
+    assert routing.target_platform == "telegram"
+    assert routing.target_external_id == "tg-1001"
+
+
+def test_get_support_ticket_details_returns_linked_platforms() -> None:
+    """Проверяет карточку тикета с перечнем подключенных мессенджеров."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-1001",
+            raw_phone="+79123456789",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="max",
+            external_id="max-3003",
+            raw_phone="+79123456789",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="max",
+            external_id="max-3003",
+            question_text="Нужна помощь с картой",
+        )
+    )
+
+    details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=uow_factory)
+    details = details_use_case.execute(created.ticket_id)
+
+    assert details.source_platform == "max"
+    assert details.last_guest_platform == "max"
+    assert details.linked_platforms == ("max", "telegram")
+

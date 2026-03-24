@@ -41,6 +41,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 1. `SQLAlchemyIdentityRepository`.
 2. `SQLAlchemyIdentityUnitOfWork`.
 3. Транзакционного use-case регистрации/привязки.
+4. `SQLAlchemySupportRepository` и транзакционных support use-case (тикет/модерация).
 
 Текущий формат integration-тестов:
 
@@ -75,6 +76,9 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 13. Telegram onboarding/legacy-ветка (`/start` + `/legacy`) на общем flow.
 14. VK onboarding/legacy-ветка на общем flow (включая dirty-сценарии согласия).
 15. MAX onboarding/legacy-ветка на общем flow (включая dirty-сценарии согласия).
+16. Core use-case поддержки/модерации (создание тикета, выбор канала доставки ответа, карточка тикета).
+17. Команды модератора `/modreply` и `/modticket` в Telegram/VK/MAX.
+18. Integration/live-сценарии кросс-мессенджерной маршрутизации ответа модератора.
 
 ## 7. Живые тесты на локальном PostgreSQL
 
@@ -87,7 +91,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 3. Запустить общий `pytest` или только live-тесты:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integration/test_postgres_live_identity_repository.py
+powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integration/test_postgres_live_identity_repository.py tests/integration/test_postgres_live_support_repository.py
 ```
 
 Live-тесты создают временную схему в PostgreSQL и удаляют ее после завершения.
