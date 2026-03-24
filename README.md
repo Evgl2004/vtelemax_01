@@ -50,6 +50,12 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 .\.venv\Scripts\python.exe -m vtelemax.apps.telegram_app
 ```
 
+Запуск VK-адаптера (локально, без Docker):
+
+```powershell
+.\.venv\Scripts\python.exe -m vtelemax.apps.vk_app
+```
+
 Текущие команды/кнопки Telegram-бота:
 
 1. `/start` — приветствие и запрос контакта для регистрации.
@@ -58,6 +64,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 4. `Мой профиль` — показать телефон и число привязанных аккаунтов.
 5. `Помощь` — подсказки по регистрации и работе с ботом.
 6. `О проекте` — краткая информация о платформе.
+7. Те же пункты синхронизированы в стартовом VK-адаптере через `vkbottle` payload-кнопки.
 
 ## 4. Структура
 

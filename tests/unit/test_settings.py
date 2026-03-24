@@ -29,3 +29,12 @@ def test_settings_validate_telegram_ready_raises_for_empty_token() -> None:
 
     with pytest.raises(ValueError):
         settings.validate_telegram_ready()
+
+
+def test_settings_validate_vk_ready_raises_for_empty_token() -> None:
+    """Проверяет обязательность токена VK для запуска бота."""
+
+    settings = AppSettings(VK_BOT_TOKEN="   ")
+
+    with pytest.raises(ValueError):
+        settings.validate_vk_ready()

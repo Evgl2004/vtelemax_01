@@ -42,6 +42,7 @@
 2. Aiogram router для `/start` и обработки контакта (`adapters/telegram/router.py`).
 3. Telegram-меню синхронизировано по эталонным текстам Telegram-прототипа.
 4. Стартовый VK-адаптер меню на общем контракте (`adapters/vk/menu_adapter.py`).
+5. VK identity-адаптер и `vkbottle` router (`adapters/vk/identity_adapter.py`, `adapters/vk/router.py`).
 
 ### 2.3 Infrastructure
 
@@ -63,6 +64,7 @@
 1. Централизованные настройки через `AppSettings` (`settings.py`).
 2. Первая точка входа приложения: `apps/telegram_app.py`.
 3. Telegram-приложение использует два use-case: регистрация и чтение профиля по аккаунту.
+4. Добавлена точка входа VK-приложения: `apps/vk_app.py`.
 
 ## 3. Строгая идентификация (Strict Identity)
 

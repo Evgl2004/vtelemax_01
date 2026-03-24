@@ -41,6 +41,8 @@ class AppSettings(BaseSettings):
     postgres_auto_create_schema: bool = Field(default=False, alias="POSTGRES_AUTO_CREATE_SCHEMA")
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    vk_bot_token: str = Field(default="", alias="VK_BOT_TOKEN")
+    vk_group_id: int = Field(default=0, alias="VK_GROUP_ID")
 
     @property
     def postgres_sqlalchemy_dsn(self) -> str:
@@ -58,3 +60,9 @@ class AppSettings(BaseSettings):
             raise ValueError(
                 "Не задан TELEGRAM_BOT_TOKEN. Укажите токен бота в .env или переменной окружения."
             )
+
+    def validate_vk_ready(self) -> None:
+        """Проверяет, что настройки достаточны для запуска VK-бота."""
+
+        if not self.vk_bot_token.strip():
+            raise ValueError("Не задан VK_BOT_TOKEN. Укажите токен в .env или переменной окружения.")
