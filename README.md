@@ -74,6 +74,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 6. `О проекте` — краткая информация о платформе.
 7. `/legacy` — ручной запуск ветки обновления legacy-профиля (подтверждение телефона).
 8. Те же пункты синхронизированы в VK- и MAX-адаптерах через callback/payload-кнопки.
+9. Onboarding-flow (правила -> телефон + legacy-подтверждение) теперь единый для Telegram/VK/MAX.
 
 ## 4. Структура
 

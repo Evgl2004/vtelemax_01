@@ -53,7 +53,8 @@ class VkGuestMenuAdapter:
         """Стартовый экран правил."""
 
         screen = build_start_rules_screen()
-        return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=())
+        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_start_contact_screen(self) -> VkScreen:
         """Экран запроса телефона."""
@@ -185,4 +186,3 @@ class VkGuestMenuAdapter:
         if action == GuestMenuAction.SUPPORT_CONTACTS:
             return self.build_support_contacts_screen()
         return self.build_main_menu_screen(user_name=user_name)
-

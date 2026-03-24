@@ -43,9 +43,9 @@
 2. Aiogram router для `/start` и обработки контакта (`adapters/telegram/router.py`).
 3. Telegram-меню синхронизировано по эталонным текстам Telegram-прототипа.
 4. Telegram подключен к общему onboarding-flow (правила -> телефон) и legacy-ветке (`/legacy`).
-5. Стартовый VK-адаптер меню на общем контракте (`adapters/vk/menu_adapter.py`).
-6. VK identity-адаптер и `vkbottle` router (`adapters/vk/identity_adapter.py`, `adapters/vk/router.py`).
-7. MAX menu/identity/router-адаптеры на том же контракте (`adapters/max/*`).
+5. VK подключен к общему onboarding-flow и legacy-ветке (`adapters/vk/identity_adapter.py`).
+6. MAX подключен к общему onboarding-flow и legacy-ветке (`adapters/max/identity_adapter.py`).
+7. VK/MAX router-слой поддерживает явный запуск legacy-сценария по команде.
 8. Контрактные тесты согласованности Telegram/VK/MAX (`tests/adapter_contract/*`).
 
 ### 2.3 Infrastructure

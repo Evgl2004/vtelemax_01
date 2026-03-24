@@ -8,6 +8,7 @@ from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
 
 _START_COMMANDS = {"/start", "start", "начать"}
+_LEGACY_COMMANDS = {"/legacy", "legacy", "обновить профиль"}
 
 
 def register_max_guest_handlers(router: Any, adapter: MaxIdentityAdapter) -> None:
@@ -19,9 +20,12 @@ def register_max_guest_handlers(router: Any, adapter: MaxIdentityAdapter) -> Non
         if user_id is None:
             return
         text = _extract_message_text(event)
+        lowered = text.strip().lower()
 
-        if text.strip().lower() in _START_COMMANDS:
+        if lowered in _START_COMMANDS:
             response = adapter.handle_start(max_user_id=user_id)
+        elif lowered in _LEGACY_COMMANDS:
+            response = adapter.handle_legacy_start(max_user_id=user_id)
         else:
             response = adapter.handle_incoming(max_user_id=user_id, text=text, payload=None)
         await _send_response(event, response)
@@ -131,4 +135,3 @@ def _extract_callback_payload(event: Any) -> str | None:
             return None
         return str(payload)
     return None
-

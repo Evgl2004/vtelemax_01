@@ -61,6 +61,22 @@ def _flatten_rows(rows: tuple[tuple[object, ...], ...]) -> list[object]:
     return [button for row in rows for button in row]
 
 
+def _complete_cross_platform_registration(
+    telegram: TelegramIdentityAdapter,
+    vk: VkIdentityAdapter,
+    max_adapter: MaxIdentityAdapter,
+) -> None:
+    telegram.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+
+    vk.handle_start(vk_user_id=2002)
+    vk.handle_incoming(vk_user_id=2002, text="✅ Согласен", payload=None)
+    vk.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
+
+    max_adapter.handle_start(max_user_id=3003)
+    max_adapter.handle_incoming(max_user_id=3003, text="✅ Согласен", payload=None)
+    max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
+
+
 def test_main_menu_labels_are_identical_between_core_vk_max() -> None:
     """Проверяет единый набор кнопок главного меню."""
 
@@ -93,12 +109,7 @@ def test_profile_phone_is_consistent_for_telegram_vk_max() -> None:
     """Проверяет, что все адаптеры показывают один и тот же телефон профиля."""
 
     telegram, vk, max_adapter = _build_adapters()
-
-    telegram.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    vk.handle_start(vk_user_id=2002)
-    vk.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
-    max_adapter.handle_start(max_user_id=3003)
-    max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
+    _complete_cross_platform_registration(telegram, vk, max_adapter)
 
     telegram_profile = telegram.handle_menu_action(telegram_user_id=1001, action_text="Мой профиль")
     vk_profile = vk.handle_incoming(vk_user_id=2002, text="Мой профиль", payload=None)
@@ -116,12 +127,7 @@ def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
     """Проверяет единый префикс ошибки для неизвестной команды."""
 
     telegram, vk, max_adapter = _build_adapters()
-
-    telegram.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    vk.handle_start(vk_user_id=2002)
-    vk.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
-    max_adapter.handle_start(max_user_id=3003)
-    max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
+    _complete_cross_platform_registration(telegram, vk, max_adapter)
 
     telegram_result = telegram.handle_menu_action(telegram_user_id=1001, action_text="случайная_команда")
     vk_result = vk.handle_incoming(vk_user_id=2002, text="случайная_команда", payload=None)
@@ -130,4 +136,3 @@ def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
     assert "Команда не распознана" in telegram_result.message
     assert "Команда не распознана" in vk_result.text
     assert "Команда не распознана" in max_result.text
-

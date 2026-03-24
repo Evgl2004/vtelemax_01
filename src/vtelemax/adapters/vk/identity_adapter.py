@@ -5,22 +5,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from vtelemax.core import (
+    BUTTON_ACCEPT_RULES,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     GuestMenuAction,
     IdentityConflictError,
+    OnboardingFlowService,
+    OnboardingState,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
-    build_main_menu_screen,
-    build_profile_screen,
-    build_start_contact_screen,
     resolve_guest_menu_action,
 )
 
 from .menu_adapter import VkGuestMenuAdapter, VkScreen
 from .payloads import resolve_action_from_vk_payload
 
-_STATE_WAITING_PHONE = "waiting_phone"
+_STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
+_STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
+_STATE_WAITING_LEGACY_PHONE = OnboardingState.WAITING_LEGACY_PHONE.value
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
 
 
@@ -45,6 +47,7 @@ class VkIdentityAdapter:
         self._person_lookup_use_case = person_lookup_use_case
         self._menu_adapter = menu_adapter or VkGuestMenuAdapter()
         self._state_by_user_id: dict[int, str] = {}
+        self._onboarding_flow = OnboardingFlowService()
 
     def handle_start(self, vk_user_id: int) -> VkAdapterResponse:
         """Обрабатывает стартовый вход пользователя в VK-бот."""
@@ -53,20 +56,39 @@ class VkIdentityAdapter:
             GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
         )
         if person is None:
-            self._state_by_user_id[vk_user_id] = _STATE_WAITING_PHONE
-            contact_screen = self._menu_adapter.build_start_contact_screen()
-            return VkAdapterResponse(text=contact_screen.text, screen=contact_screen)
+            transition = self._onboarding_flow.begin_new_user()
+            self._state_by_user_id[vk_user_id] = transition.state.value
+            rules_screen = self._menu_adapter.build_start_rules_screen()
+            return VkAdapterResponse(text=transition.message, screen=rules_screen)
 
         self._state_by_user_id.pop(vk_user_id, None)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
         return VkAdapterResponse(text=main_screen.text, screen=main_screen)
 
+    def handle_legacy_start(self, vk_user_id: int) -> VkAdapterResponse:
+        """Явно запускает legacy-ветку для зарегистрированного пользователя."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            return self.handle_start(vk_user_id=vk_user_id)
+
+        transition = self._onboarding_flow.begin_legacy_upgrade()
+        self._state_by_user_id[vk_user_id] = transition.state.value
+        contact_screen = self._menu_adapter.build_start_contact_screen()
+        return VkAdapterResponse(text=transition.message, screen=contact_screen)
+
     def handle_incoming(self, vk_user_id: int, text: str, payload: dict[str, str] | None) -> VkAdapterResponse:
         """Обрабатывает входящее сообщение VK (text + payload)."""
 
         state = self._state_by_user_id.get(vk_user_id)
+        if state == _STATE_WAITING_RULES_CONSENT:
+            return self._handle_rules_consent(vk_user_id=vk_user_id, text=text, payload=payload)
         if state == _STATE_WAITING_PHONE:
-            return self._handle_phone_input(vk_user_id=vk_user_id, text=text)
+            return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=False)
+        if state == _STATE_WAITING_LEGACY_PHONE:
+            return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=True)
         if state == _STATE_WAITING_SUPPORT_QUESTION:
             return self._handle_support_question(vk_user_id=vk_user_id, text=text)
 
@@ -79,14 +101,14 @@ class VkIdentityAdapter:
                 GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
             )
             if person is None:
-                self._state_by_user_id[vk_user_id] = _STATE_WAITING_PHONE
-                contact_screen = self._menu_adapter.build_start_contact_screen()
+                self._state_by_user_id[vk_user_id] = _STATE_WAITING_RULES_CONSENT
+                rules_screen = self._menu_adapter.build_start_rules_screen()
                 return VkAdapterResponse(
                     text=(
-                        "Чтобы продолжить, сначала укажите номер телефона в формате +79991234567.\n\n"
-                        f"{contact_screen.text}"
+                        "Чтобы продолжить, сначала подтвердите согласие с правилами.\n\n"
+                        f"{rules_screen.text}"
                     ),
-                    screen=contact_screen,
+                    screen=rules_screen,
                 )
             main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
             return VkAdapterResponse(
@@ -99,8 +121,29 @@ class VkIdentityAdapter:
 
         return self._handle_action(vk_user_id=vk_user_id, action=action)
 
-    def _handle_phone_input(self, vk_user_id: int, text: str) -> VkAdapterResponse:
-        """Обрабатывает ввод телефона для регистрации."""
+    def _handle_rules_consent(
+        self,
+        vk_user_id: int,
+        text: str,
+        payload: dict[str, str] | None,
+    ) -> VkAdapterResponse:
+        """Обрабатывает шаг подтверждения согласия с правилами."""
+
+        action = resolve_action_from_vk_payload(payload)
+        consent_input = text
+        if action == GuestMenuAction.SHARE_CONTACT:
+            consent_input = BUTTON_ACCEPT_RULES
+
+        transition = self._onboarding_flow.handle_rules_input(consent_input)
+        self._state_by_user_id[vk_user_id] = transition.state.value
+        if transition.state == OnboardingState.WAITING_PHONE:
+            screen = self._menu_adapter.build_start_contact_screen()
+        else:
+            screen = self._menu_adapter.build_start_rules_screen()
+        return VkAdapterResponse(text=transition.message, screen=screen)
+
+    def _handle_phone_input(self, vk_user_id: int, text: str, *, is_legacy: bool) -> VkAdapterResponse:
+        """Обрабатывает ввод телефона для регистрации/legacy-обновления."""
 
         phone_text = (text or "").strip()
         if not phone_text:
@@ -135,9 +178,13 @@ class VkIdentityAdapter:
 
         self._state_by_user_id.pop(vk_user_id, None)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+        if is_legacy:
+            success_title = "Профиль legacy успешно обновлен. Номер подтвержден в единой базе."
+        else:
+            success_title = "Регистрация успешно подтверждена. Ваш номер сохранен в единой базе."
         return VkAdapterResponse(
             text=(
-                "Регистрация успешно подтверждена. Ваш номер сохранен в единой базе.\n\n"
+                f"{success_title}\n\n"
                 f"{main_screen.text}\n\n"
                 f"Ваш телефон: {person.phone_e164}"
             ),
@@ -172,18 +219,21 @@ class VkIdentityAdapter:
         )
 
         if person is None and action not in {GuestMenuAction.MAIN_MENU, GuestMenuAction.SHARE_CONTACT}:
-            self._state_by_user_id[vk_user_id] = _STATE_WAITING_PHONE
-            contact_screen = self._menu_adapter.build_start_contact_screen()
+            self._state_by_user_id[vk_user_id] = _STATE_WAITING_RULES_CONSENT
+            rules_screen = self._menu_adapter.build_start_rules_screen()
             return VkAdapterResponse(
                 text=(
-                    "Раздел доступен после регистрации. Сначала укажите номер телефона.\n\n"
-                    f"{contact_screen.text}"
+                    "Раздел доступен после регистрации. Сначала подтвердите согласие с правилами.\n\n"
+                    f"{rules_screen.text}"
                 ),
-                screen=contact_screen,
+                screen=rules_screen,
             )
 
         if action == GuestMenuAction.SHARE_CONTACT:
-            self._state_by_user_id[vk_user_id] = _STATE_WAITING_PHONE
+            if person is None:
+                self._state_by_user_id[vk_user_id] = _STATE_WAITING_PHONE
+            else:
+                self._state_by_user_id[vk_user_id] = _STATE_WAITING_LEGACY_PHONE
             contact_screen = self._menu_adapter.build_start_contact_screen()
             return VkAdapterResponse(text=contact_screen.text, screen=contact_screen)
 

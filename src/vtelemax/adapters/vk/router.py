@@ -26,6 +26,11 @@ def register_vk_guest_handlers(bot: Any, adapter: VkIdentityAdapter) -> None:
         )
         await _send_response(message, response)
 
+    @bot.on.private_message(text=["/legacy", "legacy", "Legacy", "обновить профиль"])
+    async def legacy_handler(message: Any) -> None:
+        response = adapter.handle_legacy_start(vk_user_id=int(message.from_id))
+        await _send_response(message, response)
+
     @bot.on.private_message()
     async def generic_handler(message: Any) -> None:
         payload = message.get_payload_json() or {}
@@ -33,7 +38,18 @@ def register_vk_guest_handlers(bot: Any, adapter: VkIdentityAdapter) -> None:
 
         # Защищаемся от дублирования start/menu обработчиков.
         lowered = text.strip().lower()
-        if lowered in {"/start", "start", "начать", "/menu", "menu", "меню", "главное меню"}:
+        if lowered in {
+            "/start",
+            "start",
+            "начать",
+            "/menu",
+            "menu",
+            "меню",
+            "главное меню",
+            "/legacy",
+            "legacy",
+            "обновить профиль",
+        }:
             return
 
         # Если пришёл payload с командой меню, отдаем приоритет payload.

@@ -73,6 +73,8 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 11. Adapter-contract тесты согласованности поведения Telegram/VK/MAX.
 12. Единый onboarding-flow `core` (регистрация + legacy) и его dirty-сценарии.
 13. Telegram onboarding/legacy-ветка (`/start` + `/legacy`) на общем flow.
+14. VK onboarding/legacy-ветка на общем flow (включая dirty-сценарии согласия).
+15. MAX onboarding/legacy-ветка на общем flow (включая dirty-сценарии согласия).
 
 ## 7. Живые тесты на локальном PostgreSQL
 

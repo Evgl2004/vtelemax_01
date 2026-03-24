@@ -49,22 +49,56 @@ def _build_adapter() -> MaxIdentityAdapter:
     return MaxIdentityAdapter(registration_use_case, lookup_use_case)
 
 
-def test_max_start_for_unregistered_user_requests_phone() -> None:
-    """Проверяет, что `/start` для нового пользователя запрашивает телефон."""
+def _complete_max_registration(adapter: MaxIdentityAdapter, max_user_id: int = 1001) -> None:
+    adapter.handle_start(max_user_id=max_user_id)
+    adapter.handle_incoming(max_user_id=max_user_id, text="✅ Согласен", payload=None)
+    adapter.handle_incoming(max_user_id=max_user_id, text="+79123456789", payload=None)
+
+
+def test_max_start_for_unregistered_user_requests_rules_consent() -> None:
+    """Проверяет, что `/start` для нового пользователя запрашивает согласие."""
 
     adapter = _build_adapter()
 
     response = adapter.handle_start(max_user_id=1001)
 
-    assert "Поделиться контактом" in response.text
+    assert "Согласен" in response.text
     assert response.screen is not None
+    assert response.screen.screen_id == "start_rules"
 
 
-def test_max_registration_by_phone_from_waiting_state() -> None:
-    """Проверяет успешную регистрацию после ввода номера телефона."""
+def test_max_onboarding_moves_from_rules_to_phone() -> None:
+    """Проверяет переход onboarding из правил к шагу телефона."""
 
     adapter = _build_adapter()
     adapter.handle_start(max_user_id=1001)
+
+    response = adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
+
+    assert "Поделиться контактом" in response.text
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_contact"
+
+
+def test_max_dirty_input_on_rules_step_keeps_consent_pending() -> None:
+    """Проверяет грязный сценарий: случайный текст вместо согласия."""
+
+    adapter = _build_adapter()
+    adapter.handle_start(max_user_id=1001)
+
+    response = adapter.handle_incoming(max_user_id=1001, text="хочу бонусы", payload=None)
+
+    assert "Чтобы продолжить регистрацию" in response.text
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_rules"
+
+
+def test_max_registration_by_phone_after_rules_consent() -> None:
+    """Проверяет успешную регистрацию после согласия и ввода номера."""
+
+    adapter = _build_adapter()
+    adapter.handle_start(max_user_id=1001)
+    adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
     response = adapter.handle_incoming(max_user_id=1001, text="+7 (912) 345-67-89", payload=None)
 
@@ -77,8 +111,7 @@ def test_max_profile_available_after_registration() -> None:
     """Проверяет получение профиля после регистрации."""
 
     adapter = _build_adapter()
-    adapter.handle_start(max_user_id=1001)
-    adapter.handle_incoming(max_user_id=1001, text="+79123456789", payload=None)
+    _complete_max_registration(adapter)
 
     response = adapter.handle_incoming(max_user_id=1001, text="Мой профиль", payload=None)
 
@@ -91,6 +124,7 @@ def test_max_invalid_phone_returns_validation_error() -> None:
 
     adapter = _build_adapter()
     adapter.handle_start(max_user_id=1001)
+    adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
     response = adapter.handle_incoming(max_user_id=1001, text="abc", payload=None)
 
@@ -101,8 +135,7 @@ def test_max_support_question_flow_returns_to_main_menu() -> None:
     """Проверяет сценарий вопроса в поддержку с возвратом в меню."""
 
     adapter = _build_adapter()
-    adapter.handle_start(max_user_id=1001)
-    adapter.handle_incoming(max_user_id=1001, text="+79123456789", payload=None)
+    _complete_max_registration(adapter)
 
     first = adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
     second = adapter.handle_incoming(
@@ -115,4 +148,19 @@ def test_max_support_question_flow_returns_to_main_menu() -> None:
     assert "Ваш вопрос принят" in second.text
     assert second.screen is not None
     assert second.screen.screen_id == "main_menu"
+
+
+def test_max_legacy_start_requests_phone_confirmation() -> None:
+    """Проверяет legacy-ветку с подтверждением телефона для зарегистрированного пользователя."""
+
+    adapter = _build_adapter()
+    _complete_max_registration(adapter)
+
+    legacy_start = adapter.handle_legacy_start(max_user_id=1001)
+    confirm = adapter.handle_incoming(max_user_id=1001, text="+79123456789", payload=None)
+
+    assert "предыдущей версии бота" in legacy_start.text
+    assert legacy_start.screen is not None
+    assert legacy_start.screen.screen_id == "start_contact"
+    assert "legacy успешно обновлен" in confirm.text
 

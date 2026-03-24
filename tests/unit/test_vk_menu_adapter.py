@@ -38,3 +38,13 @@ def test_vk_support_menu_respects_my_tickets_flag() -> None:
 
     assert "📋 Мои обращения" not in labels_without
     assert "📋 Мои обращения" in labels_with
+
+
+def test_vk_start_rules_screen_contains_consent_button() -> None:
+    """Проверяет, что экран правил содержит кнопку согласия."""
+
+    adapter = VkGuestMenuAdapter()
+    screen = adapter.build_start_rules_screen()
+
+    labels = [button.label for row in screen.rows for button in row]
+    assert "✅ Согласен" in labels
