@@ -32,6 +32,8 @@
 15. Скрипты Windows для настройки `.venv` и запуска тестов.
 16. Adapter-contract тесты для согласованности поведения между Telegram/VK/MAX.
 17. Тесты на `pytest` для ядра, ограничений схемы и integration/live-сценариев репозиториев.
+18. Docker-инфраструктура: `Dockerfile` и `docker-compose.yml` для запуска PostgreSQL + Telegram/VK/MAX.
+19. Скрипт `scripts/apply_sql_migrations.py` для применения SQL-миграций перед стартом контейнеров.
 
 ## 3. Быстрый старт (Windows)
 
@@ -68,6 +70,26 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 
 ```powershell
 .\.venv\Scripts\python.exe -m vtelemax.apps.max_app
+```
+
+Применение SQL-миграций локально (при необходимости):
+
+```powershell
+.\.venv\Scripts\python.exe scripts/apply_sql_migrations.py
+```
+
+Запуск всего стека в Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+Просмотр логов ботов:
+
+```bash
+docker compose logs -f telegram-bot
+docker compose logs -f vk-bot
+docker compose logs -f max-bot
 ```
 
 Текущие команды/кнопки Telegram-бота:
@@ -125,7 +147,8 @@ vtelemax/
 ## 7. Окружения
 
 1. Локальная разработка выполняется без Docker (виртуальное окружение + локальные сервисы).
-2. Итоговое развёртывание проекта выполняется через Docker Compose.
+2. Итоговое развёртывание проекта выполняется через Docker Compose (`docker-compose.yml`).
+3. Для контейнерного запуска используется idempotent-скрипт SQL-миграций `scripts/apply_sql_migrations.py`.
 
 ## 8. Документы проекта
 
@@ -134,3 +157,4 @@ vtelemax/
 3. Зафиксированный пошаговый план: `docs/DEVELOPMENT_PLAN.md`.
 4. Схема БД strict identity: `docs/DB_SCHEMA.md`.
 5. Тестирование: `docs/TESTING.md`.
+6. Контейнерный запуск: `docs/DEPLOYMENT_DOCKER.md`.

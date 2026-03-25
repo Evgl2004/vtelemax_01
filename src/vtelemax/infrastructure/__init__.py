@@ -7,3 +7,10 @@
 3. Технические детали, которые не должны попадать в `core`.
 """
 
+from .migrations import apply_migrations, list_migration_files, read_sql_statements
+
+__all__ = [
+    "apply_migrations",
+    "list_migration_files",
+    "read_sql_statements",
+]
