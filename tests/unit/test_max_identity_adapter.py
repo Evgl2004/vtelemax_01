@@ -8,6 +8,7 @@ from vtelemax.adapters.max import MaxIdentityAdapter
 from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
+    ListOpenSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
@@ -67,12 +68,16 @@ def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     return MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
         create_support_ticket_use_case=create_ticket_use_case,
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
+        list_open_tickets_use_case=list_open_tickets_use_case,
     )
 
 
@@ -92,12 +97,16 @@ def _build_adapter_with_support_context() -> tuple[
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     adapter = MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
         create_support_ticket_use_case=create_ticket_use_case,
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
+        list_open_tickets_use_case=list_open_tickets_use_case,
     )
     return adapter, registration_use_case
 
@@ -244,4 +253,33 @@ def test_max_moderator_reply_can_route_to_another_messenger() -> None:
     details = adapter.handle_incoming(max_user_id=9999, text=f"/modticket {ticket_id}", payload=None)
 
     assert "Маршрут доставки: vk" in reply.text
+    assert "Канал создания: max" in details.text
+
+
+def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
+    """Проверяет `/mod`-меню: список тикетов, грязный UUID и успешный ответ."""
+
+    adapter, _ = _build_adapter_with_support_context()
+    _complete_max_registration(adapter, max_user_id=1001)
+
+    adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
+    ticket_response = adapter.handle_incoming(max_user_id=1001, text="Нужна помощь", payload=None)
+    ticket_id = ticket_response.text.split("#")[1].split("\n")[0].strip()
+
+    open_menu = adapter.handle_incoming(max_user_id=9999, text="/mod", payload=None)
+    open_tickets = adapter.handle_incoming(max_user_id=9999, text="1", payload=None)
+    wait_ticket = adapter.handle_incoming(max_user_id=9999, text="2", payload=None)
+    dirty_ticket = adapter.handle_incoming(max_user_id=9999, text="не-uuid", payload=None)
+    wait_reply = adapter.handle_incoming(max_user_id=9999, text=ticket_id, payload=None)
+    routed = adapter.handle_incoming(max_user_id=9999, text="Ответ принят", payload=None)
+    wait_details = adapter.handle_incoming(max_user_id=9999, text="3", payload=None)
+    details = adapter.handle_incoming(max_user_id=9999, text=ticket_id, payload=None)
+
+    assert "Меню модератора" in open_menu.text
+    assert "Открытые тикеты:" in open_tickets.text
+    assert "Введите UUID тикета" in wait_ticket.text
+    assert "Некорректный ticket_id" in dirty_ticket.text
+    assert "Введите текст ответа модератора" in wait_reply.text
+    assert "Маршрут доставки: max" in routed.text
+    assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
     assert "Канал создания: max" in details.text

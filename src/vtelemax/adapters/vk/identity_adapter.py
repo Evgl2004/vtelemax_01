@@ -11,6 +11,7 @@ from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
+    ListOpenSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     GuestMenuAction,
     IdentityConflictError,
@@ -31,6 +32,10 @@ _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
 _STATE_WAITING_LEGACY_PHONE = OnboardingState.WAITING_LEGACY_PHONE.value
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
+_STATE_MOD_MENU = "moderation_menu"
+_STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
+_STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
+_STATE_MOD_WAIT_TICKET_FOR_DETAILS = "moderation_wait_ticket_for_details"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,15 +57,19 @@ class VkIdentityAdapter:
         create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
+        list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
     ) -> None:
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
         self._menu_adapter = menu_adapter or VkGuestMenuAdapter()
         self._state_by_user_id: dict[int, str] = {}
+        self._moderator_state_by_user_id: dict[int, str] = {}
+        self._moderator_context_by_user_id: dict[int, dict[str, str]] = {}
         self._onboarding_flow = OnboardingFlowService()
         self._create_support_ticket_use_case = create_support_ticket_use_case
         self._moderator_reply_use_case = moderator_reply_use_case
         self._ticket_details_use_case = ticket_details_use_case
+        self._list_open_tickets_use_case = list_open_tickets_use_case
 
     def handle_start(self, vk_user_id: int) -> VkAdapterResponse:
         """Обрабатывает стартовый вход пользователя в VK-бот."""
@@ -71,10 +80,12 @@ class VkIdentityAdapter:
         if person is None:
             transition = self._onboarding_flow.begin_new_user()
             self._state_by_user_id[vk_user_id] = transition.state.value
+            self._clear_moderator_state(vk_user_id)
             rules_screen = self._menu_adapter.build_start_rules_screen()
             return VkAdapterResponse(text=transition.message, screen=rules_screen)
 
         self._state_by_user_id.pop(vk_user_id, None)
+        self._clear_moderator_state(vk_user_id)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
         return VkAdapterResponse(text=main_screen.text, screen=main_screen)
 
@@ -89,6 +100,7 @@ class VkIdentityAdapter:
 
         transition = self._onboarding_flow.begin_legacy_upgrade()
         self._state_by_user_id[vk_user_id] = transition.state.value
+        self._clear_moderator_state(vk_user_id)
         contact_screen = self._menu_adapter.build_start_contact_screen()
         return VkAdapterResponse(text=transition.message, screen=contact_screen)
 
@@ -105,9 +117,13 @@ class VkIdentityAdapter:
         if state == _STATE_WAITING_SUPPORT_QUESTION:
             return self._handle_support_question(vk_user_id=vk_user_id, text=text)
 
-        moderator_response = self._try_handle_moderator_command(text)
+        moderator_response = self._try_handle_moderator_command(text=text, vk_user_id=vk_user_id)
         if moderator_response is not None:
             return moderator_response
+
+        moderator_state = self._moderator_state_by_user_id.get(vk_user_id)
+        if moderator_state is not None:
+            return self._handle_moderator_state_input(vk_user_id=vk_user_id, text=text)
 
         action = resolve_action_from_vk_payload(payload)
         if action is None:
@@ -194,6 +210,7 @@ class VkIdentityAdapter:
             )
 
         self._state_by_user_id.pop(vk_user_id, None)
+        self._clear_moderator_state(vk_user_id)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
         if is_legacy:
             success_title = "Профиль legacy успешно обновлен. Номер подтвержден в единой базе."
@@ -255,7 +272,12 @@ class VkIdentityAdapter:
             screen=main_screen,
         )
 
-    def _try_handle_moderator_command(self, text: str) -> VkAdapterResponse | None:
+    def _try_handle_moderator_command(
+        self,
+        *,
+        text: str,
+        vk_user_id: int,
+    ) -> VkAdapterResponse | None:
         """Пытается обработать команду модератора."""
 
         raw = (text or "").strip()
@@ -264,7 +286,263 @@ class VkIdentityAdapter:
             return self._handle_modreply_command(raw)
         if lowered.startswith("/modticket"):
             return self._handle_modticket_command(raw)
+        if lowered in {"/mod", "модератор", "moderator"}:
+            return self._open_moderator_menu(vk_user_id=vk_user_id)
         return None
+
+    def _open_moderator_menu(self, *, vk_user_id: int) -> VkAdapterResponse:
+        """Открывает единое меню модератора."""
+
+        if self._moderator_reply_use_case is None or self._ticket_details_use_case is None:
+            return VkAdapterResponse(
+                text="Меню модератора недоступно: не подключены сценарии modreply/modticket."
+            )
+
+        self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id.pop(vk_user_id, None)
+        return VkAdapterResponse(text=self._build_moderation_menu_text())
+
+    def _handle_moderator_state_input(self, *, vk_user_id: int, text: str) -> VkAdapterResponse:
+        """Обрабатывает ввод модератора внутри FSM-режима."""
+
+        state = self._moderator_state_by_user_id.get(vk_user_id)
+        if state is None:
+            return VkAdapterResponse(text=self._build_moderation_menu_text())
+
+        raw = (text or "").strip()
+        lowered = raw.lower()
+
+        if lowered in {"отмена", "/cancel", "/mod", "меню"}:
+            self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
+            self._moderator_context_by_user_id.pop(vk_user_id, None)
+            return VkAdapterResponse(text=self._build_moderation_menu_text())
+
+        if lowered in {"выход", "0"}:
+            self._clear_moderator_state(vk_user_id)
+            return VkAdapterResponse(
+                text="Режим модератора завершен. Для повторного входа используйте /mod."
+            )
+
+        if state == _STATE_MOD_MENU:
+            return self._handle_moderator_menu_choice(vk_user_id=vk_user_id, lowered_text=lowered)
+
+        if state == _STATE_MOD_WAIT_TICKET_FOR_REPLY:
+            return self._handle_moderator_wait_ticket_for_reply(
+                vk_user_id=vk_user_id,
+                raw_ticket_id=raw,
+            )
+
+        if state == _STATE_MOD_WAIT_REPLY_TEXT:
+            return self._handle_moderator_wait_reply_text(vk_user_id=vk_user_id, raw_message=raw)
+
+        if state == _STATE_MOD_WAIT_TICKET_FOR_DETAILS:
+            return self._handle_moderator_wait_ticket_for_details(
+                vk_user_id=vk_user_id,
+                raw_ticket_id=raw,
+            )
+
+        self._clear_moderator_state(vk_user_id)
+        return VkAdapterResponse(
+            text="Состояние модератора сброшено. Откройте меню заново через /mod."
+        )
+
+    def _handle_moderator_menu_choice(self, *, vk_user_id: int, lowered_text: str) -> VkAdapterResponse:
+        """Обрабатывает выбор пункта главного меню модератора."""
+
+        if lowered_text in {"1", "тикеты", "список"}:
+            tickets_text = self._build_open_tickets_text(limit=10)
+            return VkAdapterResponse(text=f"{tickets_text}\n\n{self._build_moderation_menu_text()}")
+
+        if lowered_text in {"2", "ответ", "ответить"}:
+            self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_WAIT_TICKET_FOR_REPLY
+            self._moderator_context_by_user_id.pop(vk_user_id, None)
+            return VkAdapterResponse(
+                text=(
+                    "Введите UUID тикета, для которого нужно отправить ответ.\n"
+                    "Для отмены отправьте «Отмена»."
+                )
+            )
+
+        if lowered_text in {"3", "карточка", "детали"}:
+            self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_WAIT_TICKET_FOR_DETAILS
+            self._moderator_context_by_user_id.pop(vk_user_id, None)
+            return VkAdapterResponse(
+                text=(
+                    "Введите UUID тикета, чтобы показать карточку обращения.\n"
+                    "Для отмены отправьте «Отмена»."
+                )
+            )
+
+        return VkAdapterResponse(
+            text=(
+                "Не удалось распознать пункт меню модератора.\n"
+                f"{self._build_moderation_menu_text()}"
+            )
+        )
+
+    def _handle_moderator_wait_ticket_for_reply(
+        self,
+        *,
+        vk_user_id: int,
+        raw_ticket_id: str,
+    ) -> VkAdapterResponse:
+        """Обрабатывает ввод ticket_id перед отправкой модераторского ответа."""
+
+        ticket_id = self._parse_ticket_id(raw_ticket_id)
+        if ticket_id is None:
+            return VkAdapterResponse(text="Некорректный ticket_id. Ожидается UUID.")
+
+        if self._ticket_details_use_case is None:
+            return VkAdapterResponse(
+                text="Меню модератора недоступно: details-use-case не подключен."
+            )
+
+        try:
+            self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            return VkAdapterResponse(text=f"Не удалось найти тикет: {error}")
+
+        self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_WAIT_REPLY_TEXT
+        self._moderator_context_by_user_id[vk_user_id] = {"ticket_id": str(ticket_id)}
+        return VkAdapterResponse(
+            text=(
+                "Введите текст ответа модератора.\n"
+                "Можно указать целевой канал префиксом: --to=telegram|vk|max.\n"
+                "Пример: --to=telegram Добрый день, ответ готов."
+            )
+        )
+
+    def _handle_moderator_wait_reply_text(self, *, vk_user_id: int, raw_message: str) -> VkAdapterResponse:
+        """Обрабатывает ввод текста ответа модератора в FSM-режиме."""
+
+        context = self._moderator_context_by_user_id.get(vk_user_id, {})
+        raw_ticket_id = context.get("ticket_id")
+        if raw_ticket_id is None:
+            self._clear_moderator_state(vk_user_id)
+            return VkAdapterResponse(
+                text="Потерян ticket_id в состоянии модератора. Откройте /mod заново."
+            )
+
+        parsed = self._parse_target_and_reply_text(raw_message)
+        if parsed is None:
+            return VkAdapterResponse(text="Текст ответа модератора не может быть пустым.")
+        preferred_target, message_text = parsed
+        if preferred_target is not None and preferred_target not in SUPPORTED_PLATFORMS:
+            return VkAdapterResponse(text="Недопустимая целевая платформа в --to.")
+
+        if self._moderator_reply_use_case is None:
+            return VkAdapterResponse(text="Маршрутизация ответа модератора пока недоступна.")
+
+        try:
+            route = self._moderator_reply_use_case.execute(
+                ModeratorReplyCommand(
+                    ticket_id=UUID(raw_ticket_id),
+                    moderator_platform="vk",
+                    reply_text=message_text,
+                    preferred_target_platform=preferred_target,  # type: ignore[arg-type]
+                )
+            )
+        except ValueError as error:
+            return VkAdapterResponse(text=f"Не удалось маршрутизировать ответ: {error}")
+
+        self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id.pop(vk_user_id, None)
+        return VkAdapterResponse(
+            text=(
+                "Ответ модератора зарегистрирован.\n"
+                f"Тикет: {route.ticket_id}\n"
+                f"Канал исходного обращения: {route.guest_source_platform}\n"
+                f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n"
+                f"ID сообщения: {route.message_id}\n\n"
+                f"{self._build_moderation_menu_text()}"
+            )
+        )
+
+    def _handle_moderator_wait_ticket_for_details(
+        self,
+        *,
+        vk_user_id: int,
+        raw_ticket_id: str,
+    ) -> VkAdapterResponse:
+        """Обрабатывает ввод ticket_id для показа карточки тикета."""
+
+        ticket_id = self._parse_ticket_id(raw_ticket_id)
+        if ticket_id is None:
+            return VkAdapterResponse(text="Некорректный ticket_id. Ожидается UUID.")
+
+        if self._ticket_details_use_case is None:
+            return VkAdapterResponse(
+                text="Команда карточки тикета пока недоступна: details-use-case не подключен."
+            )
+
+        try:
+            details = self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            return VkAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
+
+        self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id.pop(vk_user_id, None)
+        linked = ", ".join(details.linked_platforms)
+        return VkAdapterResponse(
+            text=(
+                f"Тикет: {details.ticket_id}\n"
+                f"Статус: {details.status}\n"
+                f"Канал создания: {details.source_platform}\n"
+                f"Последний канал гостя: {details.last_guest_platform or '-'}\n"
+                f"Каналы гостя: {linked}\n\n"
+                f"{self._build_moderation_menu_text()}"
+            )
+        )
+
+    def _build_open_tickets_text(self, *, limit: int) -> str:
+        """Формирует текст открытых тикетов для модераторского меню."""
+
+        if self._list_open_tickets_use_case is None:
+            return "Список тикетов недоступен: list-open-use-case не подключен."
+
+        tickets = self._list_open_tickets_use_case.execute(limit=limit)
+        if not tickets:
+            return "Открытых тикетов сейчас нет."
+
+        lines = ["Открытые тикеты:"]
+        for index, ticket in enumerate(tickets, start=1):
+            lines.append(
+                f"{index}. #{ticket.ticket_id} | канал={ticket.source_platform} | "
+                f"последний={ticket.last_guest_platform or '-'}"
+            )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_moderation_menu_text() -> str:
+        """Возвращает текст главного меню модератора."""
+
+        return (
+            "🛠 Меню модератора\n"
+            "1 — Список открытых тикетов\n"
+            "2 — Ответить на тикет\n"
+            "3 — Показать карточку тикета\n"
+            "0 — Выйти из режима модератора"
+        )
+
+    @staticmethod
+    def _parse_target_and_reply_text(raw_message: str) -> tuple[str | None, str] | None:
+        """Разбирает optional `--to=` и текст ответа модератора."""
+
+        raw = str(raw_message).strip()
+        if not raw:
+            return None
+
+        parts = raw.split()
+        preferred_target: str | None = None
+        if parts and parts[0].lower().startswith("--to="):
+            preferred_target = parts[0].split("=", maxsplit=1)[1].strip().lower()
+            message_text = " ".join(parts[1:]).strip()
+        else:
+            message_text = raw
+
+        if not message_text:
+            return None
+        return preferred_target, message_text
 
     def _handle_modreply_command(self, raw: str) -> VkAdapterResponse:
         """Обрабатывает команду модератора `/modreply`."""
@@ -364,6 +642,12 @@ class VkIdentityAdapter:
             return UUID(raw_ticket_id)
         except ValueError:
             return None
+
+    def _clear_moderator_state(self, vk_user_id: int) -> None:
+        """Очищает модераторское FSM-состояние пользователя."""
+
+        self._moderator_state_by_user_id.pop(vk_user_id, None)
+        self._moderator_context_by_user_id.pop(vk_user_id, None)
 
     def _handle_action(self, vk_user_id: int, action: GuestMenuAction) -> VkAdapterResponse:
         """Обрабатывает пункт меню для зарегистрированного пользователя."""

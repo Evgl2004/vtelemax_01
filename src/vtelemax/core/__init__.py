@@ -61,8 +61,10 @@ from .support_use_cases import (
     CreateSupportTicketTransactionalUseCase,
     CreatedSupportTicketResult,
     GetSupportTicketDetailsTransactionalUseCase,
+    ListOpenSupportTicketsTransactionalUseCase,
     ModeratorReplyCommand,
     ModeratorReplyRoutingResult,
+    OpenSupportTicketSummary,
     RouteModeratorReplyTransactionalUseCase,
     SupportTicketDetails,
 )
@@ -144,4 +146,6 @@ __all__ = [
     "RouteModeratorReplyTransactionalUseCase",
     "SupportTicketDetails",
     "GetSupportTicketDetailsTransactionalUseCase",
+    "OpenSupportTicketSummary",
+    "ListOpenSupportTicketsTransactionalUseCase",
 ]

@@ -12,6 +12,7 @@ from vtelemax.adapters.max import MaxIdentityAdapter, register_max_guest_handler
 from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
+    ListOpenSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -89,6 +90,17 @@ def build_ticket_details_use_case(
     return GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_list_open_tickets_use_case(
+    session_factory: sessionmaker[Session],
+) -> ListOpenSupportTicketsTransactionalUseCase:
+    """Собирает транзакционный use-case списка открытых тикетов."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return ListOpenSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def _import_maxapi_runtime() -> tuple[type[Any], type[Any], type[Any]]:
     """Импортирует runtime-классы maxapi только в момент запуска."""
 
@@ -112,12 +124,14 @@ def build_dispatcher(settings: AppSettings) -> Any:
     create_ticket_use_case = build_create_support_ticket_use_case(session_factory)
     moderator_reply_use_case = build_moderator_reply_use_case(session_factory)
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
+    list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)
     adapter = MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
         create_support_ticket_use_case=create_ticket_use_case,
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
+        list_open_tickets_use_case=list_open_tickets_use_case,
     )
 
     dispatcher = Dispatcher()

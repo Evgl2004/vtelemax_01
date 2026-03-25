@@ -6,8 +6,10 @@ from types import TracebackType
 
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
 from vtelemax.core import (
+    CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
+    ListOpenSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
@@ -379,12 +381,16 @@ def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> N
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
+    list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     adapter = TelegramIdentityAdapter(
         registration_use_case,
         lookup_use_case,
         create_support_ticket_use_case=create_ticket_use_case,
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
+        list_open_tickets_use_case=list_open_tickets_use_case,
     )
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
@@ -407,4 +413,69 @@ def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> N
     details = adapter.handle_menu_action(telegram_user_id=9999, action_text=f"/modticket {ticket_id}")
 
     assert "Маршрут доставки: vk" in reply.message
+    assert "Канал создания: telegram" in details.message
+
+
+def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
+    """Проверяет `/mod`-меню: грязный UUID, успешный ответ и карточку тикета."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        moderator_reply_use_case=moderator_reply_use_case,
+        ticket_details_use_case=ticket_details_use_case,
+        list_open_tickets_use_case=list_open_tickets_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    created_ticket = create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="1001",
+            question_text="Нужна помощь с приложением",
+        )
+    )
+
+    open_menu = adapter.handle_menu_action(telegram_user_id=9999, action_text="/mod")
+    wait_ticket = adapter.handle_menu_action(telegram_user_id=9999, action_text="2")
+    dirty_ticket = adapter.handle_menu_action(telegram_user_id=9999, action_text="не-uuid")
+    wait_reply = adapter.handle_menu_action(
+        telegram_user_id=9999,
+        action_text=str(created_ticket.ticket_id),
+    )
+    routed = adapter.handle_menu_action(telegram_user_id=9999, action_text="Ответ принят")
+
+    wait_details = adapter.handle_menu_action(telegram_user_id=9999, action_text="3")
+    details = adapter.handle_menu_action(
+        telegram_user_id=9999,
+        action_text=str(created_ticket.ticket_id),
+    )
+
+    assert open_menu.status == "moderation_menu"
+    assert "Меню модератора" in open_menu.message
+    assert wait_ticket.status == "moderation_wait_ticket_for_reply"
+    assert dirty_ticket.status == "moderation_bad_ticket"
+    assert wait_reply.status == "moderation_wait_reply_text"
+    assert routed.status == "moderation_routed"
+    assert "Маршрут доставки: telegram" in routed.message
+    assert wait_details.status == "moderation_wait_ticket_for_details"
+    assert details.status == "moderation_details"
     assert "Канал создания: telegram" in details.message

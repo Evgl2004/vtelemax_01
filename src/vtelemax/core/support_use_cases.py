@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from .models import PlatformName, SUPPORTED_PLATFORMS
@@ -236,3 +237,46 @@ class GetSupportTicketDetailsTransactionalUseCase:
                 linked_platforms=linked_platforms,
             )
 
+
+@dataclass(frozen=True, slots=True)
+class OpenSupportTicketSummary:
+    """Краткая карточка открытого тикета для меню модератора."""
+
+    ticket_id: UUID
+    status: SupportTicketStatus
+    source_platform: PlatformName
+    last_guest_platform: PlatformName | None
+    created_at: datetime | None
+
+
+class ListOpenSupportTicketsTransactionalUseCase:
+    """Возвращает список открытых тикетов для модераторского меню."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, *, limit: int = 10) -> tuple[OpenSupportTicketSummary, ...]:
+        """Читает открытые тикеты с ограничением по количеству."""
+
+        safe_limit = max(int(limit), 1)
+        with self._unit_of_work_factory() as unit_of_work:
+            tickets = unit_of_work.support_repository.list_open_tickets(limit=safe_limit)
+
+        # Нормализуем сортировку по дате по убыванию, чтобы интерфейс
+        # модератора всегда показывал самые свежие тикеты вверху.
+        epoch = datetime.fromtimestamp(0, tz=timezone.utc)
+        sorted_tickets = sorted(
+            tickets,
+            key=lambda item: item.created_at or epoch,
+            reverse=True,
+        )
+        return tuple(
+            OpenSupportTicketSummary(
+                ticket_id=ticket.ticket_id,
+                status=ticket.status,
+                source_platform=ticket.source_platform,
+                last_guest_platform=ticket.last_guest_platform,
+                created_at=ticket.created_at,
+            )
+            for ticket in sorted_tickets[:safe_limit]
+        )

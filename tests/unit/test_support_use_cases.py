@@ -14,9 +14,11 @@ from vtelemax.core import (
     IdentityUnitOfWork,
     InMemoryIdentityRepository,
     InMemorySupportRepository,
+    ListOpenSupportTicketsTransactionalUseCase,
     ModeratorReplyCommand,
     RouteModeratorReplyTransactionalUseCase,
     SupportDeliveryStatus,
+    SupportTicketStatus,
     SupportRepository,
     SupportUnitOfWork,
     RegisterOrAttachAccountCommand,
@@ -235,3 +237,47 @@ def test_get_support_ticket_details_returns_linked_platforms() -> None:
     assert details.last_guest_platform == "max"
     assert details.linked_platforms == ("max", "telegram")
 
+
+def test_list_open_tickets_handles_dirty_limit_and_excludes_closed() -> None:
+    """Проверяет список открытых тикетов: limit<=0 нормализуется и закрытые тикеты не возвращаются."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-1001",
+            raw_phone="+79123456789",
+        )
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    closed_ticket = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-1001",
+            question_text="Первый вопрос",
+        )
+    )
+    open_ticket = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-1001",
+            question_text="Второй вопрос",
+        )
+    )
+
+    # Имитируем закрытие первого тикета, чтобы проверить фильтрацию по статусу.
+    stored_closed_ticket = support_repository.get_ticket(closed_ticket.ticket_id)
+    assert stored_closed_ticket is not None
+    stored_closed_ticket.status = SupportTicketStatus.CLOSED
+
+    list_use_case = ListOpenSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
+    result = list_use_case.execute(limit=0)
+
+    assert len(result) == 1
+    assert result[0].ticket_id == open_ticket.ticket_id
+    assert result[0].status == SupportTicketStatus.OPEN
