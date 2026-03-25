@@ -7,7 +7,9 @@ from types import TracebackType
 from vtelemax.adapters.max import MaxIdentityAdapter
 from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
+    GetLoyaltyBalanceUseCase,
     GetPersonByAccountTransactionalUseCase,
+    GetVirtualCardUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
@@ -15,6 +17,11 @@ from vtelemax.core import (
     IdentityUnitOfWork,
     InMemoryIdentityRepository,
     InMemorySupportRepository,
+    LoyaltyCard,
+    LoyaltyCustomer,
+    LoyaltyGateway,
+    LoyaltyIssueCardResult,
+    LoyaltyRegisterCustomerResult,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -51,6 +58,22 @@ class InMemorySupportUnitOfWork(InMemoryIdentityUnitOfWork):
     def __init__(self, repository: IdentityRepository, support_repository: InMemorySupportRepository) -> None:
         super().__init__(repository)
         self.support_repository = support_repository
+
+
+class StubLoyaltyGateway(LoyaltyGateway):
+    """Тестовый шлюз лояльности для проверки меню «Баланс/Виртуальная карта»."""
+
+    def __init__(self, *, customer: LoyaltyCustomer | None) -> None:
+        self._customer = customer
+
+    def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
+        return self._customer
+
+    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+        return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
+
+    def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
+        return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
 
 
 def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
@@ -188,6 +211,60 @@ def test_max_profile_available_after_registration() -> None:
 
     assert "Ваш профиль" in response.text
     assert "+79123456789" in response.text
+
+
+def test_max_balance_uses_loyalty_use_case() -> None:
+    """Проверяет, что пункт «Мой баланс» возвращает данные из loyalty use-case."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    loyalty_gateway = StubLoyaltyGateway(
+        customer=LoyaltyCustomer(customer_id="cust-1", balance=44.5, cards=())
+    )
+    adapter = MaxIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        balance_use_case=GetLoyaltyBalanceUseCase(loyalty_gateway),
+    )
+    _complete_max_registration(adapter)
+
+    response = adapter.handle_incoming(max_user_id=1001, text="💰 Мой баланс", payload=None)
+
+    assert "44.50" in response.text
+
+
+def test_max_virtual_card_uses_loyalty_use_case() -> None:
+    """Проверяет, что пункт «Виртуальная карта» возвращает номер карты из loyalty use-case."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    loyalty_gateway = StubLoyaltyGateway(
+        customer=LoyaltyCustomer(
+            customer_id="cust-1",
+            balance=0.0,
+            cards=(LoyaltyCard(number="79123456789_20260325"),),
+        )
+    )
+    adapter = MaxIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        virtual_card_use_case=GetVirtualCardUseCase(loyalty_gateway),
+    )
+    _complete_max_registration(adapter)
+
+    response = adapter.handle_incoming(max_user_id=1001, text="🪪 Виртуальная карта", payload=None)
+
+    assert "79123456789_20260325" in response.text
 
 
 def test_max_invalid_phone_returns_validation_error() -> None:

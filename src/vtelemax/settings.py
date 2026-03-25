@@ -41,10 +41,14 @@ class AppSettings(BaseSettings):
     postgres_auto_create_schema: bool = Field(default=False, alias="POSTGRES_AUTO_CREATE_SCHEMA")
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    telegram_bot_username: str = Field(default="", alias="TELEGRAM_BOT_USERNAME")
     vk_bot_token: str = Field(default="", alias="VK_BOT_TOKEN")
     vk_group_id: int = Field(default=0, alias="VK_GROUP_ID")
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
+    iiko_api_key: str = Field(default="", alias="IIKO_API_KEY")
+    iiko_org_id: str = Field(default="", alias="IIKO_ORG_ID")
+    iiko_base_url: str = Field(default="https://api-ru.iiko.services/api/1", alias="IIKO_BASE_URL")
 
     @property
     def postgres_sqlalchemy_dsn(self) -> str:
@@ -74,3 +78,9 @@ class AppSettings(BaseSettings):
 
         if not self.max_bot_token.strip():
             raise ValueError("Не задан MAX_BOT_TOKEN. Укажите токен в .env или переменной окружения.")
+
+    @property
+    def is_iiko_configured(self) -> bool:
+        """Показывает, включена ли интеграция с iiko для разделов лояльности."""
+
+        return bool(self.iiko_api_key.strip() and self.iiko_org_id.strip())

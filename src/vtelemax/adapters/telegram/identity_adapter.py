@@ -20,8 +20,10 @@ from vtelemax.core import (
     BUTTON_VIRTUAL_CARD,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
+    GetLoyaltyBalanceUseCase,
     GuestMenuAction,
     GetSupportTicketDetailsTransactionalUseCase,
+    GetVirtualCardUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
     ModeratorReplyCommand,
@@ -90,6 +92,8 @@ class TelegramIdentityAdapter:
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
         list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
+        balance_use_case: GetLoyaltyBalanceUseCase | None = None,
+        virtual_card_use_case: GetVirtualCardUseCase | None = None,
     ) -> None:
         self._logger = logger.bind(platform="telegram", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -104,6 +108,8 @@ class TelegramIdentityAdapter:
         self._ticket_details_use_case = ticket_details_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
         self._list_person_tickets_use_case = list_person_tickets_use_case
+        self._balance_use_case = balance_use_case
+        self._virtual_card_use_case = virtual_card_use_case
 
     def start_interaction(
         self,
@@ -392,22 +398,10 @@ class TelegramIdentityAdapter:
             )
 
         if action == GuestMenuAction.BALANCE:
-            return TelegramMenuActionResult(
-                status="balance_unavailable",
-                message=(
-                    "❌ Информация о бонусах временно недоступна.\n"
-                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
-                ),
-            )
+            return self._handle_balance_action(telegram_user_id=telegram_user_id)
 
         if action == GuestMenuAction.VIRTUAL_CARD:
-            return TelegramMenuActionResult(
-                status="virtual_card_unavailable",
-                message=(
-                    "🪪 Раздел виртуальной карты пока недоступен в этом адаптере.\n"
-                    "Скоро подключим полный сценарий выпуска и показа QR."
-                ),
-            )
+            return self._handle_virtual_card_action(telegram_user_id=telegram_user_id)
 
         if action == GuestMenuAction.MY_TICKETS:
             tickets = self._list_user_tickets(
@@ -797,6 +791,72 @@ class TelegramIdentityAdapter:
                 f"последний={ticket.last_guest_platform or '-'}"
             )
         return "\n".join(lines)
+
+    def _handle_balance_action(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
+        """Обрабатывает пункт меню «Мой баланс» через общий use-case лояльности."""
+
+        if self._balance_use_case is None:
+            return TelegramMenuActionResult(
+                status="balance_unavailable",
+                message=(
+                    "❌ Информация о бонусах временно недоступна.\n"
+                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                ),
+            )
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
+        )
+        if person is None:
+            screen = build_profile_not_found_screen()
+            return TelegramMenuActionResult(
+                status="not_registered",
+                message=screen.text,
+                requires_contact_keyboard=True,
+            )
+
+        result = self._balance_use_case.execute(phone_e164=person.phone_e164)
+        return TelegramMenuActionResult(
+            status=result.status,
+            message=result.message,
+            parse_mode="Markdown" if result.parse_mode == "markdown" else None,
+        )
+
+    def _handle_virtual_card_action(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
+        """Обрабатывает пункт меню «Виртуальная карта» через общий use-case лояльности."""
+
+        if self._virtual_card_use_case is None:
+            return TelegramMenuActionResult(
+                status="virtual_card_unavailable",
+                message=(
+                    "❌ Раздел виртуальной карты временно недоступен.\n"
+                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                ),
+            )
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
+        )
+        if person is None:
+            screen = build_profile_not_found_screen()
+            return TelegramMenuActionResult(
+                status="not_registered",
+                message=screen.text,
+                requires_contact_keyboard=True,
+            )
+
+        result = self._virtual_card_use_case.execute(phone_e164=person.phone_e164)
+        return TelegramMenuActionResult(
+            status=result.status,
+            message=result.message,
+            parse_mode="Markdown" if result.parse_mode == "markdown" else None,
+        )
 
     @staticmethod
     def _build_moderation_menu_text() -> str:

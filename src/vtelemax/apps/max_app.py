@@ -14,6 +14,8 @@ from vtelemax.adapters.max import MaxIdentityAdapter, register_max_guest_handler
 from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
+    GetLoyaltyBalanceUseCase,
+    GetVirtualCardUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
@@ -28,7 +30,7 @@ from vtelemax.infrastructure.postgres import (
     build_engine,
     build_session_factory,
 )
-from vtelemax.infrastructure import configure_logging
+from vtelemax.infrastructure import IikoLoyaltyGateway, configure_logging
 from vtelemax.settings import AppSettings
 
 
@@ -140,6 +142,22 @@ def build_update_delivery_status_use_case(
     return UpdateModeratorMessageDeliveryStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
+    """Собирает iiko-шлюз для разделов лояльности или возвращает `None`, если интеграция выключена."""
+
+    if not settings.is_iiko_configured:
+        logger.bind(platform="max", component="app", stage="startup").warning(
+            "Интеграция iiko отключена: не заданы IIKO_API_KEY/IIKO_ORG_ID."
+        )
+        return None
+
+    return IikoLoyaltyGateway(
+        api_key=settings.iiko_api_key,
+        organization_id=settings.iiko_org_id,
+        base_url=settings.iiko_base_url,
+    )
+
+
 def _import_maxapi_runtime() -> tuple[type[Any], type[Any], type[Any]]:
     """Импортирует runtime-классы maxapi только в момент запуска."""
 
@@ -167,6 +185,9 @@ def build_dispatcher(settings: AppSettings) -> Any:
     list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
     pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
     update_delivery_status_use_case = build_update_delivery_status_use_case(session_factory)
+    iiko_gateway = build_iiko_gateway(settings)
+    balance_use_case = GetLoyaltyBalanceUseCase(iiko_gateway) if iiko_gateway is not None else None
+    virtual_card_use_case = GetVirtualCardUseCase(iiko_gateway) if iiko_gateway is not None else None
     adapter = MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
@@ -175,6 +196,8 @@ def build_dispatcher(settings: AppSettings) -> Any:
         ticket_details_use_case=ticket_details_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
+        balance_use_case=balance_use_case,
+        virtual_card_use_case=virtual_card_use_case,
     )
     delivery_processor = PendingModeratorDeliveryProcessor(
         target_platform="max",

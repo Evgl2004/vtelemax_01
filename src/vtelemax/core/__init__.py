@@ -44,6 +44,19 @@ from .onboarding import OnboardingFlowService, OnboardingState, OnboardingTransi
 from .identity import StrictIdentityService
 from .in_memory_identity_repository import InMemoryIdentityRepository
 from .in_memory_support_repository import InMemorySupportRepository
+from .loyalty_ports import (
+    LoyaltyCard,
+    LoyaltyCustomer,
+    LoyaltyGateway,
+    LoyaltyGatewayError,
+    LoyaltyIssueCardResult,
+    LoyaltyRegisterCustomerResult,
+)
+from .loyalty_use_cases import (
+    GetLoyaltyBalanceUseCase,
+    GetVirtualCardUseCase,
+    LoyaltyMenuResult,
+)
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
 from .models import Person, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .phone import normalize_phone
@@ -91,6 +104,15 @@ __all__ = [
     "SupportUnitOfWork",
     "InMemoryIdentityRepository",
     "InMemorySupportRepository",
+    "LoyaltyGateway",
+    "LoyaltyGatewayError",
+    "LoyaltyCard",
+    "LoyaltyCustomer",
+    "LoyaltyRegisterCustomerResult",
+    "LoyaltyIssueCardResult",
+    "GetLoyaltyBalanceUseCase",
+    "GetVirtualCardUseCase",
+    "LoyaltyMenuResult",
     "GuestMenuAction",
     "MenuButtonContract",
     "MenuScreenContract",

@@ -11,11 +11,13 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
+    GetLoyaltyBalanceUseCase,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
+    GetVirtualCardUseCase,
     GuestMenuAction,
     IdentityConflictError,
     ModeratorReplyCommand,
@@ -63,6 +65,8 @@ class VkIdentityAdapter:
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
         list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
+        balance_use_case: GetLoyaltyBalanceUseCase | None = None,
+        virtual_card_use_case: GetVirtualCardUseCase | None = None,
     ) -> None:
         self._logger = logger.bind(platform="vk", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -77,6 +81,8 @@ class VkIdentityAdapter:
         self._ticket_details_use_case = ticket_details_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
         self._list_person_tickets_use_case = list_person_tickets_use_case
+        self._balance_use_case = balance_use_case
+        self._virtual_card_use_case = virtual_card_use_case
 
     def handle_start(self, vk_user_id: int) -> VkAdapterResponse:
         """Обрабатывает стартовый вход пользователя в VK-бот."""
@@ -709,20 +715,10 @@ class VkIdentityAdapter:
             return VkAdapterResponse(text=screen.text, screen=screen)
 
         if action == GuestMenuAction.BALANCE:
-            return VkAdapterResponse(
-                text=(
-                    "❌ Информация о бонусах временно недоступна.\n"
-                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
-                )
-            )
+            return self._handle_balance_action(person_phone_e164=person.phone_e164)
 
         if action == GuestMenuAction.VIRTUAL_CARD:
-            return VkAdapterResponse(
-                text=(
-                    "🪪 Раздел виртуальной карты пока недоступен в этом адаптере.\n"
-                    "Скоро подключим полный сценарий выпуска и показа QR."
-                )
-            )
+            return self._handle_virtual_card_action(person_phone_e164=person.phone_e164)
 
         if action == GuestMenuAction.MY_TICKETS:
             tickets = self._list_user_tickets(
@@ -751,6 +747,34 @@ class VkIdentityAdapter:
         has_tickets = self._has_user_tickets(platform="vk", external_id=str(vk_user_id))
         screen = self._menu_adapter.resolve_action_screen(action, user_name="Гость", has_tickets=has_tickets)
         return VkAdapterResponse(text=screen.text, screen=screen)
+
+    def _handle_balance_action(self, *, person_phone_e164: str) -> VkAdapterResponse:
+        """Обрабатывает пункт меню «Мой баланс» через общий use-case лояльности."""
+
+        if self._balance_use_case is None:
+            return VkAdapterResponse(
+                text=(
+                    "❌ Информация о бонусах временно недоступна.\n"
+                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                )
+            )
+
+        result = self._balance_use_case.execute(phone_e164=person_phone_e164)
+        return VkAdapterResponse(text=result.message)
+
+    def _handle_virtual_card_action(self, *, person_phone_e164: str) -> VkAdapterResponse:
+        """Обрабатывает пункт меню «Виртуальная карта» через общий use-case лояльности."""
+
+        if self._virtual_card_use_case is None:
+            return VkAdapterResponse(
+                text=(
+                    "❌ Раздел виртуальной карты временно недоступен.\n"
+                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                )
+            )
+
+        result = self._virtual_card_use_case.execute(phone_e164=person_phone_e164)
+        return VkAdapterResponse(text=result.message)
 
     def _has_user_tickets(self, *, platform: str, external_id: str) -> bool:
         """Проверяет, есть ли у пользователя хотя бы один тикет поддержки."""

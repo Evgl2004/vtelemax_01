@@ -30,6 +30,7 @@
 6. Единый onboarding-flow регистрации/legacy (`onboarding.py`).
 7. Доменные модели и порты поддержки/модерации (`support_models.py`, `support_ports.py`).
 8. Use-case создания тикета, маршрутизации ответа модератора и чтения карточки тикета (`support_use_cases.py`).
+9. Порт лояльности и use-case разделов `Мой баланс` / `Виртуальная карта` (`loyalty_ports.py`, `loyalty_use_cases.py`).
 
 ### 2.2 Adapters
 
@@ -53,6 +54,7 @@
 10. Команды модератора `/modreply` и `/modticket` реализованы в Telegram/VK/MAX.
 11. В Telegram/VK/MAX восстановлен сценарий `/mod` с FSM-меню модератора (список тикетов, ответ, карточка).
 12. Реализован MVP-контур доставки pending-сообщений модератора в целевые каналы (одна попытка, статусы `sent/failed`).
+13. Разделы меню `Мой баланс` и `Виртуальная карта` подключены к единым core use-case во всех трех адаптерах.
 
 ### 2.3 Infrastructure
 
@@ -71,6 +73,7 @@
 5. SQLAlchemy-схема и SQL-миграция support-таблиц (`support_tickets`, `support_messages`, `migrations/sql/0002_support_tickets.sql`).
 6. SQLAlchemy-репозиторий поддержки (`infrastructure/postgres/support_repository.py`).
 7. Централизованная конфигурация логирования (`infrastructure/logging_config.py`).
+8. Инфраструктурный iiko-клиент лояльности (`infrastructure/iiko_client.py`).
 
 ### 2.4 Settings и приложения
 
@@ -81,6 +84,8 @@
 5. Добавлена точка входа MAX-приложения: `apps/max_app.py`.
 6. Во всех приложениях подключены use-case поддержки/модерации (создание тикета, маршрутизация ответа, карточка тикета, список открытых тикетов, выборка pending и фиксация статуса доставки).
 7. Во всех приложениях и роутерах добавлены этапные логи взаимодействий (входящие события, onboarding, модерация, pending-доставка).
+8. В `AppSettings` добавлены параметры интеграции с iiko (`IIKO_API_KEY`, `IIKO_ORG_ID`, `IIKO_BASE_URL`) и флаг `is_iiko_configured`.
+9. Во всех приложениях подключены loyalty-use-case (`GetLoyaltyBalanceUseCase`, `GetVirtualCardUseCase`) с единым iiko-шлюзом.
 
 ## 3. Строгая идентификация (Strict Identity)
 
