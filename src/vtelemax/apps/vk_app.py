@@ -14,6 +14,7 @@ from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     PullPendingModeratorMessagesTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
@@ -105,6 +106,17 @@ def build_list_open_tickets_use_case(
     return ListOpenSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_list_person_tickets_use_case(
+    session_factory: sessionmaker[Session],
+) -> ListPersonSupportTicketsTransactionalUseCase:
+    """Собирает транзакционный use-case списка тикетов пользователя."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return ListPersonSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def build_pull_pending_messages_use_case(
     session_factory: sessionmaker[Session],
 ) -> PullPendingModeratorMessagesTransactionalUseCase:
@@ -137,6 +149,7 @@ def build_bot(settings: AppSettings) -> Bot:
     moderator_reply_use_case = build_moderator_reply_use_case(session_factory)
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
     list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)
+    list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
     pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
     update_delivery_status_use_case = build_update_delivery_status_use_case(session_factory)
     adapter = VkIdentityAdapter(
@@ -146,6 +159,7 @@ def build_bot(settings: AppSettings) -> Bot:
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
     )
     delivery_processor = PendingModeratorDeliveryProcessor(
         target_platform="vk",

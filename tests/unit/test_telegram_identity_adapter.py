@@ -10,6 +10,7 @@ from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
@@ -362,6 +363,39 @@ def test_telegram_support_question_creates_ticket_when_support_use_case_connecte
 
     assert result.status == "support_question_submitted"
     assert "Создан тикет #" in result.message
+
+
+def test_telegram_my_tickets_shows_created_tickets() -> None:
+    """Проверяет раздел «Мои обращения» после создания обращения пользователем."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="Нужна помощь")
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="📋 Мои обращения")
+
+    assert result.status == "tickets_list"
+    assert "Ваши обращения" in result.message
+    assert "Тикет #" in result.message
 
 
 def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> None:

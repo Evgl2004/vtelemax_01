@@ -23,6 +23,9 @@ class SupportRepository(Protocol):
     def list_open_tickets(self, limit: int = 20) -> list[SupportTicket]:
         """Возвращает список открытых тикетов."""
 
+    def list_person_tickets(self, person_id: UUID, limit: int = 20) -> list[SupportTicket]:
+        """Возвращает список тикетов конкретного пользователя."""
+
     def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
         """Обновляет канал последней активности гостя."""
 
@@ -70,4 +73,3 @@ class SupportUnitOfWork(Protocol):
 
     def rollback(self) -> None:
         """Откатывает транзакцию."""
-

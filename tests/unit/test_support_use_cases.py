@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import TracebackType
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from vtelemax.core import (
     InMemoryIdentityRepository,
     InMemorySupportRepository,
     ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     ModeratorReplyCommand,
     PullPendingModeratorMessagesTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -285,6 +287,68 @@ def test_list_open_tickets_handles_dirty_limit_and_excludes_closed() -> None:
     assert len(result) == 1
     assert result[0].ticket_id == open_ticket.ticket_id
     assert result[0].status == SupportTicketStatus.OPEN
+
+
+def test_list_person_tickets_returns_latest_for_person() -> None:
+    """Проверяет список тикетов пользователя в порядке свежести."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-1001",
+            raw_phone="+79123456789",
+        )
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    first_ticket = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-1001",
+            question_text="Первый вопрос",
+        )
+    )
+    second_ticket = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-1001",
+            question_text="Второй вопрос",
+        )
+    )
+
+    first_stored = support_repository.get_ticket(first_ticket.ticket_id)
+    second_stored = support_repository.get_ticket(second_ticket.ticket_id)
+    assert first_stored is not None
+    assert second_stored is not None
+    first_stored.created_at = datetime.now(tz=timezone.utc) - timedelta(minutes=5)
+    second_stored.created_at = datetime.now(tz=timezone.utc)
+
+    list_person_use_case = ListPersonSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
+    result = list_person_use_case.execute(platform="vk", external_id="vk-1001", limit=10)
+
+    assert len(result) == 2
+    assert result[0].ticket_id == second_ticket.ticket_id
+    assert result[1].ticket_id == first_ticket.ticket_id
+
+
+def test_list_person_tickets_handles_unknown_account_and_dirty_input() -> None:
+    """Проверяет пустой результат для неизвестного аккаунта и валидацию грязного ввода."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+    list_person_use_case = ListPersonSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+    empty_result = list_person_use_case.execute(platform="telegram", external_id="missing", limit=5)
+    assert empty_result == ()
+
+    with pytest.raises(ValueError):
+        list_person_use_case.execute(platform="telegram", external_id="   ", limit=5)
 
 
 def test_pull_pending_moderator_messages_returns_target_platform_messages() -> None:

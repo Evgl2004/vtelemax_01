@@ -14,12 +14,14 @@ from vtelemax.core import (
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     GuestMenuAction,
     IdentityConflictError,
     ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
+    PersonSupportTicketSummary,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -60,6 +62,7 @@ class MaxIdentityAdapter:
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
+        list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
     ) -> None:
         self._logger = logger.bind(platform="max", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -73,6 +76,7 @@ class MaxIdentityAdapter:
         self._moderator_reply_use_case = moderator_reply_use_case
         self._ticket_details_use_case = ticket_details_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
+        self._list_person_tickets_use_case = list_person_tickets_use_case
 
     def handle_start(self, max_user_id: int) -> MaxAdapterResponse:
         """Обрабатывает стартовый вход пользователя в MAX-бот."""
@@ -722,12 +726,19 @@ class MaxIdentityAdapter:
             )
 
         if action == GuestMenuAction.MY_TICKETS:
-            return MaxAdapterResponse(
-                text=(
-                    "📋 Раздел 'Мои обращения' пока в разработке для MAX-адаптера.\n"
-                    "Мы подключим его следующим этапом."
-                )
+            tickets = self._list_user_tickets(
+                platform="max",
+                external_id=str(max_user_id),
+                limit=10,
             )
+            if not tickets:
+                return MaxAdapterResponse(
+                    text=(
+                        "📭 У вас пока нет обращений.\n\n"
+                        "Чтобы создать обращение, нажмите «❓ Мне только спросить» в меню отдела заботы."
+                    )
+                )
+            return MaxAdapterResponse(text=self._format_person_tickets_message(tickets))
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
             self._state_by_user_id[max_user_id] = _STATE_WAITING_SUPPORT_QUESTION
@@ -738,5 +749,53 @@ class MaxIdentityAdapter:
             screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
             return MaxAdapterResponse(text=screen.text, screen=screen)
 
-        screen = self._menu_adapter.resolve_action_screen(action, user_name="Гость", has_tickets=False)
+        has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
+        screen = self._menu_adapter.resolve_action_screen(action, user_name="Гость", has_tickets=has_tickets)
         return MaxAdapterResponse(text=screen.text, screen=screen)
+
+    def _has_user_tickets(self, *, platform: str, external_id: str) -> bool:
+        """Проверяет, есть ли у пользователя хотя бы один тикет поддержки."""
+
+        return bool(self._list_user_tickets(platform=platform, external_id=external_id, limit=1))
+
+    def _list_user_tickets(
+        self,
+        *,
+        platform: str,
+        external_id: str,
+        limit: int,
+    ) -> tuple[PersonSupportTicketSummary, ...]:
+        """Возвращает тикеты пользователя для раздела «Мои обращения»."""
+
+        if self._list_person_tickets_use_case is None:
+            return ()
+        try:
+            return self._list_person_tickets_use_case.execute(
+                platform=platform,  # type: ignore[arg-type]
+                external_id=external_id,
+                limit=limit,
+            )
+        except ValueError:
+            return ()
+
+    @staticmethod
+    def _format_person_tickets_message(tickets: tuple[PersonSupportTicketSummary, ...]) -> str:
+        """Форматирует список тикетов пользователя в текстовое представление."""
+
+        lines = ["📋 Ваши обращения:"]
+        status_emoji = {"open": "🆕", "closed": "🔒"}
+        for ticket in tickets:
+            created_at = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+            lines.append(
+                "\n".join(
+                    (
+                        f"{status_emoji.get(ticket.status.value, '❓')} Тикет #{ticket.ticket_id}",
+                        f"Статус: {ticket.status.value}",
+                        f"Канал создания: {ticket.source_platform}",
+                        f"Последняя платформа: {ticket.last_guest_platform or '—'}",
+                        f"Создан: {created_at}",
+                    )
+                )
+            )
+        lines.append("\nЧтобы добавить новое сообщение, выберите «❓ Мне только спросить».")
+        return "\n\n".join(lines)

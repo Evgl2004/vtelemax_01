@@ -57,6 +57,16 @@ class SQLAlchemySupportRepository(SupportRepository):
         rows = self._session.execute(statement).scalars().all()
         return [self._to_ticket(row) for row in rows]
 
+    def list_person_tickets(self, person_id: UUID, limit: int = 20) -> list[SupportTicket]:
+        statement = (
+            select(SupportTicketRow)
+            .where(SupportTicketRow.person_id == person_id)
+            .order_by(SupportTicketRow.created_at.desc())
+            .limit(limit)
+        )
+        rows = self._session.execute(statement).scalars().all()
+        return [self._to_ticket(row) for row in rows]
+
     def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
         row = self._session.get(SupportTicketRow, ticket_id)
         if row is None:

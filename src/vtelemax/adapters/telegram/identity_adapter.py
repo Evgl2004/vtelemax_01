@@ -23,9 +23,11 @@ from vtelemax.core import (
     GuestMenuAction,
     GetSupportTicketDetailsTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
+    PersonSupportTicketSummary,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     IdentityConflictError,
@@ -87,6 +89,7 @@ class TelegramIdentityAdapter:
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
+        list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
     ) -> None:
         self._logger = logger.bind(platform="telegram", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -100,6 +103,7 @@ class TelegramIdentityAdapter:
         self._moderator_reply_use_case = moderator_reply_use_case
         self._ticket_details_use_case = ticket_details_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
+        self._list_person_tickets_use_case = list_person_tickets_use_case
 
     def start_interaction(
         self,
@@ -344,7 +348,11 @@ class TelegramIdentityAdapter:
             )
 
         if action in {GuestMenuAction.SUPPORT, GuestMenuAction.BACK_TO_SUPPORT}:
-            screen = build_support_menu_screen(has_tickets=False)
+            has_tickets = self._has_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
+            screen = build_support_menu_screen(has_tickets=has_tickets)
             return TelegramMenuActionResult(
                 status="support",
                 message=screen.text,
@@ -402,12 +410,22 @@ class TelegramIdentityAdapter:
             )
 
         if action == GuestMenuAction.MY_TICKETS:
+            tickets = self._list_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+                limit=10,
+            )
+            if not tickets:
+                return TelegramMenuActionResult(
+                    status="tickets_empty",
+                    message=(
+                        "📭 У вас пока нет обращений.\n\n"
+                        "Чтобы создать обращение, нажмите «❓ Мне только спросить» в меню отдела заботы."
+                    ),
+                )
             return TelegramMenuActionResult(
-                status="tickets_unavailable",
-                message=(
-                    "📋 Раздел 'Мои обращения' пока в разработке для Telegram-адаптера.\n"
-                    "Мы подключим его следующим этапом."
-                ),
+                status="tickets_list",
+                message=self._format_person_tickets_message(tickets),
             )
 
         return TelegramMenuActionResult(
@@ -930,6 +948,53 @@ class TelegramIdentityAdapter:
 
         self._moderator_state_by_user_id.pop(telegram_user_id, None)
         self._moderator_context_by_user_id.pop(telegram_user_id, None)
+
+    def _has_user_tickets(self, *, platform: str, external_id: str) -> bool:
+        """Проверяет, есть ли у пользователя хотя бы один тикет поддержки."""
+
+        return bool(self._list_user_tickets(platform=platform, external_id=external_id, limit=1))
+
+    def _list_user_tickets(
+        self,
+        *,
+        platform: str,
+        external_id: str,
+        limit: int,
+    ) -> tuple[PersonSupportTicketSummary, ...]:
+        """Возвращает тикеты пользователя для раздела «Мои обращения»."""
+
+        if self._list_person_tickets_use_case is None:
+            return ()
+        try:
+            return self._list_person_tickets_use_case.execute(
+                platform=platform,  # type: ignore[arg-type]
+                external_id=external_id,
+                limit=limit,
+            )
+        except ValueError:
+            return ()
+
+    @staticmethod
+    def _format_person_tickets_message(tickets: tuple[PersonSupportTicketSummary, ...]) -> str:
+        """Форматирует список тикетов пользователя в текстовое представление."""
+
+        lines = ["📋 Ваши обращения:"]
+        status_emoji = {"open": "🆕", "closed": "🔒"}
+        for ticket in tickets:
+            created_at = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+            lines.append(
+                "\n".join(
+                    (
+                        f"{status_emoji.get(ticket.status.value, '❓')} Тикет #{ticket.ticket_id}",
+                        f"Статус: {ticket.status.value}",
+                        f"Канал создания: {ticket.source_platform}",
+                        f"Последняя платформа: {ticket.last_guest_platform or '—'}",
+                        f"Создан: {created_at}",
+                    )
+                )
+            )
+        lines.append("\nЧтобы добавить новое сообщение, выберите «❓ Мне только спросить».")
+        return "\n\n".join(lines)
 
     @staticmethod
     def _parse_ticket_id(raw_ticket_id: str) -> UUID | None:

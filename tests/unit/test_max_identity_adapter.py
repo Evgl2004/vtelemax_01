@@ -9,6 +9,7 @@ from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
@@ -71,6 +72,9 @@ def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
     list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     return MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
@@ -78,6 +82,7 @@ def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
     )
 
 
@@ -100,6 +105,9 @@ def _build_adapter_with_support_context() -> tuple[
     list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     adapter = MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
@@ -107,6 +115,7 @@ def _build_adapter_with_support_context() -> tuple[
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
     )
     return adapter, registration_use_case
 
@@ -210,6 +219,20 @@ def test_max_support_question_flow_returns_to_main_menu() -> None:
     assert "Ваш вопрос принят" in second.text
     assert second.screen is not None
     assert second.screen.screen_id == "main_menu"
+
+
+def test_max_my_tickets_shows_created_tickets() -> None:
+    """Проверяет раздел «Мои обращения»: после создания тикета возвращается список."""
+
+    adapter = _build_adapter(with_support=True)
+    _complete_max_registration(adapter)
+
+    adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
+    adapter.handle_incoming(max_user_id=1001, text="Нужна помощь", payload=None)
+    tickets_response = adapter.handle_incoming(max_user_id=1001, text="📋 Мои обращения", payload=None)
+
+    assert "Ваши обращения" in tickets_response.text
+    assert "Тикет #" in tickets_response.text
 
 
 def test_max_legacy_start_requests_phone_confirmation() -> None:

@@ -283,6 +283,61 @@ class ListOpenSupportTicketsTransactionalUseCase:
 
 
 @dataclass(frozen=True, slots=True)
+class PersonSupportTicketSummary:
+    """Краткая карточка тикета для раздела «Мои обращения»."""
+
+    ticket_id: UUID
+    status: SupportTicketStatus
+    source_platform: PlatformName
+    last_guest_platform: PlatformName | None
+    created_at: datetime | None
+
+
+class ListPersonSupportTicketsTransactionalUseCase:
+    """Возвращает тикеты конкретного пользователя для гостевого меню."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(
+        self,
+        *,
+        platform: PlatformName,
+        external_id: str,
+        limit: int = 10,
+    ) -> tuple[PersonSupportTicketSummary, ...]:
+        """Читает список тикетов пользователя по его аккаунту платформы."""
+
+        if platform not in SUPPORTED_PLATFORMS:
+            raise ValueError("Платформа не поддерживается.")
+
+        safe_external_id = str(external_id).strip()
+        if not safe_external_id:
+            raise ValueError("Внешний идентификатор аккаунта не может быть пустым.")
+
+        safe_limit = max(int(limit), 1)
+        with self._unit_of_work_factory() as unit_of_work:
+            person = unit_of_work.identity_repository.get_person_by_account(platform, safe_external_id)
+            if person is None:
+                return ()
+            tickets = unit_of_work.support_repository.list_person_tickets(
+                person_id=person.person_id,
+                limit=safe_limit,
+            )
+
+        return tuple(
+            PersonSupportTicketSummary(
+                ticket_id=ticket.ticket_id,
+                status=ticket.status,
+                source_platform=ticket.source_platform,
+                last_guest_platform=ticket.last_guest_platform,
+                created_at=ticket.created_at,
+            )
+            for ticket in tickets[:safe_limit]
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PendingModeratorDelivery:
     """Краткая карточка pending-сообщения модератора для доставки в мессенджер."""
 
