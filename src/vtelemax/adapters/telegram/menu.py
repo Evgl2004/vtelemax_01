@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
@@ -16,6 +21,8 @@ from vtelemax.core import (
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
 )
+
+RULES_ACCEPT_CALLBACK = "rules_accept"
 
 
 def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
@@ -35,13 +42,13 @@ def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def build_rules_consent_keyboard() -> ReplyKeyboardMarkup:
-    """Создает клавиатуру шага согласия с правилами."""
+def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру шага согласия с правилами."""
 
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=BUTTON_ACCEPT_RULES)]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)]
+        ]
     )
 
 
