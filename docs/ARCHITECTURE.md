@@ -70,6 +70,7 @@
 4. Транзакционный Unit Of Work (`infrastructure/postgres/uow.py`).
 5. SQLAlchemy-схема и SQL-миграция support-таблиц (`support_tickets`, `support_messages`, `migrations/sql/0002_support_tickets.sql`).
 6. SQLAlchemy-репозиторий поддержки (`infrastructure/postgres/support_repository.py`).
+7. Централизованная конфигурация логирования (`infrastructure/logging_config.py`).
 
 ### 2.4 Settings и приложения
 
@@ -79,6 +80,7 @@
 4. Добавлена точка входа VK-приложения: `apps/vk_app.py`.
 5. Добавлена точка входа MAX-приложения: `apps/max_app.py`.
 6. Во всех приложениях подключены use-case поддержки/модерации (создание тикета, маршрутизация ответа, карточка тикета, список открытых тикетов, выборка pending и фиксация статуса доставки).
+7. Во всех приложениях и роутерах добавлены этапные логи взаимодействий (входящие события, onboarding, модерация, pending-доставка).
 
 ## 3. Строгая идентификация (Strict Identity)
 

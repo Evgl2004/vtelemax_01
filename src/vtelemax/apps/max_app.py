@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
@@ -26,6 +27,7 @@ from vtelemax.infrastructure.postgres import (
     build_engine,
     build_session_factory,
 )
+from vtelemax.infrastructure import configure_logging
 from vtelemax.settings import AppSettings
 
 
@@ -177,12 +179,20 @@ async def run_max_bot(settings: AppSettings | None = None) -> None:
     """Запускает MAX-бота в polling-режиме."""
 
     app_settings = settings or AppSettings()
+    configure_logging(service_name="max-bot", log_level=app_settings.log_level)
+    app_logger = logger.bind(platform="max", component="app", stage="startup")
+    app_logger.info("Инициализация MAX-бота. ENV={env}.", env=app_settings.env)
     app_settings.validate_max_ready()
 
     Bot, _, _ = _import_maxapi_runtime()
     bot = Bot(token=app_settings.max_bot_token)
     dispatcher = build_dispatcher(app_settings)
-    await dispatcher.start_polling(bot)
+    app_logger.info("Запуск polling MAX-бота.")
+    try:
+        await dispatcher.start_polling(bot)
+    except Exception:  # noqa: BLE001
+        app_logger.exception("MAX-бот завершился с необработанной ошибкой.")
+        raise
 
 
 def main() -> None:

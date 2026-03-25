@@ -34,6 +34,7 @@
 17. Тесты на `pytest` для ядра, ограничений схемы и integration/live-сценариев репозиториев.
 18. Docker-инфраструктура: `Dockerfile` и `docker-compose.yml` для запуска PostgreSQL + Telegram/VK/MAX.
 19. Скрипт `scripts/apply_sql_migrations.py` для применения SQL-миграций перед стартом контейнеров.
+20. Централизованное логирование (`loguru`) с поддержкой уровней `LOG_LEVEL` и этапных логов взаимодействия.
 
 ## 3. Быстрый старт (Windows)
 
@@ -82,6 +83,12 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 
 ```bash
 docker compose up -d --build
+```
+
+Для детальной диагностики можно включить расширенный режим логов:
+
+```dotenv
+LOG_LEVEL=DEBUG
 ```
 
 Просмотр логов ботов:
@@ -149,6 +156,7 @@ vtelemax/
 1. Локальная разработка выполняется без Docker (виртуальное окружение + локальные сервисы).
 2. Итоговое развёртывание проекта выполняется через Docker Compose (`docker-compose.yml`).
 3. Для контейнерного запуска используется idempotent-скрипт SQL-миграций `scripts/apply_sql_migrations.py`.
+4. Логирование всех приложений настраивается через `LOG_LEVEL` (`INFO` по умолчанию, `DEBUG` для диагностики).
 
 ## 8. Документы проекта
 

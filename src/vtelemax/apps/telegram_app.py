@@ -8,6 +8,7 @@ from collections.abc import Callable
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
@@ -28,6 +29,7 @@ from vtelemax.infrastructure.postgres import (
     build_engine,
     build_session_factory,
 )
+from vtelemax.infrastructure import configure_logging
 from vtelemax.settings import AppSettings
 
 
@@ -169,6 +171,9 @@ async def run_telegram_bot(settings: AppSettings | None = None) -> None:
     """Запускает Telegram-бота в polling-режиме."""
 
     app_settings = settings or AppSettings()
+    configure_logging(service_name="telegram-bot", log_level=app_settings.log_level)
+    app_logger = logger.bind(platform="telegram", component="app", stage="startup")
+    app_logger.info("Инициализация Telegram-бота. ENV={env}.", env=app_settings.env)
     app_settings.validate_telegram_ready()
 
     bot = Bot(
@@ -176,7 +181,12 @@ async def run_telegram_bot(settings: AppSettings | None = None) -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = build_dispatcher(app_settings)
-    await dispatcher.start_polling(bot)
+    app_logger.info("Запуск polling Telegram-бота.")
+    try:
+        await dispatcher.start_polling(bot)
+    except Exception:  # noqa: BLE001
+        app_logger.exception("Telegram-бот завершился с необработанной ошибкой.")
+        raise
 
 
 def main() -> None:

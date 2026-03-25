@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from loguru import logger
+
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
@@ -86,6 +88,7 @@ class TelegramIdentityAdapter:
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
     ) -> None:
+        self._logger = logger.bind(platform="telegram", component="identity_adapter")
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
         self._onboarding_flow = OnboardingFlowService()
@@ -106,6 +109,11 @@ class TelegramIdentityAdapter:
     ) -> TelegramMenuActionResult:
         """Запускает стартовый сценарий onboarding/меню для пользователя."""
 
+        method_logger = self._logger.bind(stage="start_interaction", user_id=str(telegram_user_id))
+        method_logger.debug(
+            "Запуск start_interaction. force_legacy_upgrade={force_legacy_upgrade}.",
+            force_legacy_upgrade=force_legacy_upgrade,
+        )
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(
                 platform="telegram",
@@ -114,6 +122,7 @@ class TelegramIdentityAdapter:
         )
 
         if person is None:
+            method_logger.info("Пользователь не найден, запускаем onboarding для нового пользователя.")
             transition = self._onboarding_flow.begin_new_user()
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
@@ -125,6 +134,7 @@ class TelegramIdentityAdapter:
             )
 
         if force_legacy_upgrade:
+            method_logger.info("Запрошен legacy-flow обновления профиля.")
             transition = self._onboarding_flow.begin_legacy_upgrade()
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
@@ -138,6 +148,7 @@ class TelegramIdentityAdapter:
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
         self._dialog_state_by_user_id.pop(telegram_user_id, None)
         self._clear_moderator_state(telegram_user_id)
+        method_logger.info("Пользователь найден, открываем главное меню.")
         return TelegramMenuActionResult(
             status="menu",
             message=self.build_menu_overview_message(),
@@ -146,6 +157,8 @@ class TelegramIdentityAdapter:
     def register_contact(self, telegram_user_id: int, raw_phone: str) -> TelegramRegistrationResult:
         """Регистрирует Telegram-аккаунт пользователя по переданному телефону."""
 
+        method_logger = self._logger.bind(stage="register_contact", user_id=str(telegram_user_id))
+        method_logger.debug("Начата регистрация контакта.")
         previous_state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
 
         try:
@@ -157,6 +170,7 @@ class TelegramIdentityAdapter:
                 )
             )
         except IdentityConflictError:
+            method_logger.warning("Конфликт strict identity при регистрации контакта.")
             return TelegramRegistrationResult(
                 is_success=False,
                 status="conflict",
@@ -166,6 +180,7 @@ class TelegramIdentityAdapter:
                 ),
             )
         except ValueError:
+            method_logger.warning("Ошибка валидации телефона при регистрации контакта.")
             return TelegramRegistrationResult(
                 is_success=False,
                 status="validation_error",
@@ -175,6 +190,7 @@ class TelegramIdentityAdapter:
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
         self._dialog_state_by_user_id.pop(telegram_user_id, None)
         self._clear_moderator_state(telegram_user_id)
+        method_logger.info("Контакт успешно зарегистрирован. person_id={person_id}.", person_id=person.person_id)
         if previous_state == OnboardingState.WAITING_LEGACY_PHONE:
             success_message = (
                 "Профиль legacy успешно обновлен. Ваш номер подтвержден в единой базе.\n"
@@ -206,10 +222,16 @@ class TelegramIdentityAdapter:
     def handle_menu_action(self, telegram_user_id: int, action_text: str) -> TelegramMenuActionResult:
         """Обрабатывает текстовые действия главного меню Telegram."""
 
+        method_logger = self._logger.bind(stage="menu_action", user_id=str(telegram_user_id))
+        method_logger.debug("Обработка действия меню. action_text={action_text}.", action_text=action_text)
         onboarding_state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
         if onboarding_state == OnboardingState.WAITING_RULES_CONSENT:
             transition = self._onboarding_flow.handle_rules_input(action_text)
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            method_logger.info(
+                "Обработано подтверждение правил. status={status}.",
+                status=transition.status,
+            )
             return TelegramMenuActionResult(
                 status=transition.status,
                 message=transition.message,
@@ -256,6 +278,7 @@ class TelegramIdentityAdapter:
 
         action = resolve_guest_menu_action(action_text)
         if action is None:
+            method_logger.debug("Не удалось распознать действие меню.")
             if not normalize_menu_text(action_text):
                 return TelegramMenuActionResult(
                     status="empty_action",

@@ -15,6 +15,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import UUID
 
+from loguru import logger
+
 from vtelemax.core import (
     PlatformName,
     PullPendingModeratorMessagesTransactionalUseCase,
@@ -48,19 +50,40 @@ class PendingModeratorDeliveryProcessor:
             Кортеж `(sent_count, failed_count)`.
         """
 
+        processor_logger = logger.bind(
+            platform=self.target_platform,
+            component="moderation_delivery",
+            stage="process_once",
+        )
+        processor_logger.debug(
+            "Старт обработки pending-сообщений модератора. limit={limit}.",
+            limit=limit,
+        )
         deliveries = self.pull_pending_use_case.execute(
             target_platform=self.target_platform,
             limit=limit,
         )
         sent_count = 0
         failed_count = 0
+        processor_logger.debug(
+            "Получено pending-сообщений: {count}.",
+            count=len(deliveries),
+        )
 
         for delivery in deliveries:
+            message_logger = processor_logger.bind(
+                stage="message_delivery",
+                user_id=str(delivery.target_external_id),
+            )
             external_id = str(delivery.target_external_id).strip()
             if not external_id:
                 self._mark_failed(
                     message_id=delivery.message_id,
                     error_text="Пустой target_external_id для доставки.",
+                )
+                message_logger.warning(
+                    "Сообщение {message_id} не доставлено: пустой target_external_id.",
+                    message_id=delivery.message_id,
                 )
                 failed_count += 1
                 continue
@@ -73,6 +96,11 @@ class PendingModeratorDeliveryProcessor:
                     message_id=delivery.message_id,
                     error_text=self._normalize_error_text(error),
                 )
+                message_logger.warning(
+                    "Сообщение {message_id} не доставлено: {error}.",
+                    message_id=delivery.message_id,
+                    error=self._normalize_error_text(error),
+                )
                 failed_count += 1
                 continue
 
@@ -82,8 +110,17 @@ class PendingModeratorDeliveryProcessor:
                     status=SupportDeliveryStatus.SENT,
                 )
             )
+            message_logger.debug(
+                "Сообщение {message_id} успешно доставлено.",
+                message_id=delivery.message_id,
+            )
             sent_count += 1
 
+        processor_logger.info(
+            "Обработка pending-сообщений завершена. sent={sent}, failed={failed}.",
+            sent=sent_count,
+            failed=failed_count,
+        )
         return sent_count, failed_count
 
     def _mark_failed(self, *, message_id: UUID, error_text: str) -> None:

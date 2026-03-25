@@ -7,9 +7,12 @@
 3. Технические детали, которые не должны попадать в `core`.
 """
 
+from .logging_config import configure_logging, normalize_log_level
 from .migrations import apply_migrations, list_migration_files, read_sql_statements
 
 __all__ = [
+    "configure_logging",
+    "normalize_log_level",
     "apply_migrations",
     "list_migration_files",
     "read_sql_statements",

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from loguru import logger
+
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     CreateSupportTicketCommand,
@@ -59,6 +61,7 @@ class VkIdentityAdapter:
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
     ) -> None:
+        self._logger = logger.bind(platform="vk", component="identity_adapter")
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
         self._menu_adapter = menu_adapter or VkGuestMenuAdapter()
@@ -74,10 +77,13 @@ class VkIdentityAdapter:
     def handle_start(self, vk_user_id: int) -> VkAdapterResponse:
         """Обрабатывает стартовый вход пользователя в VK-бот."""
 
+        method_logger = self._logger.bind(stage="handle_start", user_id=str(vk_user_id))
+        method_logger.debug("Обработка стартового входа пользователя.")
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
         )
         if person is None:
+            method_logger.info("Пользователь не найден, запускаем onboarding.")
             transition = self._onboarding_flow.begin_new_user()
             self._state_by_user_id[vk_user_id] = transition.state.value
             self._clear_moderator_state(vk_user_id)
@@ -86,19 +92,24 @@ class VkIdentityAdapter:
 
         self._state_by_user_id.pop(vk_user_id, None)
         self._clear_moderator_state(vk_user_id)
+        method_logger.info("Пользователь найден, открываем главное меню.")
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
         return VkAdapterResponse(text=main_screen.text, screen=main_screen)
 
     def handle_legacy_start(self, vk_user_id: int) -> VkAdapterResponse:
         """Явно запускает legacy-ветку для зарегистрированного пользователя."""
 
+        method_logger = self._logger.bind(stage="handle_legacy_start", user_id=str(vk_user_id))
+        method_logger.debug("Обработка команды legacy.")
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
         )
         if person is None:
+            method_logger.info("Пользователь не найден, fallback на стартовый onboarding.")
             return self.handle_start(vk_user_id=vk_user_id)
 
         transition = self._onboarding_flow.begin_legacy_upgrade()
+        method_logger.info("Legacy-flow запущен.")
         self._state_by_user_id[vk_user_id] = transition.state.value
         self._clear_moderator_state(vk_user_id)
         contact_screen = self._menu_adapter.build_start_contact_screen()
@@ -107,6 +118,8 @@ class VkIdentityAdapter:
     def handle_incoming(self, vk_user_id: int, text: str, payload: dict[str, str] | None) -> VkAdapterResponse:
         """Обрабатывает входящее сообщение VK (text + payload)."""
 
+        method_logger = self._logger.bind(stage="handle_incoming", user_id=str(vk_user_id))
+        method_logger.debug("Входящее сообщение. text={text}.", text=text)
         state = self._state_by_user_id.get(vk_user_id)
         if state == _STATE_WAITING_RULES_CONSENT:
             return self._handle_rules_consent(vk_user_id=vk_user_id, text=text, payload=payload)
@@ -128,6 +141,7 @@ class VkIdentityAdapter:
         action = resolve_action_from_vk_payload(payload)
         if action is None:
             action = resolve_guest_menu_action(text)
+        method_logger.debug("Распознанное действие: {action}.", action=action)
 
         if action is None:
             person = self._person_lookup_use_case.execute(
@@ -178,8 +192,10 @@ class VkIdentityAdapter:
     def _handle_phone_input(self, vk_user_id: int, text: str, *, is_legacy: bool) -> VkAdapterResponse:
         """Обрабатывает ввод телефона для регистрации/legacy-обновления."""
 
+        method_logger = self._logger.bind(stage="phone_input", user_id=str(vk_user_id))
         phone_text = (text or "").strip()
         if not phone_text:
+            method_logger.warning("Пустой ввод телефона.")
             return VkAdapterResponse(
                 text="Пожалуйста, введите номер телефона текстом в формате +79991234567.",
                 screen=self._menu_adapter.build_start_contact_screen(),
@@ -194,6 +210,7 @@ class VkIdentityAdapter:
                 )
             )
         except IdentityConflictError:
+            method_logger.warning("Конфликт strict identity при регистрации телефона.")
             return VkAdapterResponse(
                 text=(
                     "Обнаружен конфликт идентификации: этот VK-аккаунт уже привязан к другому "
@@ -201,6 +218,7 @@ class VkIdentityAdapter:
                 )
             )
         except ValueError:
+            method_logger.warning("Ошибка валидации телефона.")
             return VkAdapterResponse(
                 text=(
                     "Не удалось обработать номер телефона. Введите номер в формате +79991234567 "
@@ -211,6 +229,7 @@ class VkIdentityAdapter:
 
         self._state_by_user_id.pop(vk_user_id, None)
         self._clear_moderator_state(vk_user_id)
+        method_logger.info("Телефон успешно зарегистрирован. person_id={person_id}.", person_id=person.person_id)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
         if is_legacy:
             success_title = "Профиль legacy успешно обновлен. Номер подтвержден в единой базе."

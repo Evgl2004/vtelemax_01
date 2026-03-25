@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 from vkbottle.bot import Bot
 
@@ -25,6 +26,7 @@ from vtelemax.infrastructure.postgres import (
     build_engine,
     build_session_factory,
 )
+from vtelemax.infrastructure import configure_logging
 from vtelemax.settings import AppSettings
 
 
@@ -160,10 +162,18 @@ def run_vk_bot(settings: AppSettings | None = None) -> None:
     """Запускает VK-бота в режиме long-poll."""
 
     app_settings = settings or AppSettings()
+    configure_logging(service_name="vk-bot", log_level=app_settings.log_level)
+    app_logger = logger.bind(platform="vk", component="app", stage="startup")
+    app_logger.info("Инициализация VK-бота. ENV={env}.", env=app_settings.env)
     app_settings.validate_vk_ready()
 
     bot = build_bot(app_settings)
-    bot.run_forever()
+    app_logger.info("Запуск long-poll VK-бота.")
+    try:
+        bot.run_forever()
+    except Exception:  # noqa: BLE001
+        app_logger.exception("VK-бот завершился с необработанной ошибкой.")
+        raise
 
 
 def main() -> None:

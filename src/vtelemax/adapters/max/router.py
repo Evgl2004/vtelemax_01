@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from loguru import logger
+
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
@@ -21,14 +23,17 @@ def register_max_guest_handlers(
 ) -> None:
     """Регистрирует обработчики MAX-бота на переданном `router`."""
 
+    router_logger = logger.bind(platform="max", component="router")
     delivery_lock = asyncio.Lock()
 
     async def _try_process_pending_deliveries(bot: Any | None) -> None:
         """Пытается доставить pending-сообщения модератора без влияния на UX пользователя."""
 
+        delivery_logger = router_logger.bind(stage="pending_delivery")
         if delivery_processor is None or bot is None:
             return
         if delivery_lock.locked():
+            delivery_logger.debug("Пропуск доставки pending: предыдущий проход еще выполняется.")
             return
 
         async with delivery_lock:
@@ -36,9 +41,15 @@ def register_max_guest_handlers(
                 await bot.send_message(user_id=int(target_external_id), text=text)
 
             try:
-                await delivery_processor.process_once(sender=_send_message, limit=20)
+                sent_count, failed_count = await delivery_processor.process_once(sender=_send_message, limit=20)
+                delivery_logger.debug(
+                    "Доставка pending завершена. sent={sent}, failed={failed}.",
+                    sent=sent_count,
+                    failed=failed_count,
+                )
             except Exception:  # noqa: BLE001
                 # На MVP-этапе не прерываем пользовательский сценарий из-за сбоя доставки.
+                delivery_logger.exception("Ошибка при обработке pending-сообщений модератора.")
                 return
 
     @router.message_created()
@@ -49,6 +60,8 @@ def register_max_guest_handlers(
             return
         text = _extract_message_text(event)
         lowered = text.strip().lower()
+        event_logger = router_logger.bind(stage="message_created", user_id=str(user_id))
+        event_logger.debug("Получено сообщение от пользователя. text={text}.", text=text)
 
         if lowered in _START_COMMANDS:
             response = adapter.handle_start(max_user_id=user_id)
@@ -56,6 +69,7 @@ def register_max_guest_handlers(
             response = adapter.handle_legacy_start(max_user_id=user_id)
         else:
             response = adapter.handle_incoming(max_user_id=user_id, text=text, payload=None)
+        event_logger.info("Входящее сообщение обработано.")
         await _send_response(event, response)
 
     @router.bot_started()
@@ -64,7 +78,10 @@ def register_max_guest_handlers(
         user_id = _extract_user_id(event)
         if user_id is None:
             return
+        event_logger = router_logger.bind(stage="bot_started", user_id=str(user_id))
+        event_logger.debug("Получено событие bot_started.")
         response = adapter.handle_start(max_user_id=user_id)
+        event_logger.info("Событие bot_started обработано.")
         await _send_response(event, response)
 
     @router.message_callback()
@@ -74,7 +91,9 @@ def register_max_guest_handlers(
         if user_id is None:
             return
 
+        event_logger = router_logger.bind(stage="callback", user_id=str(user_id))
         callback_payload = _extract_callback_payload(event)
+        event_logger.debug("Получен callback. payload={payload}.", payload=callback_payload)
         if hasattr(event, "answer"):
             await event.answer("")
 
@@ -83,6 +102,7 @@ def register_max_guest_handlers(
             text="",
             payload=callback_payload,
         )
+        event_logger.info("Callback обработан.")
         await _send_response(event, response)
 
 

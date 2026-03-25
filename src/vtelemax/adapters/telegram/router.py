@@ -7,6 +7,7 @@ import asyncio
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
+from loguru import logger
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 
@@ -21,6 +22,7 @@ def build_telegram_identity_router(
     """Создает router Telegram с обработчиками регистрации по телефону."""
 
     router = Router(name="telegram_identity")
+    router_logger = logger.bind(platform="telegram", component="router")
     request_contact_keyboard = build_contact_request_keyboard()
     main_menu_keyboard = build_main_menu_keyboard()
     delivery_lock = asyncio.Lock()
@@ -28,9 +30,11 @@ def build_telegram_identity_router(
     async def _try_process_pending_deliveries(bot: Bot) -> None:
         """Пытается доставить pending-сообщения модератора без влияния на UX пользователя."""
 
+        delivery_logger = router_logger.bind(stage="pending_delivery")
         if delivery_processor is None:
             return
         if delivery_lock.locked():
+            delivery_logger.debug("Пропуск доставки pending: предыдущий проход еще выполняется.")
             return
 
         async with delivery_lock:
@@ -38,21 +42,34 @@ def build_telegram_identity_router(
                 await bot.send_message(chat_id=int(target_external_id), text=text)
 
             try:
-                await delivery_processor.process_once(sender=_send_message, limit=20)
+                sent_count, failed_count = await delivery_processor.process_once(sender=_send_message, limit=20)
+                delivery_logger.debug(
+                    "Доставка pending завершена. sent={sent}, failed={failed}.",
+                    sent=sent_count,
+                    failed=failed_count,
+                )
             except Exception:  # noqa: BLE001
                 # На MVP-этапе не прерываем пользовательский сценарий из-за сбоя доставки.
+                delivery_logger.exception("Ошибка при обработке pending-сообщений модератора.")
                 return
 
     @router.message(CommandStart())
     async def start_handler(message: Message) -> None:
         """Обработчик команды `/start`."""
 
+        event_logger = router_logger.bind(
+            stage="start_command",
+            user_id=str(message.from_user.id) if message.from_user else "-",
+        )
+        event_logger.debug("Получена команда /start.")
         await _try_process_pending_deliveries(message.bot)
         if message.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram в /start.")
             await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
             return
 
         result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
+        event_logger.info("Ответ /start сформирован. status={status}.", status=result.status)
         if result.requires_contact_keyboard:
             reply_markup = request_contact_keyboard
         elif result.status == "menu":
@@ -69,8 +86,14 @@ def build_telegram_identity_router(
     async def legacy_start_handler(message: Message) -> None:
         """Явный запуск legacy-ветки обновления профиля."""
 
+        event_logger = router_logger.bind(
+            stage="legacy_command",
+            user_id=str(message.from_user.id) if message.from_user else "-",
+        )
+        event_logger.debug("Получена команда /legacy.")
         await _try_process_pending_deliveries(message.bot)
         if message.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram в /legacy.")
             await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
             return
 
@@ -78,6 +101,7 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             force_legacy_upgrade=True,
         )
+        event_logger.info("Legacy-flow запущен. status={status}.", status=result.status)
         reply_markup = request_contact_keyboard if result.requires_contact_keyboard else None
         await message.answer(result.message, reply_markup=reply_markup)
 
@@ -85,16 +109,24 @@ def build_telegram_identity_router(
     async def contact_handler(message: Message) -> None:
         """Обработчик сообщения с контактом от пользователя."""
 
+        event_logger = router_logger.bind(
+            stage="contact_input",
+            user_id=str(message.from_user.id) if message.from_user else "-",
+        )
+        event_logger.debug("Получен контакт пользователя.")
         await _try_process_pending_deliveries(message.bot)
         if message.contact is None or not message.contact.phone_number:
+            event_logger.warning("Контакт не содержит номер телефона.")
             await message.answer("Не удалось прочитать контакт. Попробуйте отправить номер еще раз.")
             return
 
         if message.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram для контакта.")
             await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
             return
 
         if message.contact.user_id and message.contact.user_id != message.from_user.id:
+            event_logger.warning("Пользователь отправил чужой контакт.")
             await message.answer(
                 "Для безопасности отправьте, пожалуйста, только свой собственный контакт."
             )
@@ -104,6 +136,7 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             raw_phone=message.contact.phone_number,
         )
+        event_logger.info("Обработка контакта завершена. status={status}.", status=result.status)
         reply_markup = main_menu_keyboard if result.is_success else request_contact_keyboard
         await message.answer(result.message, reply_markup=reply_markup)
 
@@ -111,8 +144,14 @@ def build_telegram_identity_router(
     async def command_menu_handler(message: Message) -> None:
         """Обработчик команды `/menu`."""
 
+        event_logger = router_logger.bind(
+            stage="menu_command",
+            user_id=str(message.from_user.id) if message.from_user else "-",
+        )
+        event_logger.debug("Получена команда /menu.")
         await _try_process_pending_deliveries(message.bot)
         if message.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram в /menu.")
             await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
             return
 
@@ -120,6 +159,7 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             action_text="/menu",
         )
+        event_logger.info("Ответ /menu сформирован. status={status}.", status=result.status)
         if result.requires_contact_keyboard:
             reply_markup = request_contact_keyboard
         elif result.status in {"rules_consent_required", "rules_consent_pending"}:
@@ -136,10 +176,17 @@ def build_telegram_identity_router(
     async def text_menu_handler(message: Message) -> None:
         """Обработчик текстовых кнопок и команд меню."""
 
+        event_logger = router_logger.bind(
+            stage="text_input",
+            user_id=str(message.from_user.id) if message.from_user else "-",
+        )
         await _try_process_pending_deliveries(message.bot)
         if message.text is None:
+            event_logger.debug("Пустое текстовое сообщение пропущено.")
             return
+        event_logger.debug("Получен текстовый ввод: {text}.", text=message.text)
         if message.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram для текстового ввода.")
             await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
             return
 
@@ -147,6 +194,7 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             action_text=message.text,
         )
+        event_logger.info("Текстовый ввод обработан. status={status}.", status=result.status)
         if result.requires_contact_keyboard:
             reply_markup = request_contact_keyboard
         elif result.status in {"rules_consent_required", "rules_consent_pending"}:
