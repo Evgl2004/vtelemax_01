@@ -10,14 +10,17 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from sqlalchemy.orm import Session, sessionmaker
 
+from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 from vtelemax.adapters.telegram import TelegramIdentityAdapter, build_telegram_identity_router
 from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
+    PullPendingModeratorMessagesTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
 )
 from vtelemax.infrastructure.postgres import (
     Base,
@@ -104,6 +107,28 @@ def build_list_open_tickets_use_case(
     return ListOpenSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_pull_pending_messages_use_case(
+    session_factory: sessionmaker[Session],
+) -> PullPendingModeratorMessagesTransactionalUseCase:
+    """Собирает use-case выборки pending-сообщений модератора по целевой платформе."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
+def build_update_delivery_status_use_case(
+    session_factory: sessionmaker[Session],
+) -> UpdateModeratorMessageDeliveryStatusTransactionalUseCase:
+    """Собирает use-case фиксации статуса доставки модераторского сообщения."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return UpdateModeratorMessageDeliveryStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def build_dispatcher(settings: AppSettings) -> Dispatcher:
     """Собирает Dispatcher Telegram-бота с подключенным маршрутом идентификации."""
 
@@ -114,6 +139,8 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
     moderator_reply_use_case = build_moderator_reply_use_case(session_factory)
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
     list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)
+    pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
+    update_delivery_status_use_case = build_update_delivery_status_use_case(session_factory)
     identity_adapter = TelegramIdentityAdapter(
         registration_use_case,
         person_lookup_use_case,
@@ -122,9 +149,19 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
         ticket_details_use_case=ticket_details_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
     )
+    delivery_processor = PendingModeratorDeliveryProcessor(
+        target_platform="telegram",
+        pull_pending_use_case=pull_pending_use_case,
+        update_status_use_case=update_delivery_status_use_case,
+    )
 
     dispatcher = Dispatcher()
-    dispatcher.include_router(build_telegram_identity_router(identity_adapter))
+    dispatcher.include_router(
+        build_telegram_identity_router(
+            identity_adapter,
+            delivery_processor=delivery_processor,
+        )
+    )
     return dispatcher
 
 

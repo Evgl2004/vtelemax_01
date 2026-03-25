@@ -1,0 +1,113 @@
+"""Утилита доставки pending-сообщений модератора в один проход.
+
+Файл реализует MVP-контур:
+
+1. Берем pending-сообщения из core use-case.
+2. Пытаемся отправить каждое сообщение в целевой мессенджер ровно один раз.
+3. Фиксируем результат (`sent` или `failed`) в базе.
+
+Ретраи в этот этап не входят и будут добавлены отдельной задачей.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from uuid import UUID
+
+from vtelemax.core import (
+    PlatformName,
+    PullPendingModeratorMessagesTransactionalUseCase,
+    SupportDeliveryStatus,
+    UpdateModeratorMessageDeliveryStatusCommand,
+    UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
+)
+
+
+@dataclass(slots=True)
+class PendingModeratorDeliveryProcessor:
+    """Оркестратор одноразовой доставки pending-сообщений модератора."""
+
+    target_platform: PlatformName
+    pull_pending_use_case: PullPendingModeratorMessagesTransactionalUseCase
+    update_status_use_case: UpdateModeratorMessageDeliveryStatusTransactionalUseCase
+
+    async def process_once(
+        self,
+        *,
+        sender: Callable[[str, str], Awaitable[None]],
+        limit: int = 20,
+    ) -> tuple[int, int]:
+        """Выполняет одну доставку очереди pending-сообщений.
+
+        Args:
+            sender: Асинхронный callback отправки (external_id, text).
+            limit: Максимум сообщений за один проход.
+
+        Returns:
+            Кортеж `(sent_count, failed_count)`.
+        """
+
+        deliveries = self.pull_pending_use_case.execute(
+            target_platform=self.target_platform,
+            limit=limit,
+        )
+        sent_count = 0
+        failed_count = 0
+
+        for delivery in deliveries:
+            external_id = str(delivery.target_external_id).strip()
+            if not external_id:
+                self._mark_failed(
+                    message_id=delivery.message_id,
+                    error_text="Пустой target_external_id для доставки.",
+                )
+                failed_count += 1
+                continue
+
+            text = self._build_delivery_text(delivery.body)
+            try:
+                await sender(external_id, text)
+            except Exception as error:  # noqa: BLE001
+                self._mark_failed(
+                    message_id=delivery.message_id,
+                    error_text=self._normalize_error_text(error),
+                )
+                failed_count += 1
+                continue
+
+            self.update_status_use_case.execute(
+                UpdateModeratorMessageDeliveryStatusCommand(
+                    message_id=delivery.message_id,
+                    status=SupportDeliveryStatus.SENT,
+                )
+            )
+            sent_count += 1
+
+        return sent_count, failed_count
+
+    def _mark_failed(self, *, message_id: UUID, error_text: str) -> None:
+        """Ставит статус `failed` для сообщения, где доставка не удалась."""
+
+        self.update_status_use_case.execute(
+            UpdateModeratorMessageDeliveryStatusCommand(
+                message_id=message_id,
+                status=SupportDeliveryStatus.FAILED,
+                error_text=error_text,
+            )
+        )
+
+    @staticmethod
+    def _build_delivery_text(body: str) -> str:
+        """Формирует текст, который гость получит как ответ модератора."""
+
+        return "\n".join(("📬 Ответ модератора:", body))
+
+    @staticmethod
+    def _normalize_error_text(error: Exception) -> str:
+        """Нормализует текст ошибки доставки для записи в БД."""
+
+        raw = str(error).strip()
+        if not raw:
+            return "Неизвестная ошибка доставки."
+        return raw[:500]

@@ -280,3 +280,84 @@ class ListOpenSupportTicketsTransactionalUseCase:
             )
             for ticket in sorted_tickets[:safe_limit]
         )
+
+
+@dataclass(frozen=True, slots=True)
+class PendingModeratorDelivery:
+    """Краткая карточка pending-сообщения модератора для доставки в мессенджер."""
+
+    message_id: UUID
+    ticket_id: UUID
+    source_platform: PlatformName
+    target_platform: PlatformName
+    target_external_id: str
+    body: str
+    created_at: datetime | None
+
+
+class PullPendingModeratorMessagesTransactionalUseCase:
+    """Возвращает pending-сообщения модератора по целевой платформе доставки."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(
+        self,
+        *,
+        target_platform: PlatformName,
+        limit: int = 20,
+    ) -> tuple[PendingModeratorDelivery, ...]:
+        """Читает pending-сообщения модератора для заданного канала."""
+
+        if target_platform not in SUPPORTED_PLATFORMS:
+            raise ValueError("Платформа доставки не поддерживается.")
+
+        safe_limit = max(int(limit), 1)
+        with self._unit_of_work_factory() as unit_of_work:
+            messages = unit_of_work.support_repository.pull_pending_moderator_messages(
+                target_platform=target_platform,
+                limit=safe_limit,
+            )
+
+        return tuple(
+            PendingModeratorDelivery(
+                message_id=message.message_id,
+                ticket_id=message.ticket_id,
+                source_platform=message.source_platform,
+                target_platform=message.target_platform or target_platform,
+                target_external_id=message.target_external_id or "",
+                body=message.body,
+                created_at=message.created_at,
+            )
+            for message in messages[:safe_limit]
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateModeratorMessageDeliveryStatusCommand:
+    """Команда обновления статуса доставки модераторского сообщения."""
+
+    message_id: UUID
+    status: SupportDeliveryStatus
+    error_text: str | None = None
+
+
+class UpdateModeratorMessageDeliveryStatusTransactionalUseCase:
+    """Обновляет delivery-статус модераторского сообщения в транзакции."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: UpdateModeratorMessageDeliveryStatusCommand) -> None:
+        """Фиксирует delivery-статус (`sent` или `failed`) модераторского сообщения."""
+
+        if command.status not in {SupportDeliveryStatus.SENT, SupportDeliveryStatus.FAILED}:
+            raise ValueError("Для обновления доставки допустимы только статусы sent/failed.")
+
+        with self._unit_of_work_factory() as unit_of_work:
+            unit_of_work.support_repository.update_message_delivery(
+                message_id=command.message_id,
+                status=command.status,
+                error_text=command.error_text,
+            )
+            unit_of_work.commit()

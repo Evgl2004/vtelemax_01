@@ -7,14 +7,17 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session, sessionmaker
 from vkbottle.bot import Bot
 
+from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 from vtelemax.adapters.vk import VkIdentityAdapter, register_vk_guest_handlers
 from vtelemax.core import (
     CreateSupportTicketTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
+    PullPendingModeratorMessagesTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
 )
 from vtelemax.infrastructure.postgres import (
     Base,
@@ -100,6 +103,28 @@ def build_list_open_tickets_use_case(
     return ListOpenSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_pull_pending_messages_use_case(
+    session_factory: sessionmaker[Session],
+) -> PullPendingModeratorMessagesTransactionalUseCase:
+    """Собирает use-case выборки pending-сообщений модератора по целевой платформе."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
+def build_update_delivery_status_use_case(
+    session_factory: sessionmaker[Session],
+) -> UpdateModeratorMessageDeliveryStatusTransactionalUseCase:
+    """Собирает use-case фиксации статуса доставки модераторского сообщения."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return UpdateModeratorMessageDeliveryStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def build_bot(settings: AppSettings) -> Bot:
     """Создает и конфигурирует экземпляр VK-бота."""
 
@@ -110,6 +135,8 @@ def build_bot(settings: AppSettings) -> Bot:
     moderator_reply_use_case = build_moderator_reply_use_case(session_factory)
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
     list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)
+    pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
+    update_delivery_status_use_case = build_update_delivery_status_use_case(session_factory)
     adapter = VkIdentityAdapter(
         registration_use_case,
         lookup_use_case,
@@ -118,9 +145,14 @@ def build_bot(settings: AppSettings) -> Bot:
         ticket_details_use_case=ticket_details_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
     )
+    delivery_processor = PendingModeratorDeliveryProcessor(
+        target_platform="vk",
+        pull_pending_use_case=pull_pending_use_case,
+        update_status_use_case=update_delivery_status_use_case,
+    )
 
     bot = Bot(settings.vk_bot_token)
-    register_vk_guest_handlers(bot, adapter)
+    register_vk_guest_handlers(bot, adapter, delivery_processor=delivery_processor)
     return bot
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import TracebackType
+from uuid import uuid4
 
 import pytest
 
@@ -16,11 +17,14 @@ from vtelemax.core import (
     InMemorySupportRepository,
     ListOpenSupportTicketsTransactionalUseCase,
     ModeratorReplyCommand,
+    PullPendingModeratorMessagesTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
     SupportDeliveryStatus,
     SupportTicketStatus,
     SupportRepository,
     SupportUnitOfWork,
+    UpdateModeratorMessageDeliveryStatusCommand,
+    UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
 )
@@ -281,3 +285,73 @@ def test_list_open_tickets_handles_dirty_limit_and_excludes_closed() -> None:
     assert len(result) == 1
     assert result[0].ticket_id == open_ticket.ticket_id
     assert result[0].status == SupportTicketStatus.OPEN
+
+
+def test_pull_pending_moderator_messages_returns_target_platform_messages() -> None:
+    """Проверяет выборку pending-сообщений модератора по платформе доставки."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-1001",
+            raw_phone="+79123456789",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-2002",
+            raw_phone="+79123456789",
+        )
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-1001",
+            question_text="Подскажите, где посмотреть бонусы?",
+        )
+    )
+
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case.execute(
+        ModeratorReplyCommand(
+            ticket_id=created.ticket_id,
+            moderator_platform="vk",
+            reply_text="Отправляем ответ в Telegram.",
+            preferred_target_platform="telegram",
+        )
+    )
+
+    pull_use_case = PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
+    pending = pull_use_case.execute(target_platform="telegram", limit=10)
+
+    assert len(pending) == 1
+    assert pending[0].target_platform == "telegram"
+    assert pending[0].target_external_id == "tg-2002"
+    assert pending[0].body == "Отправляем ответ в Telegram."
+
+
+def test_update_moderator_delivery_status_rejects_created_status() -> None:
+    """Проверяет грязный сценарий: use-case обновления не принимает статус created."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+    update_use_case = UpdateModeratorMessageDeliveryStatusTransactionalUseCase(
+        unit_of_work_factory=uow_factory
+    )
+
+    with pytest.raises(ValueError):
+        update_use_case.execute(
+            UpdateModeratorMessageDeliveryStatusCommand(
+                message_id=uuid4(),
+                status=SupportDeliveryStatus.CREATED,
+            )
+        )

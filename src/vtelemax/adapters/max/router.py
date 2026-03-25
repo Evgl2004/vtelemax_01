@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+
+from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
@@ -11,11 +14,36 @@ _START_COMMANDS = {"/start", "start", "начать"}
 _LEGACY_COMMANDS = {"/legacy", "legacy", "обновить профиль"}
 
 
-def register_max_guest_handlers(router: Any, adapter: MaxIdentityAdapter) -> None:
+def register_max_guest_handlers(
+    router: Any,
+    adapter: MaxIdentityAdapter,
+    delivery_processor: PendingModeratorDeliveryProcessor | None = None,
+) -> None:
     """Регистрирует обработчики MAX-бота на переданном `router`."""
+
+    delivery_lock = asyncio.Lock()
+
+    async def _try_process_pending_deliveries(bot: Any | None) -> None:
+        """Пытается доставить pending-сообщения модератора без влияния на UX пользователя."""
+
+        if delivery_processor is None or bot is None:
+            return
+        if delivery_lock.locked():
+            return
+
+        async with delivery_lock:
+            async def _send_message(target_external_id: str, text: str) -> None:
+                await bot.send_message(user_id=int(target_external_id), text=text)
+
+            try:
+                await delivery_processor.process_once(sender=_send_message, limit=20)
+            except Exception:  # noqa: BLE001
+                # На MVP-этапе не прерываем пользовательский сценарий из-за сбоя доставки.
+                return
 
     @router.message_created()
     async def message_handler(event: Any, context: Any = None) -> None:  # noqa: ARG001
+        await _try_process_pending_deliveries(getattr(event, "bot", None))
         user_id = _extract_user_id(event)
         if user_id is None:
             return
@@ -32,6 +60,7 @@ def register_max_guest_handlers(router: Any, adapter: MaxIdentityAdapter) -> Non
 
     @router.bot_started()
     async def started_handler(event: Any, context: Any = None) -> None:  # noqa: ARG001
+        await _try_process_pending_deliveries(getattr(event, "bot", None))
         user_id = _extract_user_id(event)
         if user_id is None:
             return
@@ -40,6 +69,7 @@ def register_max_guest_handlers(router: Any, adapter: MaxIdentityAdapter) -> Non
 
     @router.message_callback()
     async def callback_handler(event: Any, context: Any = None) -> None:  # noqa: ARG001
+        await _try_process_pending_deliveries(getattr(event, "bot", None))
         user_id = _extract_user_id(event)
         if user_id is None:
             return
