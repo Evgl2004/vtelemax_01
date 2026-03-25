@@ -12,7 +12,11 @@ from .identity_adapter import (
     TelegramMenuActionResult,
     TelegramRegistrationResult,
 )
-from .menu import build_contact_request_keyboard, build_main_menu_keyboard
+from .menu import (
+    build_contact_request_keyboard,
+    build_main_menu_keyboard,
+    build_rules_consent_keyboard,
+)
 from .router import build_telegram_identity_router
 
 __all__ = [
@@ -21,5 +25,6 @@ __all__ = [
     "TelegramRegistrationResult",
     "build_contact_request_keyboard",
     "build_main_menu_keyboard",
+    "build_rules_consent_keyboard",
     "build_telegram_identity_router",
 ]

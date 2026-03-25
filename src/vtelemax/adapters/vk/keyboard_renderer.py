@@ -39,7 +39,8 @@ def render_vk_keyboard(screen: VkScreen | None) -> str | None:
     return json.dumps(
         {
             "one_time": False,
-            "inline": False,
+            # В прототипе VK-кнопки были inline и отображались как часть сообщения.
+            "inline": True,
             "buttons": buttons,
         },
         ensure_ascii=False,

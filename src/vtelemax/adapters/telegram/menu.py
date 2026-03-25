@@ -5,6 +5,7 @@ from __future__ import annotations
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from vtelemax.core import (
+    BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
     BUTTON_BALANCE,
     BUTTON_HELP,
@@ -29,6 +30,16 @@ def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
                 )
             ]
         ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def build_rules_consent_keyboard() -> ReplyKeyboardMarkup:
+    """Создает клавиатуру шага согласия с правилами."""
+
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BUTTON_ACCEPT_RULES)]],
         resize_keyboard=True,
         one_time_keyboard=True,
     )

@@ -12,7 +12,11 @@ from loguru import logger
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 
 from .identity_adapter import TelegramIdentityAdapter
-from .menu import build_contact_request_keyboard, build_main_menu_keyboard
+from .menu import (
+    build_contact_request_keyboard,
+    build_main_menu_keyboard,
+    build_rules_consent_keyboard,
+)
 
 
 def build_telegram_identity_router(
@@ -25,6 +29,7 @@ def build_telegram_identity_router(
     router_logger = logger.bind(platform="telegram", component="router")
     request_contact_keyboard = build_contact_request_keyboard()
     main_menu_keyboard = build_main_menu_keyboard()
+    rules_consent_keyboard = build_rules_consent_keyboard()
     delivery_lock = asyncio.Lock()
 
     async def _try_process_pending_deliveries(bot: Bot) -> None:
@@ -72,6 +77,8 @@ def build_telegram_identity_router(
         event_logger.info("Ответ /start сформирован. status={status}.", status=result.status)
         if result.requires_contact_keyboard:
             reply_markup = request_contact_keyboard
+        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
+            reply_markup = rules_consent_keyboard
         elif result.status == "menu":
             reply_markup = main_menu_keyboard
         else:
@@ -163,7 +170,7 @@ def build_telegram_identity_router(
         if result.requires_contact_keyboard:
             reply_markup = request_contact_keyboard
         elif result.status in {"rules_consent_required", "rules_consent_pending"}:
-            reply_markup = None
+            reply_markup = rules_consent_keyboard
         else:
             reply_markup = main_menu_keyboard
         await message.answer(
@@ -198,7 +205,7 @@ def build_telegram_identity_router(
         if result.requires_contact_keyboard:
             reply_markup = request_contact_keyboard
         elif result.status in {"rules_consent_required", "rules_consent_pending"}:
-            reply_markup = None
+            reply_markup = rules_consent_keyboard
         else:
             reply_markup = main_menu_keyboard
         await message.answer(
