@@ -122,3 +122,26 @@
 - Исправить сетку на вертикальный список.
 - Добавить кнопку "Профиль" и её обработку.
 - Обновить тесты.
+
+### P1‑2: Платформенные тексты шага телефона
+**Статус**: выполнено (2026-03-26)
+
+**Изменения:**
+1. **Ядро (core)**
+   - Добавлен словарь `CONTACT_SCREEN_TEXTS` в `guest_content.py` с разными текстами для Telegram, VK, MAX.
+   - Обновлена функция `build_start_contact_screen(platform: str = "telegram")` для выбора текста по платформе.
+   - Добавлен параметр `platform` в `OnboardingFlowService.__init__` и использование в `handle_rules_input`.
+
+2. **Адаптеры**
+   - `TelegramIdentityAdapter`, `VkIdentityAdapter`, `MaxIdentityAdapter` передают платформу при создании `OnboardingFlowService`.
+   - `VkGuestMenuAdapter.build_start_contact_screen` и `MaxGuestMenuAdapter.build_start_contact_screen` передают платформу в вызов `build_start_contact_screen`.
+
+3. **Тестирование**
+   - Обновлён тест `test_vk_identity_adapter.py` для проверки нового текста.
+   - Запущены все unit-тесты (133 теста) — все проходят.
+
+**Результат:** Текст шага телефона теперь учитывает особенности платформы:
+- Telegram и MAX: «Поделиться контактом» (с эмодзи 📱).
+- VK: «Введите номер телефона» (так как VK не поддерживает кнопку отправки контакта).
+
+---

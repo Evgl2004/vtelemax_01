@@ -21,6 +21,12 @@ from vtelemax.core import (
     BUTTON_SUPPORT,
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
+    BUTTON_SUPPORT_FEEDBACK,
+    BUTTON_SUPPORT_QUESTION,
+    BUTTON_MY_TICKETS,
+    BUTTON_SUPPORT_CONTACTS,
+    BUTTON_BACK_TO_MAIN,
+    BUTTON_BACK_TO_SUPPORT,
 )
 
 RULES_ACCEPT_CALLBACK = "rules_accept"
@@ -69,6 +75,21 @@ def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=BUTTON_PROFILE)],
         ]
     )
+
+
+def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру подменю «Отдел заботы» (вертикальный список)."""
+    buttons = [
+        [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, callback_data=BUTTON_SUPPORT_FEEDBACK)],
+        [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=BUTTON_SUPPORT_QUESTION)],
+    ]
+    if has_tickets:
+        buttons.append([InlineKeyboardButton(text=BUTTON_MY_TICKETS, callback_data=BUTTON_MY_TICKETS)])
+    buttons.extend([
+        [InlineKeyboardButton(text=BUTTON_SUPPORT_CONTACTS, callback_data=BUTTON_SUPPORT_CONTACTS)],
+        [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=BUTTON_BACK_TO_MAIN)],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def build_main_menu_keyboard() -> ReplyKeyboardMarkup:

@@ -18,9 +18,13 @@ from .menu import (
     build_contact_request_keyboard,
     build_main_menu_inline_keyboard,
     build_rules_consent_inline_keyboard,
+    build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
     BUTTON_BONUSES,
     BUTTON_SUPPORT,
+    BUTTON_BALANCE,
+    BUTTON_VIRTUAL_CARD,
+    BUTTON_VACANCIES,
 )
 
 
@@ -36,6 +40,19 @@ def build_telegram_identity_router(
     main_menu_inline_keyboard = build_main_menu_inline_keyboard()
     rules_consent_keyboard = build_rules_consent_inline_keyboard()
     delivery_lock = asyncio.Lock()
+
+    def _choose_reply_markup(result: TelegramMenuActionResult) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
+        """Выбирает клавиатуру для ответа на основе результата адаптера."""
+        if result.requires_contact_keyboard:
+            return request_contact_keyboard
+        if result.status in {"rules_consent_required", "rules_consent_pending"}:
+            return rules_consent_keyboard
+        if result.status in {"support", "support_feedback", "support_question", "support_contacts", "tickets_list"}:
+            # Пока не передаём has_tickets, используем значение по умолчанию False
+            return build_support_menu_inline_keyboard(has_tickets=False)
+        if result.status == "menu":
+            return main_menu_inline_keyboard
+        return None
 
     async def _try_process_pending_deliveries(bot: Bot) -> None:
         """Пытается доставить pending-сообщения модератора без влияния на UX пользователя."""
@@ -80,14 +97,7 @@ def build_telegram_identity_router(
 
         result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
         event_logger.info("Ответ /start сформирован. status={status}.", status=result.status)
-        if result.requires_contact_keyboard:
-            reply_markup = request_contact_keyboard
-        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
-            reply_markup = rules_consent_keyboard
-        elif result.status == "menu":
-            reply_markup = main_menu_inline_keyboard
-        else:
-            reply_markup = None
+        reply_markup = _choose_reply_markup(result)
 
         await message.answer(
             result.message,
@@ -172,12 +182,7 @@ def build_telegram_identity_router(
             action_text="/menu",
         )
         event_logger.info("Ответ /menu сформирован. status={status}.", status=result.status)
-        if result.requires_contact_keyboard:
-            reply_markup = request_contact_keyboard
-        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
-            reply_markup = rules_consent_keyboard
-        else:
-            reply_markup = main_menu_inline_keyboard
+        reply_markup = _choose_reply_markup(result)
         await message.answer(
             result.message,
             parse_mode=result.parse_mode,
@@ -207,12 +212,7 @@ def build_telegram_identity_router(
             action_text=message.text,
         )
         event_logger.info("Текстовый ввод обработан. status={status}.", status=result.status)
-        if result.requires_contact_keyboard:
-            reply_markup = request_contact_keyboard
-        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
-            reply_markup = rules_consent_keyboard
-        else:
-            reply_markup = main_menu_inline_keyboard
+        reply_markup = _choose_reply_markup(result)
         await message.answer(
             result.message,
             parse_mode=result.parse_mode,
@@ -240,12 +240,7 @@ def build_telegram_identity_router(
         )
         event_logger.info("Callback согласия обработан. status={status}.", status=result.status)
 
-        if result.requires_contact_keyboard:
-            reply_markup = request_contact_keyboard
-        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
-            reply_markup = rules_consent_keyboard
-        else:
-            reply_markup = main_menu_inline_keyboard
+        reply_markup = _choose_reply_markup(result)
 
         await callback.answer()
         if callback.message is not None:
@@ -268,9 +263,9 @@ def build_telegram_identity_router(
             reply_markup=reply_markup,
         )
 
-    @router.callback_query(F.data.in_([BUTTON_PROFILE, BUTTON_BONUSES, BUTTON_SUPPORT]))
+    @router.callback_query(F.data.in_([BUTTON_BALANCE, BUTTON_VIRTUAL_CARD, BUTTON_SUPPORT, BUTTON_VACANCIES, BUTTON_PROFILE]))
     async def main_menu_callback_handler(callback: CallbackQuery) -> None:
-        """Обработчик inline-кнопок главного меню."""
+        """Обработчик inline-кнопок главного меню (пять разделов)."""
 
         event_logger = router_logger.bind(
             stage="main_menu_callback",
@@ -289,12 +284,7 @@ def build_telegram_identity_router(
         )
         event_logger.info("Callback меню обработан. status={status}.", status=result.status)
 
-        if result.requires_contact_keyboard:
-            reply_markup = request_contact_keyboard
-        elif result.status in {"rules_consent_required", "rules_consent_pending"}:
-            reply_markup = rules_consent_keyboard
-        else:
-            reply_markup = main_menu_inline_keyboard
+        reply_markup = _choose_reply_markup(result)
 
         await callback.answer()
         if callback.message is not None:
