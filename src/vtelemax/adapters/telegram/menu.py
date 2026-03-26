@@ -34,7 +34,7 @@ RULES_ACCEPT_CALLBACK = "rules_accept"
 MAIN_MENU_PROFILE_CALLBACK = "menu_profile"
 MAIN_MENU_BONUSES_CALLBACK = "menu_bonuses"
 MAIN_MENU_SUPPORT_CALLBACK = "menu_support"
-DOCS_URL = "https://example.com/documents"  # временный URL, позже заменить
+DOCS_URL = "https://sagur.24vds.ru/agreement/#"  # URL из прототипов MAX
 
 
 def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
@@ -59,10 +59,8 @@ def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text=BUTTON_DOCS_LINK, url=DOCS_URL),
-                InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK),
-            ]
+            [InlineKeyboardButton(text=BUTTON_DOCS_LINK, url=DOCS_URL)],
+            [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)],
         ]
     )
 

@@ -37,12 +37,20 @@ def render_vk_keyboard(screen: VkScreen | None) -> str | None:
                     "label": button.label,
                     "payload": json.dumps(button.payload, ensure_ascii=False),
                 }
-            rendered_row.append(
-                {
-                    "action": action,
-                    "color": _resolve_button_color(button),
-                }
-            )
+            if button.url:
+                # Для кнопок-ссылок цвет не указываем (VK API не поддерживает цвет для open_link)
+                rendered_row.append(
+                    {
+                        "action": action,
+                    }
+                )
+            else:
+                rendered_row.append(
+                    {
+                        "action": action,
+                        "color": _resolve_button_color(button),
+                    }
+                )
         buttons.append(rendered_row)
 
     return json.dumps(
@@ -62,14 +70,17 @@ def _resolve_button_color(button: VkButton) -> str:
     action = resolve_action_from_vk_payload(button.payload)
     if action is None:
         return "primary"
-    if action in {GuestMenuAction.BACK_TO_MAIN, GuestMenuAction.BACK_TO_SUPPORT}:
+    if action == GuestMenuAction.BACK_TO_MAIN:
         return "negative"
-    if action in {GuestMenuAction.SUPPORT, GuestMenuAction.SUPPORT_QUESTION}:
+    if action == GuestMenuAction.BACK_TO_SUPPORT:
         return "primary"
-    if action in {GuestMenuAction.SUPPORT_FEEDBACK, GuestMenuAction.SUPPORT_CONTACTS}:
+    if action in {GuestMenuAction.SUPPORT, GuestMenuAction.SUPPORT_QUESTION, GuestMenuAction.MY_TICKETS}:
+        return "primary"
+    if action in {GuestMenuAction.SUPPORT_FEEDBACK, GuestMenuAction.SUPPORT_CONTACTS, GuestMenuAction.OPEN_DOCS}:
         return "secondary"
     if action == GuestMenuAction.SHARE_CONTACT:
         return "positive"
-    if action == GuestMenuAction.OPEN_DOCS:
+    if action == GuestMenuAction.VACANCIES:
         return "secondary"
+    # BALANCE, VIRTUAL_CARD, PROFILE, HELP, ABOUT, etc.
     return "primary"
