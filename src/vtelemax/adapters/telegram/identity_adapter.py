@@ -98,7 +98,7 @@ class TelegramIdentityAdapter:
         self._logger = logger.bind(platform="telegram", component="identity_adapter")
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
-        self._onboarding_flow = OnboardingFlowService()
+        self._onboarding_flow = OnboardingFlowService(platform="telegram")
         self._onboarding_state_by_user_id: dict[int, OnboardingState] = {}
         self._dialog_state_by_user_id: dict[int, str] = {}
         self._moderator_state_by_user_id: dict[int, str] = {}

@@ -67,7 +67,7 @@ class MaxGuestMenuAdapter:
     def build_start_contact_screen(self) -> MaxScreen:
         """Экран запроса телефона."""
 
-        screen = build_start_contact_screen()
+        screen = build_start_contact_screen(platform="max")
         rows = ((_to_max_button(screen.buttons[0]),),) if screen.buttons else ()
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 

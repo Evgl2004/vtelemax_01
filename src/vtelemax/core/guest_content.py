@@ -33,6 +33,21 @@ BUTTON_DOCS_LINK = "📄 Документы"
 BUTTON_BONUSES = "💰 Бонусы"
 
 
+CONTACT_SCREEN_TEXTS = {
+    "telegram": (
+        "📱 Чтобы подключиться к программе лояльности, нажми кнопку «Поделиться контактом».\n"
+        "После этого мы будем знакомы чуть ближе."
+    ),
+    "vk": (
+        "📱 Чтобы подключиться к программе лояльности, введите номер телефона."
+    ),
+    "max": (
+        "📱 Чтобы подключиться к программе лояльности, нажми кнопку «Поделиться контактом».\n"
+        "После этого мы будем знакомы чуть ближе."
+    ),
+}
+
+
 def normalize_menu_text(raw_text: str) -> str:
     """Нормализует пользовательский текст для распознавания действия меню."""
 
@@ -96,15 +111,13 @@ def build_start_rules_screen() -> MenuScreenContract:
     )
 
 
-def build_start_contact_screen() -> MenuScreenContract:
+def build_start_contact_screen(platform: str = "telegram") -> MenuScreenContract:
     """Экран запроса номера телефона (эталонный текст)."""
 
+    text = CONTACT_SCREEN_TEXTS.get(platform, CONTACT_SCREEN_TEXTS["telegram"])
     return MenuScreenContract(
         screen_id="start_contact",
-        text=(
-            "📱 Чтобы подключиться к программе лояльности, нажми кнопку «Поделиться контактом».\n"
-            "После этого мы будем знакомы чуть ближе."
-        ),
+        text=text,
         buttons=(
             MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_SEND_PHONE),
         ),

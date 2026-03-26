@@ -75,7 +75,7 @@ class VkIdentityAdapter:
         self._state_by_user_id: dict[int, str] = {}
         self._moderator_state_by_user_id: dict[int, str] = {}
         self._moderator_context_by_user_id: dict[int, dict[str, str]] = {}
-        self._onboarding_flow = OnboardingFlowService()
+        self._onboarding_flow = OnboardingFlowService(platform="vk")
         self._create_support_ticket_use_case = create_support_ticket_use_case
         self._moderator_reply_use_case = moderator_reply_use_case
         self._ticket_details_use_case = ticket_details_use_case
