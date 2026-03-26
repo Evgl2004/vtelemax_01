@@ -65,7 +65,7 @@ class VkGuestMenuAdapter:
     def build_start_contact_screen(self) -> VkScreen:
         """Экран запроса телефона."""
 
-        screen = build_start_contact_screen()
+        screen = build_start_contact_screen(platform="vk")
         rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 

@@ -45,6 +45,13 @@ class OnboardingTransition:
 class OnboardingFlowService:
     """Общий сервис переходов onboarding для всех адаптеров."""
 
+    def __init__(self, platform: str = "telegram") -> None:
+        """Инициализирует сервис для указанной платформы.
+
+        Поддерживаемые платформы: 'telegram', 'vk', 'max'.
+        """
+        self._platform = platform
+
     def begin_new_user(self) -> OnboardingTransition:
         """Запускает onboarding нового пользователя с шага согласия."""
 
@@ -73,7 +80,7 @@ class OnboardingFlowService:
         """Обрабатывает пользовательский ответ на шаге согласия."""
 
         if self._is_rules_consent(raw_text):
-            contact_screen = build_start_contact_screen()
+            contact_screen = build_start_contact_screen(platform=self._platform)
             return OnboardingTransition(
                 state=OnboardingState.WAITING_PHONE,
                 status="phone_required",
@@ -104,4 +111,3 @@ class OnboardingFlowService:
             "okay",
         }
         return normalized in accepted_variants
-

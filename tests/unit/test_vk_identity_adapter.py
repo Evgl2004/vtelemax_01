@@ -169,7 +169,7 @@ def test_vk_onboarding_moves_from_rules_to_phone() -> None:
 
     response = adapter.handle_incoming(vk_user_id=1001, text="✅ Согласен", payload=None)
 
-    assert "Поделиться контактом" in response.text
+    assert "Чтобы подключиться к программе лояльности, введите номер телефона." in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
 
