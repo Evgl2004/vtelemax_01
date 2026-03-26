@@ -21,6 +21,7 @@ def test_main_menu_screen_contains_prototype_buttons() -> None:
     assert "🪪 Виртуальная карта" in labels
     assert "🆘 Отдел заботы" in labels
     assert "💼 Вакансии" in labels
+    assert "👤 Профиль" in labels
 
 
 def test_support_menu_screen_includes_my_tickets_only_when_requested() -> None:

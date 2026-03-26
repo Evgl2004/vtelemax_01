@@ -59,16 +59,26 @@ def register_max_guest_handlers(
         if user_id is None:
             return
         text = _extract_message_text(event)
+        contact_phone = _extract_contact_attachment(event)
         lowered = text.strip().lower()
         event_logger = router_logger.bind(stage="message_created", user_id=str(user_id))
-        event_logger.debug("Получено сообщение от пользователя. text={text}.", text=text)
+        event_logger.debug(
+            "Получено сообщение от пользователя. text={text}, contact={contact}.",
+            text=text,
+            contact=contact_phone,
+        )
 
         if lowered in _START_COMMANDS:
             response = adapter.handle_start(max_user_id=user_id)
         elif lowered in _LEGACY_COMMANDS:
             response = adapter.handle_legacy_start(max_user_id=user_id)
         else:
-            response = adapter.handle_incoming(max_user_id=user_id, text=text, payload=None)
+            response = adapter.handle_incoming(
+                max_user_id=user_id,
+                text=text,
+                payload=None,
+                contact_phone=contact_phone,
+            )
         event_logger.info("Входящее сообщение обработано.")
         await _send_response(event, response)
 
@@ -184,4 +194,21 @@ def _extract_callback_payload(event: Any) -> str | None:
         if payload is None:
             return None
         return str(payload)
+    return None
+
+
+def _extract_contact_attachment(event: Any) -> str | None:
+    """Извлекает номер телефона из вложения контакта MAX."""
+
+    if (
+        hasattr(event, "message")
+        and hasattr(event.message, "body")
+        and hasattr(event.message.body, "contact")
+        and event.message.body.contact is not None
+    ):
+        contact = event.message.body.contact
+        if hasattr(contact, "phone_number"):
+            phone = contact.phone_number
+            if phone is not None:
+                return str(phone)
     return None

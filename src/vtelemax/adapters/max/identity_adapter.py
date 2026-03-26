@@ -125,11 +125,33 @@ class MaxIdentityAdapter:
         contact_screen = self._menu_adapter.build_start_contact_screen()
         return MaxAdapterResponse(text=transition.message, screen=contact_screen)
 
-    def handle_incoming(self, max_user_id: int, text: str, payload: object | None) -> MaxAdapterResponse:
-        """Обрабатывает входящее сообщение MAX (text + payload)."""
+    def handle_incoming(
+        self,
+        max_user_id: int,
+        text: str,
+        payload: object | None,
+        contact_phone: str | None = None,
+    ) -> MaxAdapterResponse:
+        """Обрабатывает входящее сообщение MAX (text + payload + optional contact attachment)."""
 
         method_logger = self._logger.bind(stage="handle_incoming", user_id=str(max_user_id))
-        method_logger.debug("Входящее сообщение. text={text}.", text=text)
+        method_logger.debug(
+            "Входящее сообщение. text={text}, contact_phone={contact}.",
+            text=text,
+            contact=contact_phone,
+        )
+        # Если есть контакт, обрабатываем как телефонный ввод
+        if contact_phone is not None:
+            state = self._state_by_user_id.get(max_user_id)
+            is_legacy = state == _STATE_WAITING_LEGACY_PHONE
+            # Если состояние не ожидание телефона, но контакт пришёл, всё равно пытаемся зарегистрировать
+            # (например, пользователь отправил контакт повторно)
+            return self._handle_phone_input(
+                max_user_id=max_user_id,
+                text=contact_phone,
+                is_legacy=is_legacy,
+            )
+
         state = self._state_by_user_id.get(max_user_id)
         if state == _STATE_WAITING_RULES_CONSENT:
             return self._handle_rules_consent(max_user_id=max_user_id, text=text, payload=payload)

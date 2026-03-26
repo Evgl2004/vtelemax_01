@@ -166,7 +166,7 @@ def test_telegram_adapter_returns_profile_for_registered_user() -> None:
     adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="Мой профиль")
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="👤 Профиль")
 
     assert result.status == "profile"
     assert "+79123456789" in result.message
@@ -184,7 +184,7 @@ def test_telegram_adapter_returns_not_registered_for_missing_profile() -> None:
     )
     adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
-    result = adapter.handle_menu_action(telegram_user_id=2002, action_text="Мой профиль")
+    result = adapter.handle_menu_action(telegram_user_id=2002, action_text="👤 Профиль")
 
     assert result.status == "not_registered"
     assert result.requires_contact_keyboard is True
