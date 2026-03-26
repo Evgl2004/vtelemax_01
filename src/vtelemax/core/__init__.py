@@ -11,6 +11,8 @@ from .errors import IdentityConflictError
 from .guest_content import (
     BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
+    BUTTON_BACK_TO_MAIN,
+    BUTTON_BACK_TO_SUPPORT,
     BUTTON_BALANCE,
     BUTTON_BONUSES,
     BUTTON_DOCS_LINK,
@@ -144,6 +146,8 @@ __all__ = [
     "BUTTON_SUPPORT_QUESTION",
     "BUTTON_VACANCIES",
     "BUTTON_VIRTUAL_CARD",
+    "BUTTON_BACK_TO_MAIN",
+    "BUTTON_BACK_TO_SUPPORT",
     "build_about_screen",
     "build_balance_screen",
     "build_help_screen",
