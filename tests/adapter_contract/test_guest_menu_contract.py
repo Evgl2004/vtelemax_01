@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from types import TracebackType
 
-from vtelemax.adapters.max import MaxGuestMenuAdapter, MaxIdentityAdapter
+from vtelemax.adapters.max import MaxGuestMenuAdapter, MaxIdentityAdapter, MaxButton
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
-from vtelemax.adapters.vk import VkGuestMenuAdapter, VkIdentityAdapter
+from vtelemax.adapters.vk import VkGuestMenuAdapter, VkIdentityAdapter, VkButton
 from vtelemax.core import (
     GetPersonByAccountTransactionalUseCase,
+    GuestMenuAction,
     IdentityRepository,
     IdentityUnitOfWork,
     InMemoryIdentityRepository,
     RegisterOrAttachAccountTransactionalUseCase,
     build_main_menu_screen,
+    build_start_contact_screen,
+    build_start_rules_screen,
     build_support_menu_screen,
 )
 
@@ -111,9 +114,9 @@ def test_profile_phone_is_consistent_for_telegram_vk_max() -> None:
     telegram, vk, max_adapter = _build_adapters()
     _complete_cross_platform_registration(telegram, vk, max_adapter)
 
-    telegram_profile = telegram.handle_menu_action(telegram_user_id=1001, action_text="Мой профиль")
-    vk_profile = vk.handle_incoming(vk_user_id=2002, text="Мой профиль", payload=None)
-    max_profile = max_adapter.handle_incoming(max_user_id=3003, text="Мой профиль", payload=None)
+    telegram_profile = telegram.handle_menu_action(telegram_user_id=1001, action_text="👤 Профиль")
+    vk_profile = vk.handle_incoming(vk_user_id=2002, text="👤 Профиль", payload=None)
+    max_profile = max_adapter.handle_incoming(max_user_id=3003, text="👤 Профиль", payload=None)
 
     assert "+79123456789" in telegram_profile.message
     assert "+79123456789" in vk_profile.text
@@ -136,3 +139,117 @@ def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
     assert "Команда не распознана" in telegram_result.message
     assert "Команда не распознана" in vk_result.text
     assert "Команда не распознана" in max_result.text
+
+
+def test_url_button_present_in_rules_screen() -> None:
+    """Проверяет, что кнопка «Документы» имеет URL во всех адаптерах."""
+    vk_adapter = VkGuestMenuAdapter()
+    max_adapter = MaxGuestMenuAdapter()
+
+    vk_screen = vk_adapter.build_start_rules_screen()
+    max_screen = max_adapter.build_start_rules_screen()
+
+    # В экране правил две кнопки: первая — URL, вторая — callback
+    vk_url_button = vk_screen.rows[0][0]
+    max_url_button = max_screen.rows[0][0]
+
+    assert vk_url_button.url is not None
+    assert max_url_button.url is not None
+    assert vk_url_button.url == max_url_button.url  # URL должны совпадать
+
+    # Проверяем, что вторая кнопка не имеет URL
+    vk_callback_button = vk_screen.rows[0][1]
+    max_callback_button = max_screen.rows[0][1]
+    assert vk_callback_button.url is None
+    assert max_callback_button.url is None
+    # В MAX кнопка «Согласен» имеет request_contact = True (из-за действия SHARE_CONTACT)
+    assert max_callback_button.request_contact is True
+
+
+def test_request_contact_button_present_in_contact_screen() -> None:
+    """Проверяет, что кнопка «Отправить номер телефона» имеет request_contact в MAX и отсутствие URL в VK."""
+    vk_adapter = VkGuestMenuAdapter()
+    max_adapter = MaxGuestMenuAdapter()
+
+    vk_screen = vk_adapter.build_start_contact_screen()
+    max_screen = max_adapter.build_start_contact_screen()
+
+    # В экране контакта одна кнопка
+    vk_button = vk_screen.rows[0][0]
+    max_button = max_screen.rows[0][0]
+
+    # В VK кнопка должна быть обычной (без URL и request_contact)
+    assert vk_button.url is None
+    # В MAX кнопка должна иметь request_contact = True
+    assert max_button.request_contact is True
+    assert max_button.url is None
+    # Действие кнопки — SHARE_CONTACT
+    # (можно проверить через payload, но это уже проверяется в других тестах)
+
+
+def test_callback_buttons_have_no_url_or_request_contact() -> None:
+    """Проверяет, что кнопки главного меню не имеют лишних полей (только callback)."""
+    vk_adapter = VkGuestMenuAdapter()
+    max_adapter = MaxGuestMenuAdapter()
+
+    vk_screen = vk_adapter.build_main_menu_screen()
+    max_screen = max_adapter.build_main_menu_screen()
+
+    for vk_row, max_row in zip(vk_screen.rows, max_screen.rows):
+        for vk_button, max_button in zip(vk_row, max_row):
+            assert vk_button.url is None
+            assert max_button.url is None
+            assert max_button.request_contact is False
+
+
+def test_onboarding_flow_transitions() -> None:
+    """Проверяет корректность переходов между экранами в процессе регистрации."""
+    telegram, vk, max_adapter = _build_adapters()
+
+    # Шаг 1: старт -> экран правил
+    vk_start = vk.handle_start(vk_user_id=2002)
+    assert vk_start.screen is not None
+    assert vk_start.screen.screen_id == "start_rules"
+    max_start = max_adapter.handle_start(max_user_id=3003)
+    assert max_start.screen is not None
+    assert max_start.screen.screen_id == "start_rules"
+
+    # Шаг 2: принятие правил -> экран телефона
+    vk_accept = vk.handle_incoming(vk_user_id=2002, text="✅ Согласен", payload=None)
+    assert vk_accept.screen is not None
+    assert vk_accept.screen.screen_id == "start_contact"
+    max_accept = max_adapter.handle_incoming(max_user_id=3003, text="✅ Согласен", payload=None)
+    assert max_accept.screen is not None
+    assert max_accept.screen.screen_id == "start_contact"
+
+    # Шаг 3: отправка телефона -> главное меню
+    vk_phone = vk.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
+    assert vk_phone.screen is not None
+    assert vk_phone.screen.screen_id == "main_menu"
+    max_phone = max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
+    assert max_phone.screen is not None
+    assert max_phone.screen.screen_id == "main_menu"
+
+
+def test_invalid_phone_returns_error() -> None:
+    """Проверяет, что невалидный номер телефона возвращает ошибку и остаётся на экране контакта."""
+    telegram, vk, max_adapter = _build_adapters()
+
+    # Пройти шаг правил
+    vk.handle_start(vk_user_id=2002)
+    vk.handle_incoming(vk_user_id=2002, text="✅ Согласен", payload=None)
+    max_adapter.handle_start(max_user_id=3003)
+    max_adapter.handle_incoming(max_user_id=3003, text="✅ Согласен", payload=None)
+
+    # Отправить невалидный номер (не цифры)
+    vk_response = vk.handle_incoming(vk_user_id=2002, text="abc", payload=None)
+    max_response = max_adapter.handle_incoming(max_user_id=3003, text="abc", payload=None)
+
+    # Проверяем, что screen остался start_contact
+    assert vk_response.screen is not None
+    assert vk_response.screen.screen_id == "start_contact"
+    assert max_response.screen is not None
+    assert max_response.screen.screen_id == "start_contact"
+    # Проверяем, что текст содержит сообщение об ошибке
+    assert "Не удалось обработать номер телефона" in vk_response.text
+    assert "Не удалось обработать номер телефона" in max_response.text
