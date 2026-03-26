@@ -30,6 +30,7 @@ class VkButton:
 
     label: str
     payload: dict[str, str]
+    url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,11 @@ class VkScreen:
 
 
 def _to_vk_button(button: MenuButtonContract) -> VkButton:
-    return VkButton(label=button.label, payload=build_vk_payload(button.action))
+    return VkButton(
+        label=button.label,
+        payload=build_vk_payload(button.action),
+        url=button.url,
+    )
 
 
 class VkGuestMenuAdapter:
@@ -53,14 +58,14 @@ class VkGuestMenuAdapter:
         """Стартовый экран правил."""
 
         screen = build_start_rules_screen()
-        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_vk_button(screen.buttons[0]), _to_vk_button(screen.buttons[1])),) if screen.buttons else ()
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_start_contact_screen(self) -> VkScreen:
         """Экран запроса телефона."""
 
         screen = build_start_contact_screen()
-        rows = (( _to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_main_menu_screen(self, user_name: str = "Гость") -> VkScreen:
@@ -102,7 +107,7 @@ class VkGuestMenuAdapter:
         """Экран незарегистрированного пользователя."""
 
         screen = build_profile_not_found_screen()
-        rows = (( _to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_help_screen(self) -> VkScreen:
@@ -121,7 +126,7 @@ class VkGuestMenuAdapter:
         """Экран вакансий."""
 
         screen = build_vacancies_screen()
-        rows = (( _to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,
@@ -133,7 +138,7 @@ class VkGuestMenuAdapter:
         """Экран обратной связи."""
 
         screen = build_support_feedback_screen()
-        rows = (( _to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,
@@ -145,7 +150,7 @@ class VkGuestMenuAdapter:
         """Экран создания обращения."""
 
         screen = build_support_question_screen()
-        rows = (( _to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,
@@ -157,7 +162,7 @@ class VkGuestMenuAdapter:
         """Экран контактов."""
 
         screen = build_support_contacts_screen()
-        rows = (( _to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def resolve_action_screen(
