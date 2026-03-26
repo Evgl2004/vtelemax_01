@@ -27,9 +27,9 @@ BUTTON_MAIN_MENU = "Главное меню"
 BUTTON_PROFILE = "👤 Профиль"
 BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
-BUTTON_SEND_PHONE = "Отправить номер телефона"
+BUTTON_SEND_PHONE = "📱 Поделиться контактом"
 BUTTON_ACCEPT_RULES = "✅ Согласен"
-BUTTON_DOCS_LINK = "📄 Документы"
+BUTTON_DOCS_LINK = "📄 Открыть документы"
 BUTTON_BONUSES = "💰 Бонусы"
 
 
@@ -104,7 +104,7 @@ def build_start_rules_screen() -> MenuScreenContract:
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_DOCS_LINK,
-                url="https://example.com/documents",  # временный URL, позже заменить
+                url="https://sagur.24vds.ru/agreement/#",  # URL из прототипов MAX
             ),
             MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_ACCEPT_RULES),
         ),
