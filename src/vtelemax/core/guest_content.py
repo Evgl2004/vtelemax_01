@@ -24,12 +24,13 @@ BUTTON_BACK_TO_MAIN = "🔙 Назад в меню"
 BUTTON_BACK_TO_SUPPORT = "🔙 Назад в отдел заботы"
 
 BUTTON_MAIN_MENU = "Главное меню"
-BUTTON_PROFILE = "Мой профиль"
+BUTTON_PROFILE = "👤 Профиль"
 BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
 BUTTON_SEND_PHONE = "Отправить номер телефона"
 BUTTON_ACCEPT_RULES = "✅ Согласен"
 BUTTON_DOCS_LINK = "📄 Документы"
+BUTTON_BONUSES = "💰 Бонусы"
 
 
 def normalize_menu_text(raw_text: str) -> str:
@@ -57,6 +58,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         "/about": GuestMenuAction.ABOUT,
         BUTTON_SEND_PHONE.lower(): GuestMenuAction.SHARE_CONTACT,
         BUTTON_BALANCE.lower(): GuestMenuAction.BALANCE,
+        BUTTON_BONUSES.lower(): GuestMenuAction.BALANCE,
         BUTTON_VIRTUAL_CARD.lower(): GuestMenuAction.VIRTUAL_CARD,
         BUTTON_SUPPORT.lower(): GuestMenuAction.SUPPORT,
         BUTTON_VACANCIES.lower(): GuestMenuAction.VACANCIES,
@@ -145,9 +147,6 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
             MenuButtonContract(action=GuestMenuAction.SUPPORT, label=BUTTON_SUPPORT),
             MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
             MenuButtonContract(action=GuestMenuAction.PROFILE, label=BUTTON_PROFILE),
-            MenuButtonContract(action=GuestMenuAction.HELP, label=BUTTON_HELP),
-            MenuButtonContract(action=GuestMenuAction.ABOUT, label=BUTTON_ABOUT),
-            MenuButtonContract(action=GuestMenuAction.MAIN_MENU, label=BUTTON_MAIN_MENU),
         ),
     )
 

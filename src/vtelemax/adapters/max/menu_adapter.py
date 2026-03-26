@@ -8,6 +8,7 @@ from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
     build_about_screen,
+    build_balance_screen,
     build_help_screen,
     build_main_menu_screen,
     build_profile_not_found_screen,
@@ -31,6 +32,7 @@ class MaxButton:
     label: str
     payload: str
     url: str | None = None
+    request_contact: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +50,7 @@ def _to_max_button(button: MenuButtonContract) -> MaxButton:
         label=button.label,
         payload=build_max_payload(button.action),
         url=button.url,
+        request_contact=(button.action == GuestMenuAction.SHARE_CONTACT),
     )
 
 
@@ -69,17 +72,10 @@ class MaxGuestMenuAdapter:
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_main_menu_screen(self, user_name: str = "Гость") -> MaxScreen:
-        """Главное меню гостя (кнопки как в прототипе MAX)."""
+        """Главное меню гостя (пять разделов, вертикальный список)."""
 
         screen = build_main_menu_screen(user_name=user_name)
-        rows = (
-            (_to_max_button(screen.buttons[0]),),
-            (_to_max_button(screen.buttons[1]),),
-            (_to_max_button(screen.buttons[2]),),
-            (_to_max_button(screen.buttons[3]),),
-            (_to_max_button(screen.buttons[4]), _to_max_button(screen.buttons[5])),
-            (_to_max_button(screen.buttons[6]), _to_max_button(screen.buttons[7])),
-        )
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_support_menu_screen(self, has_tickets: bool) -> MaxScreen:
@@ -101,6 +97,17 @@ class MaxGuestMenuAdapter:
         screen = build_profile_screen(phone_e164=phone_e164, accounts_count=accounts_count)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=())
 
+    def build_balance_screen(self, balance: float) -> MaxScreen:
+        """Экран бонусного баланса."""
+
+        screen = build_balance_screen(balance=balance)
+        rows = ((_to_max_button(screen.buttons[0]),),) if screen.buttons else ()
+        return MaxScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
     def build_profile_not_found_screen(self) -> MaxScreen:
         """Экран незарегистрированного пользователя."""
 
@@ -188,4 +195,10 @@ class MaxGuestMenuAdapter:
             return self.build_support_question_screen()
         if action == GuestMenuAction.SUPPORT_CONTACTS:
             return self.build_support_contacts_screen()
+        if action == GuestMenuAction.PROFILE:
+            # Пока возвращаем главное меню, так как профиль требует данных пользователя
+            return self.build_main_menu_screen(user_name=user_name)
+        if action == GuestMenuAction.BALANCE:
+            # Возвращаем экран баланса с фиктивным значением (позже будет передаваться реальный баланс)
+            return self.build_balance_screen(balance=0.0)
         return self.build_main_menu_screen(user_name=user_name)

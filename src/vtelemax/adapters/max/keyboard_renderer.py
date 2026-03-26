@@ -16,7 +16,7 @@ def render_max_keyboard(screen: MaxScreen | None) -> object | None:
         return None
 
     try:
-        from maxapi.types import CallbackButton, LinkButton
+        from maxapi.types import CallbackButton, LinkButton, RequestContactButton
         from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
     except Exception:
         return {
@@ -26,6 +26,7 @@ def render_max_keyboard(screen: MaxScreen | None) -> object | None:
                         "text": button.label,
                         "payload": button.payload,
                         "url": button.url,
+                        "request_contact": button.request_contact,
                     }
                     for button in row
                 ]
@@ -37,7 +38,9 @@ def render_max_keyboard(screen: MaxScreen | None) -> object | None:
     for row in screen.rows:
         buttons = []
         for button in row:
-            if button.url:
+            if button.request_contact:
+                buttons.append(RequestContactButton(text=button.label))
+            elif button.url:
                 buttons.append(LinkButton(text=button.label, url=button.url))
             else:
                 buttons.append(CallbackButton(text=button.label, payload=button.payload))

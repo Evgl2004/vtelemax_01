@@ -16,7 +16,7 @@ def test_render_vk_keyboard_returns_json_for_screen_with_buttons() -> None:
     keyboard_json = render_vk_keyboard(screen)
 
     assert keyboard_json is not None
-    assert "Мой баланс" in keyboard_json
+    assert "💰 Мой баланс" in keyboard_json
     assert "payload" in keyboard_json
     parsed = json.loads(keyboard_json)
     assert parsed["inline"] is True
