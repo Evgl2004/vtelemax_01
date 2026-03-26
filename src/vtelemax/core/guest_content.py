@@ -29,6 +29,7 @@ BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
 BUTTON_SEND_PHONE = "Отправить номер телефона"
 BUTTON_ACCEPT_RULES = "✅ Согласен"
+BUTTON_DOCS_LINK = "📄 Документы"
 
 
 def normalize_menu_text(raw_text: str) -> str:
@@ -65,6 +66,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_SUPPORT_CONTACTS.lower(): GuestMenuAction.SUPPORT_CONTACTS,
         BUTTON_BACK_TO_MAIN.lower(): GuestMenuAction.BACK_TO_MAIN,
         BUTTON_BACK_TO_SUPPORT.lower(): GuestMenuAction.BACK_TO_SUPPORT,
+        BUTTON_DOCS_LINK.lower(): GuestMenuAction.OPEN_DOCS,
     }
     return mapping.get(normalized)
 
@@ -82,6 +84,11 @@ def build_start_rules_screen() -> MenuScreenContract:
             "👉 Ознакомься с документами по ссылке ниже и отправь сообщение «✅ Согласен»."
         ),
         buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_DOCS_LINK,
+                url="https://example.com/documents",  # временный URL, позже заменить
+            ),
             MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_ACCEPT_RULES),
         ),
     )
@@ -105,7 +112,7 @@ def build_start_contact_screen() -> MenuScreenContract:
 def build_legacy_upgrade_screen() -> MenuScreenContract:
     """Экран запуска обновления для legacy-пользователя.
 
-    Сценарий intentionally пересекается с обычной регистрацией:
+    Сценарий intentionally пересекается с обычной регистрации:
     на первом этапе мы также запрашиваем подтверждение номера телефона.
     """
 

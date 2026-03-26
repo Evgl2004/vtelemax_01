@@ -32,6 +32,7 @@ class GuestMenuAction(StrEnum):
     SUPPORT_CONTACTS = "support_contacts"
     BACK_TO_MAIN = "back_to_main"
     BACK_TO_SUPPORT = "back_to_support"
+    OPEN_DOCS = "open_docs"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,7 @@ class MenuButtonContract:
 
     action: GuestMenuAction
     label: str
+    url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,4 +52,3 @@ class MenuScreenContract:
     text: str
     buttons: tuple[MenuButtonContract, ...] = ()
     parse_mode: Literal["plain", "markdown"] = "plain"
-

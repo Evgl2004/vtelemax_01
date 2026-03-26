@@ -30,6 +30,7 @@ class MaxButton:
 
     label: str
     payload: str
+    url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,11 @@ class MaxScreen:
 
 
 def _to_max_button(button: MenuButtonContract) -> MaxButton:
-    return MaxButton(label=button.label, payload=build_max_payload(button.action))
+    return MaxButton(
+        label=button.label,
+        payload=build_max_payload(button.action),
+        url=button.url,
+    )
 
 
 class MaxGuestMenuAdapter:
@@ -53,7 +58,7 @@ class MaxGuestMenuAdapter:
         """Стартовый экран правил."""
 
         screen = build_start_rules_screen()
-        rows = ((_to_max_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = ((_to_max_button(screen.buttons[0]), _to_max_button(screen.buttons[1])),) if screen.buttons else ()
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_start_contact_screen(self) -> MaxScreen:

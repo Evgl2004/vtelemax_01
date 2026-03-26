@@ -24,13 +24,22 @@ def render_vk_keyboard(screen: VkScreen | None) -> str | None:
     for row in screen.rows:
         rendered_row: list[dict[str, object]] = []
         for button in row:
+            if button.url:
+                action = {
+                    "type": "open_link",
+                    "label": button.label,
+                    "link": button.url,
+                    "payload": json.dumps(button.payload, ensure_ascii=False),
+                }
+            else:
+                action = {
+                    "type": "text",
+                    "label": button.label,
+                    "payload": json.dumps(button.payload, ensure_ascii=False),
+                }
             rendered_row.append(
                 {
-                    "action": {
-                        "type": "text",
-                        "label": button.label,
-                        "payload": json.dumps(button.payload, ensure_ascii=False),
-                    },
+                    "action": action,
                     "color": _resolve_button_color(button),
                 }
             )
@@ -51,6 +60,8 @@ def _resolve_button_color(button: VkButton) -> str:
     """Выбирает цвет кнопки в зависимости от действия меню."""
 
     action = resolve_action_from_vk_payload(button.payload)
+    if action is None:
+        return "primary"
     if action in {GuestMenuAction.BACK_TO_MAIN, GuestMenuAction.BACK_TO_SUPPORT}:
         return "negative"
     if action in {GuestMenuAction.SUPPORT, GuestMenuAction.SUPPORT_QUESTION}:
@@ -59,4 +70,6 @@ def _resolve_button_color(button: VkButton) -> str:
         return "secondary"
     if action == GuestMenuAction.SHARE_CONTACT:
         return "positive"
+    if action == GuestMenuAction.OPEN_DOCS:
+        return "secondary"
     return "primary"
