@@ -179,3 +179,4 @@ vtelemax/
 4. Схема БД strict identity: `docs/DB_SCHEMA.md`.
 5. Тестирование: `docs/TESTING.md`.
 6. Контейнерный запуск: `docs/DEPLOYMENT_DOCKER.md`.
+7. Матрица UI-паритета с прототипами: `docs/PARITY_SPEC_V1.md`.
