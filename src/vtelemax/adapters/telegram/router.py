@@ -20,7 +20,6 @@ from .menu import (
     build_rules_consent_inline_keyboard,
     build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
-    BUTTON_BONUSES,
     BUTTON_SUPPORT,
     BUTTON_BALANCE,
     BUTTON_VIRTUAL_CARD,
@@ -48,8 +47,7 @@ def build_telegram_identity_router(
         if result.status in {"rules_consent_required", "rules_consent_pending"}:
             return rules_consent_keyboard
         if result.status in {"support", "support_feedback", "support_question", "support_contacts", "tickets_list"}:
-            # Пока не передаём has_tickets, используем значение по умолчанию False
-            return build_support_menu_inline_keyboard(has_tickets=False)
+            return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status == "menu":
             return main_menu_inline_keyboard
         return None
