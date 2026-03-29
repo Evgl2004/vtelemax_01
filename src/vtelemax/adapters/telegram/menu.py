@@ -13,7 +13,6 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
     BUTTON_BALANCE,
-    BUTTON_DOCS_LINK,
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
     BUTTON_PROFILE,
@@ -24,6 +23,7 @@ from vtelemax.core import (
 )
 
 RULES_ACCEPT_CALLBACK = "rules_accept"
+BUTTON_DOCS_LINK = "📄 Открыть документы"
 DOCS_URL = "https://sagur.24vds.ru/agreement/#"
 
 
