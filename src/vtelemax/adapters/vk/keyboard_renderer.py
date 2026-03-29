@@ -53,6 +53,11 @@ def render_vk_keyboard(screen: VkScreen | None) -> str | None:
                 )
         buttons.append(rendered_row)
 
+    if screen.screen_id in {"start_rules", "notifications_consent"}:
+        # Для onboarding-экранов фиксируем вертикальную раскладку кнопок (по одной в ряд).
+        flattened = [button for row in buttons for button in row]
+        buttons = [[button] for button in flattened]
+
     return json.dumps(
         {
             "one_time": False,

@@ -36,6 +36,13 @@ def _normalize_vk_message(
     return plain_text, None
 
 
+def _is_message_not_modified_error(error: Exception) -> bool:
+    """Проверяет, что ошибка редактирования связана с отсутствием изменений."""
+
+    text = str(error).lower()
+    return "not modified" in text or "message is same" in text
+
+
 def register_vk_guest_handlers(
     bot: Any,
     adapter: VkIdentityAdapter,
@@ -198,7 +205,10 @@ async def _send_event_response(event: MessageEvent, response: VkAdapterResponse)
         if event.conversation_message_id is not None:
             await event.edit_message(message=message_text, **kwargs)
             return
-    except Exception:  # noqa: BLE001
+    except Exception as error:  # noqa: BLE001
+        if _is_message_not_modified_error(error):
+            # Сообщение уже в актуальном состоянии — дополнительная отправка не нужна.
+            return
         # Фолбэк на отправку нового сообщения, если редактирование невозможно.
         pass
 

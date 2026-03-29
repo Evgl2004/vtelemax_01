@@ -45,4 +45,7 @@ def render_max_keyboard(screen: MaxScreen | None) -> object | None:
             else:
                 buttons.append(CallbackButton(text=button.label, payload=button.payload))
         builder.row(*buttons)
+    if screen.screen_id in {"start_rules", "notifications_consent"}:
+        # Для onboarding-экранов фиксируем вертикальную раскладку кнопок (по одной в ряд).
+        builder.adjust(1)
     return builder.as_markup()

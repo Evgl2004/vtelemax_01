@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 from loguru import logger
@@ -48,6 +49,16 @@ from .menu import (
     BUTTON_VIRTUAL_CARD,
     BUTTON_VACANCIES,
 )
+
+
+def _is_message_not_modified_error(error: Exception) -> bool:
+    """Проверяет, что ошибка редактирования связана только с отсутствием изменений."""
+
+    if isinstance(error, TelegramBadRequest):
+        text = str(error).lower()
+        return "message is not modified" in text or "message_not_modified" in text
+    text = str(error).lower()
+    return "message is not modified" in text or "message_not_modified" in text
 
 
 def build_telegram_identity_router(
@@ -301,9 +312,12 @@ def build_telegram_identity_router(
         if callback.message is not None:
             try:
                 await callback.message.edit_reply_markup(reply_markup=None)
-            except Exception:  # noqa: BLE001
-                # Не блокируем сценарий, если исходную клавиатуру уже нельзя изменить.
-                event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback.")
+            except Exception as error:  # noqa: BLE001
+                if _is_message_not_modified_error(error):
+                    event_logger.debug("Inline-клавиатура уже очищена после callback согласия.")
+                else:
+                    # Не блокируем сценарий, если исходную клавиатуру уже нельзя изменить.
+                    event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback.")
             await callback.message.answer(
                 result.message,
                 parse_mode=result.parse_mode,
@@ -345,8 +359,11 @@ def build_telegram_identity_router(
         if callback.message is not None:
             try:
                 await callback.message.edit_reply_markup(reply_markup=None)
-            except Exception:  # noqa: BLE001
-                event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback уведомлений.")
+            except Exception as error:  # noqa: BLE001
+                if _is_message_not_modified_error(error):
+                    event_logger.debug("Inline-клавиатура уже очищена после callback уведомлений.")
+                else:
+                    event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback уведомлений.")
             await callback.message.answer(
                 result.message,
                 parse_mode=result.parse_mode,
@@ -414,8 +431,11 @@ def build_telegram_identity_router(
             if isinstance(reply_markup, ReplyKeyboardMarkup):
                 try:
                     await callback.message.edit_reply_markup(reply_markup=None)
-                except Exception:  # noqa: BLE001
-                    event_logger.debug("Не удалось убрать inline-клавиатуру перед показом reply-клавиатуры.")
+                except Exception as error:  # noqa: BLE001
+                    if _is_message_not_modified_error(error):
+                        event_logger.debug("Inline-клавиатура уже очищена перед reply-клавиатурой.")
+                    else:
+                        event_logger.debug("Не удалось убрать inline-клавиатуру перед показом reply-клавиатуры.")
                 await callback.message.answer(
                     result.message,
                     parse_mode=result.parse_mode,
@@ -429,7 +449,11 @@ def build_telegram_identity_router(
                     reply_markup=reply_markup if isinstance(reply_markup, InlineKeyboardMarkup) else None,
                 )
                 return
-            except Exception:  # noqa: BLE001
+            except Exception as error:  # noqa: BLE001
+                if _is_message_not_modified_error(error):
+                    event_logger.debug("Редактирование callback-сообщения не требуется: контент не изменился.")
+                    return
+                # Не блокируем сценарий, если исходную клавиатуру уже нельзя изменить.
                 event_logger.debug("Не удалось перерисовать сообщение по callback, отправляем новое.")
 
         await callback.bot.send_message(

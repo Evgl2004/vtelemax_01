@@ -31,3 +31,19 @@ def test_render_vk_keyboard_returns_none_for_screen_without_buttons() -> None:
     keyboard_json = render_vk_keyboard(screen)
 
     assert keyboard_json is None
+
+
+def test_render_vk_start_rules_keyboard_is_vertical() -> None:
+    """Проверяет, что onboarding-кнопки VK идут вертикально (по одной в ряд)."""
+
+    adapter = VkGuestMenuAdapter()
+    screen = adapter.build_start_rules_screen()
+
+    keyboard_json = render_vk_keyboard(screen)
+
+    assert keyboard_json is not None
+    parsed = json.loads(keyboard_json)
+    rows = parsed.get("buttons", [])
+    assert len(rows) == 2
+    assert len(rows[0]) == 1
+    assert len(rows[1]) == 1

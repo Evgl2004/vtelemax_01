@@ -21,6 +21,13 @@ _VCF_PHONE_PATTERN = re.compile(r"TEL[^:]*:([^\r\n]+)", flags=re.IGNORECASE)
 _PHONE_SANITIZE_PATTERN = re.compile(r"[^0-9+]")
 
 
+def _is_message_not_modified_error(error: Exception) -> bool:
+    """Проверяет, что ошибка редактирования вызвана отсутствием изменений."""
+
+    text = str(error).lower()
+    return "not modified" in text or "message is same" in text
+
+
 def register_max_guest_handlers(
     router: Any,
     adapter: MaxIdentityAdapter,
@@ -147,7 +154,10 @@ async def _send_response(event: Any, response: MaxAdapterResponse) -> None:
         try:
             await bot.edit_message(message_id=callback_mid, text=response.text, **kwargs)
             return
-        except Exception:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001
+            if _is_message_not_modified_error(error):
+                # Сообщение уже содержит актуальный контент.
+                return
             # На некоторых типах сообщений редактирование недоступно, fallback на send_message.
             pass
 
