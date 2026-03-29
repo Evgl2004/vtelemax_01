@@ -40,13 +40,15 @@ def test_render_max_keyboard_handles_url_button() -> None:
     # Проверим, что в структуре есть url
     if isinstance(keyboard, dict):
         rows = keyboard.get("rows", [])
-        assert len(rows) == 1
-        row = rows[0]
-        assert len(row) == 2
+        assert len(rows) == 2
+        first_row = rows[0]
+        second_row = rows[1]
+        assert len(first_row) == 1
+        assert len(second_row) == 1
         # Первая кнопка — ссылка на документы
-        assert row[0].get("url") is not None
-        # Вторая кнопка — обычная кнопка (без url)
-        assert row[1].get("url") is None
+        assert first_row[0].get("url") is not None
+        # Вторая кнопка — обычная callback-кнопка (без url)
+        assert second_row[0].get("url") is None
     else:
         # В реальном окружении с maxapi клавиатура будет объектом InlineKeyboardMarkup
         # Проверим, что функция не падает

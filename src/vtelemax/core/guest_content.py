@@ -27,6 +27,15 @@ BUTTON_BACK_TO_SUPPORT = "🔙 Назад в отдел заботы"
 
 BUTTON_MAIN_MENU = "Главное меню"
 BUTTON_PROFILE = "👤 Профиль"
+BUTTON_PROFILE_EDIT = "✏️ Редактировать профиль"
+BUTTON_PROFILE_EDIT_FIRST_NAME = "👤 Изменить имя"
+BUTTON_PROFILE_EDIT_LAST_NAME = "👥 Изменить фамилию"
+BUTTON_PROFILE_EDIT_GENDER = "⚥ Изменить пол"
+BUTTON_PROFILE_EDIT_GENDER_MALE = "👨 Мужской"
+BUTTON_PROFILE_EDIT_GENDER_FEMALE = "👩 Женский"
+BUTTON_PROFILE_EDIT_BIRTH_DATE = "🎂 Указать дату рождения"
+BUTTON_PROFILE_EDIT_EMAIL = "📧 Изменить email"
+BUTTON_PROFILE_EDIT_CANCEL = "🔙 Назад в профиль"
 BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
 BUTTON_SEND_PHONE = "📱 Поделиться контактом"
@@ -44,7 +53,8 @@ CONTACT_SCREEN_TEXTS = {
         "После этого мы будем знакомы чуть ближе."
     ),
     "vk": (
-        "📱 Чтобы подключиться к программе лояльности, введите номер телефона."
+        "📱 Чтобы подключиться к программе лояльности, нажмите кнопку «Поделиться контактом».\n"
+        "После нажатия отправьте номер в формате +79991234567."
     ),
     "max": (
         "📱 Чтобы подключиться к программе лояльности, нажми кнопку «Поделиться контактом».\n"
@@ -71,6 +81,15 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         "меню": GuestMenuAction.MAIN_MENU,
         "/menu": GuestMenuAction.MAIN_MENU,
         BUTTON_PROFILE.lower(): GuestMenuAction.PROFILE,
+        BUTTON_PROFILE_EDIT.lower(): GuestMenuAction.PROFILE_EDIT,
+        BUTTON_PROFILE_EDIT_FIRST_NAME.lower(): GuestMenuAction.PROFILE_EDIT_FIRST_NAME,
+        BUTTON_PROFILE_EDIT_LAST_NAME.lower(): GuestMenuAction.PROFILE_EDIT_LAST_NAME,
+        BUTTON_PROFILE_EDIT_GENDER.lower(): GuestMenuAction.PROFILE_EDIT_GENDER,
+        BUTTON_PROFILE_EDIT_GENDER_MALE.lower(): GuestMenuAction.PROFILE_EDIT_GENDER_MALE,
+        BUTTON_PROFILE_EDIT_GENDER_FEMALE.lower(): GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE,
+        BUTTON_PROFILE_EDIT_BIRTH_DATE.lower(): GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
+        BUTTON_PROFILE_EDIT_EMAIL.lower(): GuestMenuAction.PROFILE_EDIT_EMAIL,
+        BUTTON_PROFILE_EDIT_CANCEL.lower(): GuestMenuAction.PROFILE_EDIT_CANCEL,
         "/profile": GuestMenuAction.PROFILE,
         BUTTON_HELP.lower(): GuestMenuAction.HELP,
         "/help": GuestMenuAction.HELP,
@@ -89,6 +108,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_BACK_TO_MAIN.lower(): GuestMenuAction.BACK_TO_MAIN,
         BUTTON_BACK_TO_SUPPORT.lower(): GuestMenuAction.BACK_TO_SUPPORT,
         BUTTON_DOCS_LINK.lower(): GuestMenuAction.OPEN_DOCS,
+        BUTTON_ACCEPT_RULES.lower(): GuestMenuAction.ACCEPT_RULES,
         BUTTON_NOTIFICATIONS_YES.lower(): GuestMenuAction.NOTIFY_YES,
         BUTTON_NOTIFICATIONS_NO.lower(): GuestMenuAction.NOTIFY_NO,
     }
@@ -105,7 +125,8 @@ def build_start_rules_screen() -> MenuScreenContract:
             "Добро пожаловать к нам в гости!\n\n"
             "📜 Для начала нам необходимо получить твоё согласие на обработку персональных данных "
             "и согласие с политикой конфиденциальности.\n\n"
-            "👉 Ознакомься с документами по ссылке ниже и отправь сообщение «✅ Согласен»."
+            "👉 Ознакомься с документами по ссылке ниже и отправь сообщение «✅ Согласен».\n\n"
+            "После ознакомления отправьте сообщение «✅ Согласен»."
         ),
         buttons=(
             MenuButtonContract(
@@ -113,7 +134,7 @@ def build_start_rules_screen() -> MenuScreenContract:
                 label=BUTTON_DOCS_LINK,
                 url="https://sagur.24vds.ru/agreement/#",  # URL из прототипов MAX
             ),
-            MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_ACCEPT_RULES),
+            MenuButtonContract(action=GuestMenuAction.ACCEPT_RULES, label=BUTTON_ACCEPT_RULES),
         ),
     )
 
@@ -143,16 +164,22 @@ def build_first_name_input_screen() -> MenuScreenContract:
     )
 
 
-def build_notifications_consent_screen(profile_text: str) -> MenuScreenContract:
-    """Экран обязательного выбора по уведомлениям после проверки анкеты."""
+def build_notifications_consent_screen(profile_text: str | None = None) -> MenuScreenContract:
+    """Экран обязательного выбора по уведомлениям.
 
+    Параметр `profile_text` оставлен для обратной совместимости:
+    - если передан, выводится перед блоком согласия;
+    - в актуальном UX-flow блок уведомлений можно показывать отдельно.
+    """
+
+    notification_text = (
+        "📢 Мы хотим радовать вас персональными предложениями и акциями.\n"
+        "Ознакомьтесь с условиями получения уведомлений по ссылке ниже и сделайте выбор:"
+    )
+    full_text = notification_text if not profile_text else f"{profile_text}\n\n{notification_text}"
     return MenuScreenContract(
         screen_id="notifications_consent",
-        text=(
-            f"{profile_text}\n\n"
-            "📢 Мы хотим радовать вас персональными предложениями и акциями.\n"
-            "Ознакомьтесь с условиями получения уведомлений по ссылке ниже и сделайте выбор:"
-        ),
+        text=full_text,
         buttons=(
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
@@ -385,6 +412,88 @@ def build_profile_screen(
             notifications_allowed=notifications_allowed,
             notifications_allowed_at=notifications_allowed_at,
         ),
+        buttons=(
+            MenuButtonContract(action=GuestMenuAction.PROFILE_EDIT, label=BUTTON_PROFILE_EDIT),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
+        ),
+        parse_mode="markdown",
+    )
+
+
+def build_profile_edit_screen(*, can_edit_birth_date: bool) -> MenuScreenContract:
+    """Экран выбора поля для редактирования профиля."""
+
+    buttons: list[MenuButtonContract] = [
+        MenuButtonContract(
+            action=GuestMenuAction.PROFILE_EDIT_FIRST_NAME,
+            label=BUTTON_PROFILE_EDIT_FIRST_NAME,
+        ),
+        MenuButtonContract(
+            action=GuestMenuAction.PROFILE_EDIT_LAST_NAME,
+            label=BUTTON_PROFILE_EDIT_LAST_NAME,
+        ),
+        MenuButtonContract(
+            action=GuestMenuAction.PROFILE_EDIT_GENDER,
+            label=BUTTON_PROFILE_EDIT_GENDER,
+        ),
+    ]
+    if can_edit_birth_date:
+        buttons.append(
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
+                label=BUTTON_PROFILE_EDIT_BIRTH_DATE,
+            )
+        )
+    buttons.extend(
+        [
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_EMAIL,
+                label=BUTTON_PROFILE_EDIT_EMAIL,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_CANCEL,
+                label=BUTTON_PROFILE_EDIT_CANCEL,
+            ),
+        ]
+    )
+    birth_hint = (
+        "Дата рождения уже заполнена и по правилам может быть указана только один раз."
+        if not can_edit_birth_date
+        else "Дату рождения можно указать один раз, если она еще не заполнена."
+    )
+    return MenuScreenContract(
+        screen_id="profile_edit",
+        text=(
+            "✏️ *Редактирование профиля*\n\n"
+            "Выберите поле, которое хотите изменить.\n"
+            "Телефон изменять нельзя.\n\n"
+            f"ℹ️ {birth_hint}"
+        ),
+        buttons=tuple(buttons),
+        parse_mode="markdown",
+    )
+
+
+def build_profile_gender_screen() -> MenuScreenContract:
+    """Экран выбора пола в режиме редактирования профиля."""
+
+    return MenuScreenContract(
+        screen_id="profile_edit_gender",
+        text="⚥ Выберите пол:",
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_GENDER_MALE,
+                label=BUTTON_PROFILE_EDIT_GENDER_MALE,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE,
+                label=BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_CANCEL,
+                label=BUTTON_PROFILE_EDIT_CANCEL,
+            ),
+        ),
     )
 
 
@@ -405,18 +514,18 @@ def build_profile_review_text(
     """Формирует единый текст review-профиля для финала регистрации и кнопки «Профиль»."""
 
     return (
-        "📋 Проверьте введённые данные:\n\n"
-        f"👤 Имя: {first_name_input or 'не указано'}\n"
-        f"👥 Фамилия: {last_name_input or 'не указана'}\n"
-        f"📞 Телефон: {phone_e164}\n"
-        f"⚥ Пол: {_format_gender(gender)}\n"
-        f"🎂 Дата рождения: {_format_birth_date(birth_date)}\n"
-        f"📧 Email: {email or 'не указан'}\n"
-        f"📜 Согласие с правилами: {'принято' if rules_accepted else 'не принято'}\n"
-        f"🕒 Дата согласия с правилами: {_format_datetime(rules_accepted_at)}\n"
-        f"📢 Согласие на рассылку: {_format_notifications_choice(notifications_allowed)}\n"
-        f"🕒 Дата решения по рассылке: {_format_datetime(notifications_allowed_at)}\n"
-        f"🔗 Привязанных аккаунтов: {accounts_count}"
+        "🧾 *Профиль пользователя*\n\n"
+        f"👤 *Имя:* {first_name_input or 'не указано'}\n"
+        f"👥 *Фамилия:* {last_name_input or 'не указана'}\n"
+        f"📱 *Телефон:* `{phone_e164}`\n"
+        f"⚥ *Пол:* {_format_gender(gender)}\n"
+        f"🎂 *Дата рождения:* {_format_birth_date(birth_date)}\n"
+        f"📧 *Email:* {email or 'не указан'}\n"
+        f"📜 *Согласие с правилами:* {_format_rules_choice(rules_accepted)}\n"
+        f"🕒 *Дата согласия с правилами:* {_format_datetime(rules_accepted_at)}\n"
+        f"📢 *Согласие на рассылку:* {_format_notifications_choice(notifications_allowed)}\n"
+        f"🕒 *Дата решения по рассылке:* {_format_datetime(notifications_allowed_at)}\n"
+        f"🔗 *Привязанных аккаунтов:* {accounts_count}"
     )
 
 
@@ -446,11 +555,17 @@ def _format_datetime(raw_datetime: datetime | None) -> str:
     return raw_datetime.strftime("%d.%m.%Y %H:%M:%S")
 
 
+def _format_rules_choice(accepted: bool) -> str:
+    """Форматирует выбор пользователя по согласию с правилами."""
+
+    return "✅ принято" if accepted else "❌ не принято"
+
+
 def _format_notifications_choice(allowed: bool | None) -> str:
     """Форматирует выбор пользователя по уведомлениям."""
 
     if allowed is True:
-        return "согласен"
+        return "✅ согласен"
     if allowed is False:
-        return "отказался"
+        return "❌ отказался"
     return "не выбран"

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-import re
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from loguru import logger
@@ -30,6 +29,9 @@ from vtelemax.core import (
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
     SUPPORTED_PLATFORMS,
+    normalize_email,
+    normalize_person_name,
+    parse_birth_date,
     resolve_guest_menu_action,
 )
 
@@ -42,11 +44,16 @@ _STATE_WAITING_FIRST_NAME = OnboardingState.WAITING_FIRST_NAME.value
 _STATE_WAITING_NOTIFICATIONS_CONSENT = OnboardingState.WAITING_NOTIFICATIONS_CONSENT.value
 _STATE_WAITING_LEGACY_PHONE = OnboardingState.WAITING_LEGACY_PHONE.value
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
+_STATE_PROFILE_EDIT_CHOICE = "profile_edit_choice"
+_STATE_PROFILE_EDIT_FIRST_NAME = "profile_edit_first_name"
+_STATE_PROFILE_EDIT_LAST_NAME = "profile_edit_last_name"
+_STATE_PROFILE_EDIT_GENDER = "profile_edit_gender"
+_STATE_PROFILE_EDIT_BIRTH_DATE = "profile_edit_birth_date"
+_STATE_PROFILE_EDIT_EMAIL = "profile_edit_email"
 _STATE_MOD_MENU = "moderation_menu"
 _STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
 _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
 _STATE_MOD_WAIT_TICKET_FOR_DETAILS = "moderation_wait_ticket_for_details"
-_FIRST_NAME_ALLOWED_PATTERN = re.compile(r"^[A-Za-zА-Яа-яЁё\\-\\s]{2,50}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +62,7 @@ class VkAdapterResponse:
 
     text: str
     screen: VkScreen | None = None
+    parse_mode: str | None = None
 
 
 @dataclass(slots=True)
@@ -147,24 +155,9 @@ class VkIdentityAdapter:
                 first_name_input=person.first_name_input,
             )
             self._state_by_user_id[vk_user_id] = transition.state.value
-            profile_text = self._menu_adapter.build_profile_screen(
-                phone_e164=person.phone_e164,
-                accounts_count=len(person.accounts),
-                first_name_input=person.first_name_input,
-                last_name_input=person.last_name_input,
-                gender=person.gender,
-                birth_date=person.birth_date,
-                email=person.email,
-                rules_accepted=person.rules_accepted,
-                rules_accepted_at=person.rules_accepted_at,
-                notifications_allowed=person.notifications_allowed,
-                notifications_allowed_at=person.notifications_allowed_at,
-            ).text
             return VkAdapterResponse(
                 text=transition.message,
-                screen=self._menu_adapter.build_notifications_consent_screen(
-                    profile_text=profile_text
-                ),
+                screen=self._menu_adapter.build_notifications_consent_screen(),
             )
 
         self._state_by_user_id.pop(vk_user_id, None)
@@ -203,6 +196,12 @@ class VkIdentityAdapter:
         if state == _STATE_WAITING_RULES_CONSENT:
             return self._handle_rules_consent(vk_user_id=vk_user_id, text=text, payload=payload)
         if state == _STATE_WAITING_PHONE:
+            action = resolve_action_from_vk_payload(payload)
+            if action == GuestMenuAction.SHARE_CONTACT:
+                return VkAdapterResponse(
+                    text="Введите номер телефона в формате +79991234567.",
+                    screen=self._menu_adapter.build_start_contact_screen(),
+                )
             return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=False)
         if state == _STATE_WAITING_FIRST_NAME:
             return self._handle_first_name_input(vk_user_id=vk_user_id, text=text)
@@ -216,6 +215,18 @@ class VkIdentityAdapter:
             return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=True)
         if state == _STATE_WAITING_SUPPORT_QUESTION:
             return self._handle_support_question(vk_user_id=vk_user_id, text=text)
+        if state == _STATE_PROFILE_EDIT_CHOICE:
+            return self._handle_profile_edit_choice(vk_user_id=vk_user_id, text=text, payload=payload)
+        if state == _STATE_PROFILE_EDIT_FIRST_NAME:
+            return self._handle_profile_edit_first_name(vk_user_id=vk_user_id, text=text)
+        if state == _STATE_PROFILE_EDIT_LAST_NAME:
+            return self._handle_profile_edit_last_name(vk_user_id=vk_user_id, text=text)
+        if state == _STATE_PROFILE_EDIT_GENDER:
+            return self._handle_profile_edit_gender(vk_user_id=vk_user_id, text=text, payload=payload)
+        if state == _STATE_PROFILE_EDIT_BIRTH_DATE:
+            return self._handle_profile_edit_birth_date(vk_user_id=vk_user_id, text=text)
+        if state == _STATE_PROFILE_EDIT_EMAIL:
+            return self._handle_profile_edit_email(vk_user_id=vk_user_id, text=text)
 
         moderator_response = self._try_handle_moderator_command(text=text, vk_user_id=vk_user_id)
         if moderator_response is not None:
@@ -265,7 +276,7 @@ class VkIdentityAdapter:
 
         action = resolve_action_from_vk_payload(payload)
         consent_input = text
-        if action == GuestMenuAction.SHARE_CONTACT:
+        if action in {GuestMenuAction.ACCEPT_RULES, GuestMenuAction.SHARE_CONTACT}:
             consent_input = BUTTON_ACCEPT_RULES
 
         transition = self._onboarding_flow.handle_rules_input(consent_input)
@@ -375,7 +386,6 @@ class VkIdentityAdapter:
             GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
         )
         accounts_count = len(person.accounts) if person is not None else 1
-        profile_text = self._build_profile_text_for_draft(vk_user_id)
         transition = self._onboarding_flow.begin_notifications_consent_step(
             phone_e164=draft.phone_e164,
             accounts_count=accounts_count,
@@ -384,7 +394,7 @@ class VkIdentityAdapter:
         self._state_by_user_id[vk_user_id] = transition.state.value
         return VkAdapterResponse(
             text=transition.message,
-            screen=self._menu_adapter.build_notifications_consent_screen(profile_text=profile_text),
+            screen=self._menu_adapter.build_notifications_consent_screen(),
         )
 
     def _handle_notifications_consent(
@@ -400,13 +410,12 @@ class VkIdentityAdapter:
         consent_input = action.value if action is not None else text
         notifications_choice = self._onboarding_flow.handle_notifications_input(consent_input)
         if notifications_choice is None:
-            draft_profile = self._build_profile_text_for_draft(vk_user_id)
             return VkAdapterResponse(
                 text=(
                     "Пожалуйста, выберите один из вариантов согласия на рассылку "
                     "(кнопка «Да» или «Нет»)."
                 ),
-                screen=self._menu_adapter.build_notifications_consent_screen(profile_text=draft_profile),
+                screen=self._menu_adapter.build_notifications_consent_screen(),
             )
 
         draft = self._onboarding_draft_by_user_id.get(vk_user_id)
@@ -454,26 +463,13 @@ class VkIdentityAdapter:
         self._onboarding_draft_by_user_id.pop(vk_user_id, None)
         self._clear_moderator_state(vk_user_id)
 
-        profile_screen = self._menu_adapter.build_profile_screen(
-            phone_e164=person.phone_e164,
-            accounts_count=len(person.accounts),
-            first_name_input=person.first_name_input,
-            last_name_input=person.last_name_input,
-            gender=person.gender,
-            birth_date=person.birth_date,
-            email=person.email,
-            rules_accepted=person.rules_accepted,
-            rules_accepted_at=person.rules_accepted_at,
-            notifications_allowed=person.notifications_allowed,
-            notifications_allowed_at=person.notifications_allowed_at,
-        )
         loyalty_sync_text = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name=person.first_name_input or "Гость")
         return VkAdapterResponse(
             text=(
-                f"{profile_screen.text}\n\n"
                 f"{loyalty_sync_text}\n\n"
                 "✅ Регистрация завершена.\n\n"
+                "Расширенную анкету и информацию профиля можно изменить в разделе «👤 Профиль».\n\n"
                 f"{main_screen.text}"
             ),
             screen=main_screen,
@@ -524,6 +520,229 @@ class VkIdentityAdapter:
                 f"{main_screen.text}"
             ),
             screen=main_screen,
+        )
+
+    def _render_profile_screen(self, *, vk_user_id: int) -> VkAdapterResponse:
+        """Возвращает экран профиля с кнопками редактирования."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            screen = self._menu_adapter.build_profile_not_found_screen()
+            return VkAdapterResponse(text=screen.text, screen=screen)
+
+        screen = self._menu_adapter.build_profile_screen(
+            phone_e164=person.phone_e164,
+            accounts_count=len(person.accounts),
+            first_name_input=person.first_name_input,
+            last_name_input=person.last_name_input,
+            gender=person.gender,
+            birth_date=person.birth_date,
+            email=person.email,
+            rules_accepted=person.rules_accepted,
+            rules_accepted_at=person.rules_accepted_at,
+            notifications_allowed=person.notifications_allowed,
+            notifications_allowed_at=person.notifications_allowed_at,
+        )
+        return VkAdapterResponse(text=screen.text, screen=screen, parse_mode=screen.parse_mode)
+
+    def _open_profile_edit_choice(self, *, vk_user_id: int) -> VkAdapterResponse:
+        """Открывает меню выбора редактируемого поля профиля."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+
+        self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_CHOICE
+        screen = self._menu_adapter.build_profile_edit_screen(can_edit_birth_date=person.birth_date is None)
+        return VkAdapterResponse(text=screen.text, screen=screen, parse_mode=screen.parse_mode)
+
+    def _handle_profile_edit_choice(
+        self,
+        *,
+        vk_user_id: int,
+        text: str,
+        payload: dict[str, str] | None,
+    ) -> VkAdapterResponse:
+        """Обрабатывает выбор поля редактирования профиля."""
+
+        action = resolve_action_from_vk_payload(payload) or resolve_guest_menu_action(text)
+        if action in {GuestMenuAction.PROFILE_EDIT_CANCEL, GuestMenuAction.BACK_TO_MAIN}:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+        if action == GuestMenuAction.PROFILE_EDIT_FIRST_NAME:
+            self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_FIRST_NAME
+            return VkAdapterResponse(text="👤 Введите новое имя.")
+        if action == GuestMenuAction.PROFILE_EDIT_LAST_NAME:
+            self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_LAST_NAME
+            return VkAdapterResponse(text="👥 Введите новую фамилию.")
+        if action == GuestMenuAction.PROFILE_EDIT_GENDER:
+            self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_GENDER
+            screen = self._menu_adapter.build_profile_gender_screen()
+            return VkAdapterResponse(text=screen.text, screen=screen)
+        if action == GuestMenuAction.PROFILE_EDIT_BIRTH_DATE:
+            person = self._person_lookup_use_case.execute(
+                GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+            )
+            if person is None:
+                self._state_by_user_id.pop(vk_user_id, None)
+                return self._render_profile_screen(vk_user_id=vk_user_id)
+            if person.birth_date is not None:
+                self._state_by_user_id.pop(vk_user_id, None)
+                return VkAdapterResponse(
+                    text=(
+                        "🎂 Дата рождения уже заполнена и может быть указана только один раз.\n\n"
+                        "Телефон менять нельзя. Другие поля можно обновить в режиме редактирования профиля."
+                    )
+                )
+            self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_BIRTH_DATE
+            return VkAdapterResponse(text="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ.")
+        if action == GuestMenuAction.PROFILE_EDIT_EMAIL:
+            self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_EMAIL
+            return VkAdapterResponse(text="📧 Введите новый email.")
+
+        return self._open_profile_edit_choice(vk_user_id=vk_user_id)
+
+    def _handle_profile_edit_first_name(self, *, vk_user_id: int, text: str) -> VkAdapterResponse:
+        """Обрабатывает ввод имени в режиме редактирования профиля."""
+
+        normalized = normalize_person_name(text)
+        if normalized is None:
+            return VkAdapterResponse(
+                text="Имя должно содержать только буквы, пробел и дефис (от 2 до 50 символов)."
+            )
+        return self._apply_profile_patch(
+            vk_user_id=vk_user_id,
+            first_name_input=normalized,
+            success_message="✅ Имя обновлено.\n\n",
+        )
+
+    def _handle_profile_edit_last_name(self, *, vk_user_id: int, text: str) -> VkAdapterResponse:
+        """Обрабатывает ввод фамилии в режиме редактирования профиля."""
+
+        normalized = normalize_person_name(text)
+        if normalized is None:
+            return VkAdapterResponse(
+                text="Фамилия должна содержать только буквы, пробел и дефис (от 2 до 50 символов)."
+            )
+        return self._apply_profile_patch(
+            vk_user_id=vk_user_id,
+            last_name_input=normalized,
+            success_message="✅ Фамилия обновлена.\n\n",
+        )
+
+    def _handle_profile_edit_gender(
+        self,
+        *,
+        vk_user_id: int,
+        text: str,
+        payload: dict[str, str] | None,
+    ) -> VkAdapterResponse:
+        """Обрабатывает выбор пола в режиме редактирования профиля."""
+
+        action = resolve_action_from_vk_payload(payload) or resolve_guest_menu_action(text)
+        gender: str | None = None
+        if action == GuestMenuAction.PROFILE_EDIT_GENDER_MALE:
+            gender = "male"
+        elif action == GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE:
+            gender = "female"
+        else:
+            lowered = normalize_menu_text(text)
+            if lowered in {"мужской", "м", "male"}:
+                gender = "male"
+            if lowered in {"женский", "ж", "female"}:
+                gender = "female"
+        if gender is None:
+            screen = self._menu_adapter.build_profile_gender_screen()
+            return VkAdapterResponse(
+                text="Выберите пол кнопками «👨 Мужской» или «👩 Женский».",
+                screen=screen,
+            )
+        return self._apply_profile_patch(
+            vk_user_id=vk_user_id,
+            gender=gender,
+            success_message="✅ Пол обновлен.\n\n",
+        )
+
+    def _handle_profile_edit_birth_date(self, *, vk_user_id: int, text: str) -> VkAdapterResponse:
+        """Обрабатывает ввод даты рождения в режиме редактирования профиля."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+        if person.birth_date is not None:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return VkAdapterResponse(text="🎂 Дата рождения уже заполнена и не может быть изменена.")
+
+        parsed = parse_birth_date(text)
+        if parsed is None:
+            return VkAdapterResponse(text="Введите дату рождения в формате ДД.ММ.ГГГГ и не в будущем.")
+        return self._apply_profile_patch(
+            vk_user_id=vk_user_id,
+            birth_date=parsed,
+            success_message="✅ Дата рождения сохранена.\n\n",
+        )
+
+    def _handle_profile_edit_email(self, *, vk_user_id: int, text: str) -> VkAdapterResponse:
+        """Обрабатывает ввод email в режиме редактирования профиля."""
+
+        normalized = normalize_email(text)
+        if normalized is None:
+            return VkAdapterResponse(text="Введите корректный email, например name@example.com.")
+        return self._apply_profile_patch(
+            vk_user_id=vk_user_id,
+            email=normalized,
+            success_message="✅ Email обновлен.\n\n",
+        )
+
+    def _apply_profile_patch(
+        self,
+        *,
+        vk_user_id: int,
+        success_message: str,
+        first_name_input: str | None = None,
+        last_name_input: str | None = None,
+        gender: str | None = None,
+        birth_date: date | None = None,
+        email: str | None = None,
+    ) -> VkAdapterResponse:
+        """Применяет частичное обновление профиля через общий registration use-case."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+        try:
+            self._registration_use_case.execute(
+                RegisterOrAttachAccountCommand(
+                    platform="vk",
+                    external_id=str(vk_user_id),
+                    raw_phone=person.phone_e164,
+                    is_registered=True,
+                    first_name_input=first_name_input,
+                    last_name_input=last_name_input,
+                    gender=gender,
+                    birth_date=birth_date,
+                    email=email,
+                )
+            )
+        except (IdentityConflictError, ValueError):
+            return VkAdapterResponse(text="Не удалось сохранить изменения профиля. Попробуйте еще раз позже.")
+
+        self._state_by_user_id.pop(vk_user_id, None)
+        profile = self._render_profile_screen(vk_user_id=vk_user_id)
+        return VkAdapterResponse(
+            text=f"{success_message}{profile.text}",
+            screen=profile.screen,
+            parse_mode=profile.parse_mode,
         )
 
     def _try_handle_moderator_command(
@@ -910,7 +1129,11 @@ class VkIdentityAdapter:
             GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
         )
 
-        if person is None and action not in {GuestMenuAction.MAIN_MENU, GuestMenuAction.SHARE_CONTACT}:
+        if person is None and action not in {
+            GuestMenuAction.MAIN_MENU,
+            GuestMenuAction.SHARE_CONTACT,
+            GuestMenuAction.ACCEPT_RULES,
+        }:
             self._state_by_user_id[vk_user_id] = _STATE_WAITING_RULES_CONSENT
             rules_screen = self._menu_adapter.build_start_rules_screen()
             return VkAdapterResponse(
@@ -919,6 +1142,14 @@ class VkIdentityAdapter:
                     f"{rules_screen.text}"
                 ),
                 screen=rules_screen,
+            )
+
+        if action == GuestMenuAction.ACCEPT_RULES:
+            self._state_by_user_id[vk_user_id] = _STATE_WAITING_RULES_CONSENT
+            return self._handle_rules_consent(
+                vk_user_id=vk_user_id,
+                text=BUTTON_ACCEPT_RULES,
+                payload={"cmd": GuestMenuAction.ACCEPT_RULES.value},
             )
 
         if action == GuestMenuAction.SHARE_CONTACT:
@@ -930,23 +1161,26 @@ class VkIdentityAdapter:
             return VkAdapterResponse(text=contact_screen.text, screen=contact_screen)
 
         if action == GuestMenuAction.PROFILE:
-            if person is None:
-                screen = self._menu_adapter.build_profile_not_found_screen()
-                return VkAdapterResponse(text=screen.text, screen=screen)
-            screen = self._menu_adapter.build_profile_screen(
-                phone_e164=person.phone_e164,
-                accounts_count=len(person.accounts),
-                first_name_input=person.first_name_input,
-                last_name_input=person.last_name_input,
-                gender=person.gender,
-                birth_date=person.birth_date,
-                email=person.email,
-                rules_accepted=person.rules_accepted,
-                rules_accepted_at=person.rules_accepted_at,
-                notifications_allowed=person.notifications_allowed,
-                notifications_allowed_at=person.notifications_allowed_at,
-            )
-            return VkAdapterResponse(text=screen.text, screen=screen)
+            self._state_by_user_id.pop(vk_user_id, None)
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+
+        if action == GuestMenuAction.PROFILE_EDIT:
+            return self._open_profile_edit_choice(vk_user_id=vk_user_id)
+
+        if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+
+        if action in {
+            GuestMenuAction.PROFILE_EDIT_FIRST_NAME,
+            GuestMenuAction.PROFILE_EDIT_LAST_NAME,
+            GuestMenuAction.PROFILE_EDIT_GENDER,
+            GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
+            GuestMenuAction.PROFILE_EDIT_EMAIL,
+            GuestMenuAction.PROFILE_EDIT_GENDER_MALE,
+            GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE,
+        }:
+            return self._open_profile_edit_choice(vk_user_id=vk_user_id)
 
         if action == GuestMenuAction.BALANCE:
             return self._handle_balance_action(person_phone_e164=person.phone_e164)
@@ -994,7 +1228,10 @@ class VkIdentityAdapter:
             )
 
         result = self._balance_use_case.execute(phone_e164=person_phone_e164)
-        return VkAdapterResponse(text=result.message)
+        return VkAdapterResponse(
+            text=result.message,
+            parse_mode="Markdown" if result.parse_mode == "markdown" else None,
+        )
 
     def _handle_virtual_card_action(self, *, person_phone_e164: str) -> VkAdapterResponse:
         """Обрабатывает пункт меню «Виртуальная карта» через общий use-case лояльности."""
@@ -1008,7 +1245,10 @@ class VkIdentityAdapter:
             )
 
         result = self._virtual_card_use_case.execute(phone_e164=person_phone_e164)
-        return VkAdapterResponse(text=result.message)
+        return VkAdapterResponse(
+            text=result.message,
+            parse_mode="Markdown" if result.parse_mode == "markdown" else None,
+        )
 
     def _has_user_tickets(self, *, platform: str, external_id: str) -> bool:
         """Проверяет, есть ли у пользователя хотя бы один тикет поддержки."""
@@ -1101,12 +1341,7 @@ class VkIdentityAdapter:
     def _normalize_first_name(raw_text: str) -> str | None:
         """Проверяет и нормализует имя пользователя для шага сокращённой регистрации."""
 
-        normalized = " ".join(str(raw_text or "").strip().split())
-        if not normalized:
-            return None
-        if not _FIRST_NAME_ALLOWED_PATTERN.fullmatch(normalized):
-            return None
-        return normalized.title()
+        return normalize_person_name(raw_text)
 
     def _sync_registration_with_loyalty(self, *, phone_e164: str) -> str:
         """Запускает синхронизацию с iiko через сценарий выдачи/поиска виртуальной карты."""

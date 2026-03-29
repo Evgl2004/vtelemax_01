@@ -21,7 +21,6 @@ from .guest_content import (
     build_first_name_input_screen,
     build_legacy_upgrade_screen,
     build_notifications_consent_screen,
-    build_profile_review_text,
     build_start_contact_screen,
     build_start_rules_screen,
     normalize_menu_text,
@@ -66,10 +65,7 @@ class OnboardingFlowService:
         return OnboardingTransition(
             state=OnboardingState.WAITING_RULES_CONSENT,
             status="rules_consent_required",
-            message=(
-                f"{screen.text}\n\n"
-                "После ознакомления отправьте сообщение «✅ Согласен»."
-            ),
+            message=screen.text,
         )
 
     def begin_legacy_upgrade(self) -> OnboardingTransition:
@@ -103,14 +99,8 @@ class OnboardingFlowService:
     ) -> OnboardingTransition:
         """Переход к шагу согласия на рассылку с review-экраном профиля."""
 
-        _ = rules_accepted_at_text
-        profile_text = build_profile_review_text(
-            phone_e164=phone_e164,
-            accounts_count=accounts_count,
-            first_name_input=first_name_input,
-            rules_accepted=True,
-        )
-        screen = build_notifications_consent_screen(profile_text=profile_text)
+        _ = (rules_accepted_at_text, phone_e164, accounts_count, first_name_input)
+        screen = build_notifications_consent_screen()
         return OnboardingTransition(
             state=OnboardingState.WAITING_NOTIFICATIONS_CONSENT,
             status="notifications_consent_required",

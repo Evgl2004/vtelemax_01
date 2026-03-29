@@ -134,10 +134,22 @@ async def _send_response(event: Any, response: MaxAdapterResponse) -> None:
     if keyboard is not None:
         kwargs["attachments"] = [keyboard]
 
-    if response.screen is not None and response.screen.parse_mode == "markdown":
-        parse_mode = _resolve_markdown_parse_mode()
-        if parse_mode is not None:
-            kwargs["parse_mode"] = parse_mode
+    parse_mode_key = response.parse_mode
+    if parse_mode_key is None and response.screen is not None:
+        parse_mode_key = response.screen.parse_mode
+    if parse_mode_key == "markdown":
+        markdown_parse_mode = _resolve_markdown_parse_mode()
+        if markdown_parse_mode is not None:
+            kwargs["parse_mode"] = markdown_parse_mode
+
+    callback_mid = _extract_callback_message_id(event)
+    if callback_mid is not None:
+        try:
+            await bot.edit_message(message_id=callback_mid, text=response.text, **kwargs)
+            return
+        except Exception:  # noqa: BLE001
+            # На некоторых типах сообщений редактирование недоступно, fallback на send_message.
+            pass
 
     await bot.send_message(chat_id=chat_id, text=response.text, **kwargs)
 
@@ -247,6 +259,16 @@ def _extract_contact_attachment(event: Any) -> str | None:
             if parsed_phone is not None:
                 return parsed_phone
 
+    return None
+
+
+def _extract_callback_message_id(event: Any) -> int | None:
+    """Извлекает ID сообщения, которое можно редактировать в callback-сценарии."""
+
+    if hasattr(event, "callback") and hasattr(event, "message"):
+        message = getattr(event, "message", None)
+        if message is not None and hasattr(message, "body") and hasattr(message.body, "mid"):
+            return int(message.body.mid)
     return None
 
 

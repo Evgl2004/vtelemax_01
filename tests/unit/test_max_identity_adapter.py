@@ -210,7 +210,7 @@ def test_max_profile_available_after_registration() -> None:
 
     response = adapter.handle_incoming(max_user_id=1001, text="👤 Профиль", payload=None)
 
-    assert "Проверьте введённые данные" in response.text
+    assert "Профиль пользователя" in response.text
     assert "+79123456789" in response.text
 
 

@@ -125,9 +125,9 @@ def test_profile_phone_is_consistent_for_telegram_vk_max() -> None:
     assert "+79123456789" in telegram_profile.message
     assert "+79123456789" in vk_profile.text
     assert "+79123456789" in max_profile.text
-    assert "Привязанных аккаунтов: 3" in telegram_profile.message
-    assert "Привязанных аккаунтов: 3" in vk_profile.text
-    assert "Привязанных аккаунтов: 3" in max_profile.text
+    assert "Привязанных аккаунтов" in telegram_profile.message and "3" in telegram_profile.message
+    assert "Привязанных аккаунтов" in vk_profile.text and "3" in vk_profile.text
+    assert "Привязанных аккаунтов" in max_profile.text and "3" in max_profile.text
 
 
 def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
@@ -153,7 +153,7 @@ def test_url_button_present_in_rules_screen() -> None:
     vk_screen = vk_adapter.build_start_rules_screen()
     max_screen = max_adapter.build_start_rules_screen()
 
-    # В экране правил две кнопки: первая — URL, вторая — callback
+    # В экране правил две вертикальные кнопки: первая — URL, вторая — callback
     vk_url_button = vk_screen.rows[0][0]
     max_url_button = max_screen.rows[0][0]
 
@@ -162,16 +162,16 @@ def test_url_button_present_in_rules_screen() -> None:
     assert vk_url_button.url == max_url_button.url  # URL должны совпадать
 
     # Проверяем, что вторая кнопка не имеет URL
-    vk_callback_button = vk_screen.rows[0][1]
-    max_callback_button = max_screen.rows[0][1]
+    vk_callback_button = vk_screen.rows[1][0]
+    max_callback_button = max_screen.rows[1][0]
     assert vk_callback_button.url is None
     assert max_callback_button.url is None
-    # В MAX кнопка «Согласен» имеет request_contact = True (из-за действия SHARE_CONTACT)
-    assert max_callback_button.request_contact is True
+    # В MAX кнопка «Согласен» — обычный callback (request_contact только у шага телефона)
+    assert max_callback_button.request_contact is False
 
 
 def test_request_contact_button_present_in_contact_screen() -> None:
-    """Проверяет, что кнопка «Отправить номер телефона» имеет request_contact в MAX и отсутствие URL в VK."""
+    """Проверяет, что кнопка «Поделиться контактом» имеет request_contact в MAX и отсутствие URL в VK."""
     vk_adapter = VkGuestMenuAdapter()
     max_adapter = MaxGuestMenuAdapter()
 

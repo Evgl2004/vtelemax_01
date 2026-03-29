@@ -56,3 +56,7 @@ def test_max_start_rules_screen_contains_consent_button() -> None:
 
     labels = [button.label for row in screen.rows for button in row]
     assert "✅ Согласен" in labels
+    assert len(screen.rows) == 2
+    assert len(screen.rows[0]) == 1
+    assert len(screen.rows[1]) == 1
+    assert screen.rows[1][0].request_contact is False

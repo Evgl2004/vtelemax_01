@@ -23,6 +23,15 @@ from vtelemax.core import (
     BUTTON_NOTIFICATIONS_NO,
     BUTTON_NOTIFICATIONS_YES,
     BUTTON_PROFILE,
+    BUTTON_PROFILE_EDIT,
+    BUTTON_PROFILE_EDIT_BIRTH_DATE,
+    BUTTON_PROFILE_EDIT_CANCEL,
+    BUTTON_PROFILE_EDIT_EMAIL,
+    BUTTON_PROFILE_EDIT_FIRST_NAME,
+    BUTTON_PROFILE_EDIT_GENDER,
+    BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+    BUTTON_PROFILE_EDIT_GENDER_MALE,
+    BUTTON_PROFILE_EDIT_LAST_NAME,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT,
     BUTTON_SUPPORT_CONTACTS,
@@ -109,6 +118,76 @@ def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeybo
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_back_to_main_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру с кнопкой возврата в главное меню."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=BUTTON_BACK_TO_MAIN)]]
+    )
+
+
+def build_back_to_support_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру с кнопкой возврата в подменю отдела заботы."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=BUTTON_BACK_TO_SUPPORT, callback_data=BUTTON_BACK_TO_SUPPORT)]]
+    )
+
+
+def build_profile_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру экрана профиля."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT, callback_data=BUTTON_PROFILE_EDIT)],
+            [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=BUTTON_BACK_TO_MAIN)],
+        ]
+    )
+
+
+def build_profile_edit_inline_keyboard(*, can_edit_birth_date: bool) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру выбора редактируемого поля профиля."""
+
+    rows = [
+        [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_FIRST_NAME, callback_data=BUTTON_PROFILE_EDIT_FIRST_NAME)],
+        [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_LAST_NAME, callback_data=BUTTON_PROFILE_EDIT_LAST_NAME)],
+        [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_GENDER, callback_data=BUTTON_PROFILE_EDIT_GENDER)],
+    ]
+    if can_edit_birth_date:
+        rows.append(
+            [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_BIRTH_DATE, callback_data=BUTTON_PROFILE_EDIT_BIRTH_DATE)]
+        )
+    rows.extend(
+        [
+            [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_EMAIL, callback_data=BUTTON_PROFILE_EDIT_EMAIL)],
+            [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_CANCEL, callback_data=BUTTON_PROFILE_EDIT_CANCEL)],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_profile_gender_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру выбора пола в режиме редактирования профиля."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PROFILE_EDIT_GENDER_MALE,
+                    callback_data=BUTTON_PROFILE_EDIT_GENDER_MALE,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+                    callback_data=BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+                )
+            ],
+            [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_CANCEL, callback_data=BUTTON_PROFILE_EDIT_CANCEL)],
+        ]
+    )
 
 
 def build_main_menu_keyboard() -> ReplyKeyboardMarkup:

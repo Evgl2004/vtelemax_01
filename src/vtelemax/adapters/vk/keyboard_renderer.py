@@ -33,7 +33,7 @@ def render_vk_keyboard(screen: VkScreen | None) -> str | None:
                 }
             else:
                 action = {
-                    "type": "text",
+                    "type": "callback",
                     "label": button.label,
                     "payload": json.dumps(button.payload, ensure_ascii=False),
                 }
@@ -78,7 +78,7 @@ def _resolve_button_color(button: VkButton) -> str:
         return "primary"
     if action in {GuestMenuAction.SUPPORT_FEEDBACK, GuestMenuAction.SUPPORT_CONTACTS, GuestMenuAction.OPEN_DOCS}:
         return "secondary"
-    if action == GuestMenuAction.SHARE_CONTACT:
+    if action in {GuestMenuAction.SHARE_CONTACT, GuestMenuAction.ACCEPT_RULES}:
         return "positive"
     if action == GuestMenuAction.VACANCIES:
         return "secondary"

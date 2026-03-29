@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-import re
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from loguru import logger
@@ -16,6 +15,15 @@ from vtelemax.core import (
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
     BUTTON_PROFILE,
+    BUTTON_PROFILE_EDIT,
+    BUTTON_PROFILE_EDIT_BIRTH_DATE,
+    BUTTON_PROFILE_EDIT_CANCEL,
+    BUTTON_PROFILE_EDIT_EMAIL,
+    BUTTON_PROFILE_EDIT_FIRST_NAME,
+    BUTTON_PROFILE_EDIT_GENDER,
+    BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+    BUTTON_PROFILE_EDIT_GENDER_MALE,
+    BUTTON_PROFILE_EDIT_LAST_NAME,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT,
     BUTTON_VACANCIES,
@@ -43,6 +51,8 @@ from vtelemax.core import (
     build_first_name_input_screen,
     build_help_screen,
     build_main_menu_screen,
+    build_profile_edit_screen,
+    build_profile_gender_screen,
     build_profile_not_found_screen,
     build_profile_screen,
     build_start_rules_screen,
@@ -51,7 +61,10 @@ from vtelemax.core import (
     build_support_menu_screen,
     build_support_question_screen,
     build_vacancies_screen,
+    normalize_email,
     normalize_menu_text,
+    normalize_person_name,
+    parse_birth_date,
     resolve_guest_menu_action,
 )
 
@@ -75,10 +88,16 @@ class TelegramMenuActionResult:
     requires_contact_keyboard: bool = False
     parse_mode: str | None = None
     has_support_tickets: bool = False
+    can_edit_birth_date: bool | None = None
 
 
-_FIRST_NAME_ALLOWED_PATTERN = re.compile(r"^[A-Za-zА-Яа-яЁё\\-\\s]{2,50}$")
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
+_STATE_PROFILE_EDIT_CHOICE = "profile_edit_choice"
+_STATE_PROFILE_EDIT_FIRST_NAME = "profile_edit_first_name"
+_STATE_PROFILE_EDIT_LAST_NAME = "profile_edit_last_name"
+_STATE_PROFILE_EDIT_GENDER = "profile_edit_gender"
+_STATE_PROFILE_EDIT_BIRTH_DATE = "profile_edit_birth_date"
+_STATE_PROFILE_EDIT_EMAIL = "profile_edit_email"
 _STATE_MOD_MENU = "moderation_menu"
 _STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
 _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
@@ -437,26 +456,13 @@ class TelegramIdentityAdapter:
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
 
-            profile_screen = build_profile_screen(
-                phone_e164=person.phone_e164,
-                accounts_count=len(person.accounts),
-                first_name_input=person.first_name_input,
-                last_name_input=person.last_name_input,
-                gender=person.gender,
-                birth_date=person.birth_date,
-                email=person.email,
-                rules_accepted=person.rules_accepted,
-                rules_accepted_at=person.rules_accepted_at,
-                notifications_allowed=person.notifications_allowed,
-                notifications_allowed_at=person.notifications_allowed_at,
-            )
             loyalty_sync_text = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
             return TelegramMenuActionResult(
                 status="menu",
                 message=(
-                    f"{profile_screen.text}\n\n"
                     f"{loyalty_sync_text}\n\n"
                     "✅ Регистрация завершена.\n\n"
+                    "Расширенную анкету и информацию профиля можно изменить в разделе «👤 Профиль».\n\n"
                     f"{self.build_menu_overview_message()}"
                 ),
             )
@@ -488,6 +494,36 @@ class TelegramIdentityAdapter:
         dialog_state = self._dialog_state_by_user_id.get(telegram_user_id)
         if dialog_state == _STATE_WAITING_SUPPORT_QUESTION:
             return self._handle_support_question_input(telegram_user_id=telegram_user_id, question_text=action_text)
+        if dialog_state == _STATE_PROFILE_EDIT_CHOICE:
+            return self._handle_profile_edit_choice_input(
+                telegram_user_id=telegram_user_id,
+                action_text=action_text,
+            )
+        if dialog_state == _STATE_PROFILE_EDIT_FIRST_NAME:
+            return self._handle_profile_edit_first_name_input(
+                telegram_user_id=telegram_user_id,
+                action_text=action_text,
+            )
+        if dialog_state == _STATE_PROFILE_EDIT_LAST_NAME:
+            return self._handle_profile_edit_last_name_input(
+                telegram_user_id=telegram_user_id,
+                action_text=action_text,
+            )
+        if dialog_state == _STATE_PROFILE_EDIT_GENDER:
+            return self._handle_profile_edit_gender_input(
+                telegram_user_id=telegram_user_id,
+                action_text=action_text,
+            )
+        if dialog_state == _STATE_PROFILE_EDIT_BIRTH_DATE:
+            return self._handle_profile_edit_birth_date_input(
+                telegram_user_id=telegram_user_id,
+                action_text=action_text,
+            )
+        if dialog_state == _STATE_PROFILE_EDIT_EMAIL:
+            return self._handle_profile_edit_email_input(
+                telegram_user_id=telegram_user_id,
+                action_text=action_text,
+            )
 
         action = resolve_guest_menu_action(action_text)
         if action is None:
@@ -536,37 +572,26 @@ class TelegramIdentityAdapter:
             )
 
         if action == GuestMenuAction.PROFILE:
-            person = self._person_lookup_use_case.execute(
-                GetPersonByAccountCommand(
-                    platform="telegram",
-                    external_id=str(telegram_user_id),
-                )
-            )
-            if person is None:
-                screen = build_profile_not_found_screen()
-                return TelegramMenuActionResult(
-                    status="not_registered",
-                    message=screen.text,
-                    requires_contact_keyboard=True,
-                )
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
 
-            screen = build_profile_screen(
-                phone_e164=person.phone_e164,
-                accounts_count=len(person.accounts),
-                first_name_input=person.first_name_input,
-                last_name_input=person.last_name_input,
-                gender=person.gender,
-                birth_date=person.birth_date,
-                email=person.email,
-                rules_accepted=person.rules_accepted,
-                rules_accepted_at=person.rules_accepted_at,
-                notifications_allowed=person.notifications_allowed,
-                notifications_allowed_at=person.notifications_allowed_at,
-            )
-            return TelegramMenuActionResult(
-                status="profile",
-                message=screen.text,
-            )
+        if action == GuestMenuAction.PROFILE_EDIT:
+            return self._open_profile_edit_choice(telegram_user_id=telegram_user_id)
+
+        if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+
+        if action in {
+            GuestMenuAction.PROFILE_EDIT_FIRST_NAME,
+            GuestMenuAction.PROFILE_EDIT_LAST_NAME,
+            GuestMenuAction.PROFILE_EDIT_GENDER,
+            GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
+            GuestMenuAction.PROFILE_EDIT_EMAIL,
+            GuestMenuAction.PROFILE_EDIT_GENDER_MALE,
+            GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE,
+        }:
+            return self._open_profile_edit_choice(telegram_user_id=telegram_user_id)
 
         if action in {GuestMenuAction.SUPPORT, GuestMenuAction.BACK_TO_SUPPORT}:
             has_tickets = self._has_user_tickets(
@@ -714,6 +739,308 @@ class TelegramIdentityAdapter:
                 "Канал обращения: telegram\n"
                 "Модератор рассмотрит обращение в ближайшее время."
             ),
+        )
+
+    def _render_profile_screen(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
+        """Возвращает экран профиля с кнопкой перехода в режим редактирования."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            screen = build_profile_not_found_screen()
+            return TelegramMenuActionResult(
+                status="not_registered",
+                message=screen.text,
+                requires_contact_keyboard=True,
+            )
+        screen = build_profile_screen(
+            phone_e164=person.phone_e164,
+            accounts_count=len(person.accounts),
+            first_name_input=person.first_name_input,
+            last_name_input=person.last_name_input,
+            gender=person.gender,
+            birth_date=person.birth_date,
+            email=person.email,
+            rules_accepted=person.rules_accepted,
+            rules_accepted_at=person.rules_accepted_at,
+            notifications_allowed=person.notifications_allowed,
+            notifications_allowed_at=person.notifications_allowed_at,
+        )
+        return TelegramMenuActionResult(
+            status="profile",
+            message=screen.text,
+            parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def _open_profile_edit_choice(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
+        """Открывает меню выбора редактируемого поля профиля."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+
+        can_edit_birth_date = person.birth_date is None
+        self._dialog_state_by_user_id[telegram_user_id] = _STATE_PROFILE_EDIT_CHOICE
+        screen = build_profile_edit_screen(can_edit_birth_date=can_edit_birth_date)
+        return TelegramMenuActionResult(
+            status="profile_edit",
+            message=screen.text,
+            parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+            can_edit_birth_date=can_edit_birth_date,
+        )
+
+    def _handle_profile_edit_choice_input(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает выбор поля редактирования профиля."""
+
+        action = resolve_guest_menu_action(action_text)
+        if action in {GuestMenuAction.PROFILE_EDIT_CANCEL, GuestMenuAction.BACK_TO_MAIN}:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+        if action == GuestMenuAction.PROFILE_EDIT_FIRST_NAME:
+            self._dialog_state_by_user_id[telegram_user_id] = _STATE_PROFILE_EDIT_FIRST_NAME
+            return TelegramMenuActionResult(
+                status="profile_edit_first_name",
+                message="👤 Введите новое имя.",
+            )
+        if action == GuestMenuAction.PROFILE_EDIT_LAST_NAME:
+            self._dialog_state_by_user_id[telegram_user_id] = _STATE_PROFILE_EDIT_LAST_NAME
+            return TelegramMenuActionResult(
+                status="profile_edit_last_name",
+                message="👥 Введите новую фамилию.",
+            )
+        if action == GuestMenuAction.PROFILE_EDIT_GENDER:
+            self._dialog_state_by_user_id[telegram_user_id] = _STATE_PROFILE_EDIT_GENDER
+            return TelegramMenuActionResult(
+                status="profile_edit_gender",
+                message=build_profile_gender_screen().text,
+            )
+        if action == GuestMenuAction.PROFILE_EDIT_BIRTH_DATE:
+            person = self._person_lookup_use_case.execute(
+                GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+            )
+            if person is None:
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                return self._render_profile_screen(telegram_user_id=telegram_user_id)
+            if person.birth_date is not None:
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                return TelegramMenuActionResult(
+                    status="profile_edit_birth_date_forbidden",
+                    message=(
+                        "🎂 Дата рождения уже заполнена и может быть указана только один раз.\n\n"
+                        "Телефон менять нельзя. Другие поля можно обновить в режиме редактирования профиля."
+                    ),
+                )
+            self._dialog_state_by_user_id[telegram_user_id] = _STATE_PROFILE_EDIT_BIRTH_DATE
+            return TelegramMenuActionResult(
+                status="profile_edit_birth_date",
+                message="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ.",
+            )
+        if action == GuestMenuAction.PROFILE_EDIT_EMAIL:
+            self._dialog_state_by_user_id[telegram_user_id] = _STATE_PROFILE_EDIT_EMAIL
+            return TelegramMenuActionResult(
+                status="profile_edit_email",
+                message="📧 Введите новый email.",
+            )
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        can_edit_birth_date = person.birth_date is None if person is not None else True
+        screen = build_profile_edit_screen(can_edit_birth_date=can_edit_birth_date)
+        return TelegramMenuActionResult(
+            status="profile_edit_invalid_choice",
+            message=(
+                "Выберите поле кнопкой из меню редактирования профиля.\n\n"
+                f"{screen.text}"
+            ),
+            parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+            can_edit_birth_date=can_edit_birth_date,
+        )
+
+    def _handle_profile_edit_first_name_input(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает ввод имени в режиме редактирования профиля."""
+
+        normalized_name = normalize_person_name(action_text)
+        if normalized_name is None:
+            return TelegramMenuActionResult(
+                status="profile_edit_first_name_invalid",
+                message="Имя должно содержать только буквы, пробел и дефис (от 2 до 50 символов).",
+            )
+        return self._apply_profile_patch(
+            telegram_user_id=telegram_user_id,
+            first_name_input=normalized_name,
+            success_status="profile_edit_first_name_saved",
+            success_message="✅ Имя обновлено.\n\n",
+        )
+
+    def _handle_profile_edit_last_name_input(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает ввод фамилии в режиме редактирования профиля."""
+
+        normalized_last_name = normalize_person_name(action_text)
+        if normalized_last_name is None:
+            return TelegramMenuActionResult(
+                status="profile_edit_last_name_invalid",
+                message="Фамилия должна содержать только буквы, пробел и дефис (от 2 до 50 символов).",
+            )
+        return self._apply_profile_patch(
+            telegram_user_id=telegram_user_id,
+            last_name_input=normalized_last_name,
+            success_status="profile_edit_last_name_saved",
+            success_message="✅ Фамилия обновлена.\n\n",
+        )
+
+    def _handle_profile_edit_gender_input(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает выбор пола в режиме редактирования профиля."""
+
+        action = resolve_guest_menu_action(action_text)
+        gender: str | None = None
+        if action == GuestMenuAction.PROFILE_EDIT_GENDER_MALE:
+            gender = "male"
+        elif action == GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE:
+            gender = "female"
+        else:
+            lowered = normalize_menu_text(action_text)
+            if lowered in {"мужской", "м", "male"}:
+                gender = "male"
+            if lowered in {"женский", "ж", "female"}:
+                gender = "female"
+        if gender is None:
+            return TelegramMenuActionResult(
+                status="profile_edit_gender_invalid",
+                message="Выберите пол кнопками «👨 Мужской» или «👩 Женский».",
+            )
+        return self._apply_profile_patch(
+            telegram_user_id=telegram_user_id,
+            gender=gender,
+            success_status="profile_edit_gender_saved",
+            success_message="✅ Пол обновлен.\n\n",
+        )
+
+    def _handle_profile_edit_birth_date_input(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает ввод даты рождения в режиме редактирования профиля."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+        if person.birth_date is not None:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return TelegramMenuActionResult(
+                status="profile_edit_birth_date_forbidden",
+                message="🎂 Дата рождения уже заполнена и не может быть изменена.",
+            )
+
+        parsed_birth_date = parse_birth_date(action_text)
+        if parsed_birth_date is None:
+            return TelegramMenuActionResult(
+                status="profile_edit_birth_date_invalid",
+                message="Введите дату рождения в формате ДД.ММ.ГГГГ и не в будущем.",
+            )
+        return self._apply_profile_patch(
+            telegram_user_id=telegram_user_id,
+            birth_date=parsed_birth_date,
+            success_status="profile_edit_birth_date_saved",
+            success_message="✅ Дата рождения сохранена.\n\n",
+        )
+
+    def _handle_profile_edit_email_input(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает ввод email в режиме редактирования профиля."""
+
+        normalized = normalize_email(action_text)
+        if normalized is None:
+            return TelegramMenuActionResult(
+                status="profile_edit_email_invalid",
+                message="Введите корректный email, например `name@example.com`.",
+                parse_mode="Markdown",
+            )
+        return self._apply_profile_patch(
+            telegram_user_id=telegram_user_id,
+            email=normalized,
+            success_status="profile_edit_email_saved",
+            success_message="✅ Email обновлен.\n\n",
+        )
+
+    def _apply_profile_patch(
+        self,
+        *,
+        telegram_user_id: int,
+        success_status: str,
+        success_message: str,
+        first_name_input: str | None = None,
+        last_name_input: str | None = None,
+        gender: str | None = None,
+        birth_date: date | None = None,
+        email: str | None = None,
+    ) -> TelegramMenuActionResult:
+        """Применяет частичное обновление профиля через общий registration use-case."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+
+        try:
+            self._registration_use_case.execute(
+                RegisterOrAttachAccountCommand(
+                    platform="telegram",
+                    external_id=str(telegram_user_id),
+                    raw_phone=person.phone_e164,
+                    is_registered=True,
+                    first_name_input=first_name_input,
+                    last_name_input=last_name_input,
+                    gender=gender,
+                    birth_date=birth_date,
+                    email=email,
+                )
+            )
+        except (IdentityConflictError, ValueError):
+            return TelegramMenuActionResult(
+                status="profile_edit_save_error",
+                message="Не удалось сохранить изменения профиля. Попробуйте еще раз позже.",
+            )
+
+        self._dialog_state_by_user_id.pop(telegram_user_id, None)
+        profile_result = self._render_profile_screen(telegram_user_id=telegram_user_id)
+        return TelegramMenuActionResult(
+            status=success_status,
+            message=f"{success_message}{profile_result.message}",
+            parse_mode=profile_result.parse_mode,
         )
 
     def _try_handle_moderator_command(
@@ -1293,12 +1620,7 @@ class TelegramIdentityAdapter:
     def _normalize_first_name(raw_text: str) -> str | None:
         """Проверяет и нормализует имя пользователя для шага сокращенной регистрации."""
 
-        normalized = " ".join(str(raw_text or "").strip().split())
-        if not normalized:
-            return None
-        if not _FIRST_NAME_ALLOWED_PATTERN.fullmatch(normalized):
-            return None
-        return normalized.title()
+        return normalize_person_name(raw_text)
 
     def _sync_registration_with_loyalty(self, *, phone_e164: str) -> str:
         """Запускает синхронизацию с iiko через use-case виртуальной карты.

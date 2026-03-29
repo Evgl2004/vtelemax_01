@@ -17,9 +17,29 @@ from .menu import (
     NOTIFY_NO_CALLBACK,
     NOTIFY_YES_CALLBACK,
     RULES_ACCEPT_CALLBACK,
+    BUTTON_BACK_TO_MAIN,
+    BUTTON_BACK_TO_SUPPORT,
+    BUTTON_PROFILE_EDIT,
+    BUTTON_PROFILE_EDIT_BIRTH_DATE,
+    BUTTON_PROFILE_EDIT_CANCEL,
+    BUTTON_PROFILE_EDIT_EMAIL,
+    BUTTON_PROFILE_EDIT_FIRST_NAME,
+    BUTTON_PROFILE_EDIT_GENDER,
+    BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+    BUTTON_PROFILE_EDIT_GENDER_MALE,
+    BUTTON_PROFILE_EDIT_LAST_NAME,
+    BUTTON_SUPPORT_CONTACTS,
+    BUTTON_SUPPORT_FEEDBACK,
+    BUTTON_SUPPORT_QUESTION,
+    BUTTON_MY_TICKETS,
     build_contact_request_keyboard,
+    build_back_to_main_inline_keyboard,
+    build_back_to_support_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_notifications_consent_inline_keyboard,
+    build_profile_edit_inline_keyboard,
+    build_profile_gender_inline_keyboard,
+    build_profile_inline_keyboard,
     build_rules_consent_inline_keyboard,
     build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
@@ -40,8 +60,11 @@ def build_telegram_identity_router(
     router_logger = logger.bind(platform="telegram", component="router")
     request_contact_keyboard = build_contact_request_keyboard()
     main_menu_inline_keyboard = build_main_menu_inline_keyboard()
+    back_to_main_keyboard = build_back_to_main_inline_keyboard()
+    back_to_support_keyboard = build_back_to_support_inline_keyboard()
     rules_consent_keyboard = build_rules_consent_inline_keyboard()
     notifications_consent_keyboard = build_notifications_consent_inline_keyboard()
+    profile_keyboard = build_profile_inline_keyboard()
     delivery_lock = asyncio.Lock()
 
     def _choose_reply_markup(result: TelegramMenuActionResult) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
@@ -52,8 +75,31 @@ def build_telegram_identity_router(
             return rules_consent_keyboard
         if result.status in {"notifications_consent_required", "notifications_consent_pending"}:
             return notifications_consent_keyboard
-        if result.status in {"support", "support_feedback", "support_question", "support_contacts", "tickets_list"}:
+        if result.status in {"support", "tickets_list", "tickets_empty"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
+        if result.status in {"support_feedback", "support_question", "support_contacts", "support_question_empty"}:
+            return back_to_support_keyboard
+        if result.status in {
+            "balance",
+            "balance_unavailable",
+            "virtual_card",
+            "virtual_card_error",
+            "virtual_card_unavailable",
+            "vacancies",
+            "help",
+            "about",
+            "support_question_submitted",
+            "support_question_error",
+        }:
+            return back_to_main_keyboard
+        if result.status in {"profile", "profile_edit_first_name_saved", "profile_edit_last_name_saved", "profile_edit_gender_saved", "profile_edit_birth_date_saved", "profile_edit_email_saved"}:
+            return profile_keyboard
+        if result.status in {"profile_edit", "profile_edit_invalid_choice"}:
+            return build_profile_edit_inline_keyboard(
+                can_edit_birth_date=True if result.can_edit_birth_date is None else result.can_edit_birth_date
+            )
+        if result.status == "profile_edit_gender":
+            return build_profile_gender_inline_keyboard()
         if result.status == "menu":
             return main_menu_inline_keyboard
         return None
@@ -315,9 +361,34 @@ def build_telegram_identity_router(
             reply_markup=reply_markup,
         )
 
-    @router.callback_query(F.data.in_([BUTTON_BALANCE, BUTTON_VIRTUAL_CARD, BUTTON_SUPPORT, BUTTON_VACANCIES, BUTTON_PROFILE]))
+    @router.callback_query(
+        F.data.in_(
+            [
+                BUTTON_BALANCE,
+                BUTTON_VIRTUAL_CARD,
+                BUTTON_SUPPORT,
+                BUTTON_VACANCIES,
+                BUTTON_PROFILE,
+                BUTTON_SUPPORT_FEEDBACK,
+                BUTTON_SUPPORT_QUESTION,
+                BUTTON_SUPPORT_CONTACTS,
+                BUTTON_MY_TICKETS,
+                BUTTON_BACK_TO_MAIN,
+                BUTTON_BACK_TO_SUPPORT,
+                BUTTON_PROFILE_EDIT,
+                BUTTON_PROFILE_EDIT_FIRST_NAME,
+                BUTTON_PROFILE_EDIT_LAST_NAME,
+                BUTTON_PROFILE_EDIT_GENDER,
+                BUTTON_PROFILE_EDIT_BIRTH_DATE,
+                BUTTON_PROFILE_EDIT_EMAIL,
+                BUTTON_PROFILE_EDIT_CANCEL,
+                BUTTON_PROFILE_EDIT_GENDER_MALE,
+                BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+            ]
+        )
+    )
     async def main_menu_callback_handler(callback: CallbackQuery) -> None:
-        """Обработчик inline-кнопок главного меню (пять разделов)."""
+        """Обработчик inline-кнопок меню и профиля."""
 
         event_logger = router_logger.bind(
             stage="main_menu_callback",
@@ -340,16 +411,26 @@ def build_telegram_identity_router(
 
         await callback.answer()
         if callback.message is not None:
+            if isinstance(reply_markup, ReplyKeyboardMarkup):
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+                except Exception:  # noqa: BLE001
+                    event_logger.debug("Не удалось убрать inline-клавиатуру перед показом reply-клавиатуры.")
+                await callback.message.answer(
+                    result.message,
+                    parse_mode=result.parse_mode,
+                    reply_markup=reply_markup,
+                )
+                return
             try:
-                await callback.message.edit_reply_markup(reply_markup=None)
+                await callback.message.edit_text(
+                    result.message,
+                    parse_mode=result.parse_mode,
+                    reply_markup=reply_markup if isinstance(reply_markup, InlineKeyboardMarkup) else None,
+                )
+                return
             except Exception:  # noqa: BLE001
-                event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback.")
-            await callback.message.answer(
-                result.message,
-                parse_mode=result.parse_mode,
-                reply_markup=reply_markup,
-            )
-            return
+                event_logger.debug("Не удалось перерисовать сообщение по callback, отправляем новое.")
 
         await callback.bot.send_message(
             chat_id=callback.from_user.id,

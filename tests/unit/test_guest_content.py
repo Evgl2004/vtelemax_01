@@ -42,6 +42,7 @@ def test_resolve_guest_menu_action_detects_text_and_command() -> None:
 
     assert resolve_guest_menu_action("💰 Мой баланс") == GuestMenuAction.BALANCE
     assert resolve_guest_menu_action("/menu") == GuestMenuAction.MAIN_MENU
+    assert resolve_guest_menu_action("✅ Согласен") == GuestMenuAction.ACCEPT_RULES
 
 
 def test_start_contact_screen_contains_phone_prompt() -> None:

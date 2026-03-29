@@ -13,6 +13,8 @@ from vtelemax.core import (
     build_notifications_consent_screen,
     build_help_screen,
     build_main_menu_screen,
+    build_profile_edit_screen,
+    build_profile_gender_screen,
     build_profile_not_found_screen,
     build_profile_screen,
     build_start_contact_screen,
@@ -63,7 +65,7 @@ class MaxGuestMenuAdapter:
         """Стартовый экран правил."""
 
         screen = build_start_rules_screen()
-        rows = ((_to_max_button(screen.buttons[0]), _to_max_button(screen.buttons[1])),) if screen.buttons else ()
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_start_contact_screen(self) -> MaxScreen:
@@ -123,9 +125,34 @@ class MaxGuestMenuAdapter:
             notifications_allowed=notifications_allowed,
             notifications_allowed_at=notifications_allowed_at,
         )
-        return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=())
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
+        return MaxScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
 
-    def build_notifications_consent_screen(self, profile_text: str) -> MaxScreen:
+    def build_profile_edit_screen(self, *, can_edit_birth_date: bool) -> MaxScreen:
+        """Экран выбора поля для редактирования профиля."""
+
+        screen = build_profile_edit_screen(can_edit_birth_date=can_edit_birth_date)
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
+        return MaxScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def build_profile_gender_screen(self) -> MaxScreen:
+        """Экран выбора пола в режиме редактирования профиля."""
+
+        screen = build_profile_gender_screen()
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
+        return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
+    def build_notifications_consent_screen(self, profile_text: str | None = None) -> MaxScreen:
         """Экран согласия на рассылку после review-анкеты."""
 
         screen = build_notifications_consent_screen(profile_text=profile_text)
