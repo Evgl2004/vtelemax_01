@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from loguru import logger
@@ -14,6 +15,10 @@ from .keyboard_renderer import render_max_keyboard
 
 _START_COMMANDS = {"/start", "start", "начать"}
 _LEGACY_COMMANDS = {"/legacy", "legacy", "обновить профиль"}
+
+
+_VCF_PHONE_PATTERN = re.compile(r"TEL[^:]*:([^\r\n]+)", flags=re.IGNORECASE)
+_PHONE_SANITIZE_PATTERN = re.compile(r"[^0-9+]")
 
 
 def register_max_guest_handlers(
@@ -59,16 +64,26 @@ def register_max_guest_handlers(
         if user_id is None:
             return
         text = _extract_message_text(event)
+        contact_phone = _extract_contact_attachment(event)
         lowered = text.strip().lower()
         event_logger = router_logger.bind(stage="message_created", user_id=str(user_id))
-        event_logger.debug("Получено сообщение от пользователя. text={text}.", text=text)
+        event_logger.debug(
+            "Получено сообщение от пользователя. text={text}, contact={contact}.",
+            text=text,
+            contact=contact_phone,
+        )
 
         if lowered in _START_COMMANDS:
             response = adapter.handle_start(max_user_id=user_id)
         elif lowered in _LEGACY_COMMANDS:
             response = adapter.handle_legacy_start(max_user_id=user_id)
         else:
-            response = adapter.handle_incoming(max_user_id=user_id, text=text, payload=None)
+            response = adapter.handle_incoming(
+                max_user_id=user_id,
+                text=text,
+                payload=None,
+                contact_phone=contact_phone,
+            )
         event_logger.info("Входящее сообщение обработано.")
         await _send_response(event, response)
 
@@ -185,3 +200,66 @@ def _extract_callback_payload(event: Any) -> str | None:
             return None
         return str(payload)
     return None
+
+
+def _extract_contact_attachment(event: Any) -> str | None:
+    """Извлекает телефон из contact-вложения MAX.
+
+    Поддерживает два формата:
+    1) `event.message.body.contact.phone_number`;
+    2) `event.message.body.attachments[]` с `type="contact"` и `payload.vcf_info`.
+    """
+
+    if (
+        hasattr(event, "message")
+        and hasattr(event.message, "body")
+        and hasattr(event.message.body, "contact")
+        and event.message.body.contact is not None
+    ):
+        contact = event.message.body.contact
+        if hasattr(contact, "phone_number"):
+            phone = contact.phone_number
+            if phone is not None:
+                return str(phone)
+
+    if (
+        hasattr(event, "message")
+        and hasattr(event.message, "body")
+        and hasattr(event.message.body, "attachments")
+        and event.message.body.attachments is not None
+    ):
+        for attachment in event.message.body.attachments:
+            if getattr(attachment, "type", None) != "contact":
+                continue
+            payload = getattr(attachment, "payload", None)
+            if payload is None:
+                continue
+
+            payload_phone = getattr(payload, "phone_number", None)
+            if payload_phone is not None:
+                return str(payload_phone)
+
+            vcf_info = getattr(payload, "vcf_info", None)
+            if vcf_info is None:
+                continue
+
+            parsed_phone = _extract_phone_from_vcf(str(vcf_info))
+            if parsed_phone is not None:
+                return parsed_phone
+
+    return None
+
+
+def _extract_phone_from_vcf(vcf_info: str) -> str | None:
+    """Извлекает номер телефона из строки VCF (поле `TEL...:`)."""
+
+    if not vcf_info:
+        return None
+    match = _VCF_PHONE_PATTERN.search(vcf_info)
+    if match is None:
+        return None
+    raw_phone = match.group(1).strip()
+    if not raw_phone:
+        return None
+    normalized_phone = _PHONE_SANITIZE_PATTERN.sub("", raw_phone)
+    return normalized_phone or None
