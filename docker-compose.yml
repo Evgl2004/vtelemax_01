@@ -20,6 +20,21 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  db-migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python scripts/apply_sql_migrations.py
+    restart: "no"
+
   telegram-bot:
     build:
       context: .
@@ -32,8 +47,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: >
-      sh -c "python scripts/apply_sql_migrations.py && python -m vtelemax.apps.telegram_app"
+      db-migrator:
+        condition: service_completed_successfully
+    command: python -m vtelemax.apps.telegram_app
     restart: unless-stopped
 
   vk-bot:
@@ -48,8 +64,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: >
-      sh -c "python scripts/apply_sql_migrations.py && python -m vtelemax.apps.vk_app"
+      db-migrator:
+        condition: service_completed_successfully
+    command: python -m vtelemax.apps.vk_app
     restart: unless-stopped
 
   max-bot:
@@ -64,8 +81,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: >
-      sh -c "python scripts/apply_sql_migrations.py && python -m vtelemax.apps.max_app"
+      db-migrator:
+        condition: service_completed_successfully
+    command: python -m vtelemax.apps.max_app
     restart: unless-stopped
 
 volumes:
