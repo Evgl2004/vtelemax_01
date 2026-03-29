@@ -11,6 +11,19 @@
 1. `person_id` (`UUID`, PK).
 2. `created_at` (`TIMESTAMPTZ`, NOT NULL, `NOW()`).
 3. `updated_at` (`TIMESTAMPTZ`, NOT NULL, `NOW()`).
+4. `rules_accepted` (`BOOLEAN`, NOT NULL, default `false`).
+5. `rules_accepted_at` (`TIMESTAMPTZ`, NULL).
+6. `notifications_allowed` (`BOOLEAN`, NOT NULL, default `false`).
+7. `notifications_allowed_at` (`TIMESTAMPTZ`, NULL).
+8. `is_legacy` (`BOOLEAN`, NOT NULL, default `false`).
+9. `is_registered` (`BOOLEAN`, NOT NULL, default `false`).
+10. `first_name_input` (`VARCHAR(255)`, NULL).
+11. `last_name_input` (`VARCHAR(255)`, NULL).
+12. `gender` (`VARCHAR(10)`, NULL).
+13. `birth_date` (`DATE`, NULL).
+14. `email` (`VARCHAR(255)`, NULL).
+15. `phone_verified_at` (`TIMESTAMPTZ`, NULL).
+16. `phone_verification_method` (`VARCHAR(20)`, NULL).
 
 ## 2. Таблица `phones`
 
@@ -98,3 +111,4 @@
 1. SQLAlchemy схема: `src/vtelemax/infrastructure/postgres/schema.py`.
 2. SQL-миграция strict identity: `migrations/sql/0001_strict_identity.sql`.
 3. SQL-миграция support-слоя: `migrations/sql/0002_support_tickets.sql`.
+4. SQL-миграция расширения профиля: `migrations/sql/0003_person_profile_fields.sql`.

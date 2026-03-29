@@ -14,9 +14,12 @@ from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProces
 
 from .identity_adapter import TelegramIdentityAdapter, TelegramMenuActionResult
 from .menu import (
+    NOTIFY_NO_CALLBACK,
+    NOTIFY_YES_CALLBACK,
     RULES_ACCEPT_CALLBACK,
     build_contact_request_keyboard,
     build_main_menu_inline_keyboard,
+    build_notifications_consent_inline_keyboard,
     build_rules_consent_inline_keyboard,
     build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
@@ -38,6 +41,7 @@ def build_telegram_identity_router(
     request_contact_keyboard = build_contact_request_keyboard()
     main_menu_inline_keyboard = build_main_menu_inline_keyboard()
     rules_consent_keyboard = build_rules_consent_inline_keyboard()
+    notifications_consent_keyboard = build_notifications_consent_inline_keyboard()
     delivery_lock = asyncio.Lock()
 
     def _choose_reply_markup(result: TelegramMenuActionResult) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
@@ -46,6 +50,8 @@ def build_telegram_identity_router(
             return request_contact_keyboard
         if result.status in {"rules_consent_required", "rules_consent_pending"}:
             return rules_consent_keyboard
+        if result.status in {"notifications_consent_required", "notifications_consent_pending"}:
+            return notifications_consent_keyboard
         if result.status in {"support", "support_feedback", "support_question", "support_contacts", "tickets_list"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status == "menu":
@@ -157,7 +163,12 @@ def build_telegram_identity_router(
             raw_phone=message.contact.phone_number,
         )
         event_logger.info("Обработка контакта завершена. status={status}.", status=result.status)
-        reply_markup = main_menu_inline_keyboard if result.is_success else request_contact_keyboard
+        if result.status == "first_name_required":
+            reply_markup = None
+        elif result.is_success:
+            reply_markup = main_menu_inline_keyboard
+        else:
+            reply_markup = request_contact_keyboard
         await message.answer(result.message, reply_markup=reply_markup)
 
     @router.message(Command("menu"))
@@ -247,6 +258,49 @@ def build_telegram_identity_router(
             except Exception:  # noqa: BLE001
                 # Не блокируем сценарий, если исходную клавиатуру уже нельзя изменить.
                 event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback.")
+            await callback.message.answer(
+                result.message,
+                parse_mode=result.parse_mode,
+                reply_markup=reply_markup,
+            )
+            return
+
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text=result.message,
+            parse_mode=result.parse_mode,
+            reply_markup=reply_markup,
+        )
+
+    @router.callback_query(F.data.in_([NOTIFY_YES_CALLBACK, NOTIFY_NO_CALLBACK]))
+    async def notifications_consent_callback_handler(callback: CallbackQuery) -> None:
+        """Обработчик inline-кнопок согласия/отказа по уведомлениям."""
+
+        event_logger = router_logger.bind(
+            stage="notifications_callback",
+            user_id=str(callback.from_user.id) if callback.from_user else "-",
+        )
+        await _try_process_pending_deliveries(callback.bot)
+
+        if callback.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram в callback уведомлений.")
+            await callback.answer("Не удалось определить пользователя. Повторите /start.", show_alert=True)
+            return
+
+        result = identity_adapter.handle_menu_action(
+            telegram_user_id=callback.from_user.id,
+            action_text=callback.data or "",
+        )
+        event_logger.info("Callback уведомлений обработан. status={status}.", status=result.status)
+
+        reply_markup = _choose_reply_markup(result)
+
+        await callback.answer()
+        if callback.message is not None:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:  # noqa: BLE001
+                event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback уведомлений.")
             await callback.message.answer(
                 result.message,
                 parse_mode=result.parse_mode,

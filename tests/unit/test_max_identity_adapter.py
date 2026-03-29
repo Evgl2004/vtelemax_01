@@ -147,6 +147,8 @@ def _complete_max_registration(adapter: MaxIdentityAdapter, max_user_id: int = 1
     adapter.handle_start(max_user_id=max_user_id)
     adapter.handle_incoming(max_user_id=max_user_id, text="✅ Согласен", payload=None)
     adapter.handle_incoming(max_user_id=max_user_id, text="+79123456789", payload=None)
+    adapter.handle_incoming(max_user_id=max_user_id, text="Иван", payload=None)
+    adapter.handle_incoming(max_user_id=max_user_id, text="Да", payload=None)
 
 
 def test_max_start_for_unregistered_user_requests_rules_consent() -> None:
@@ -188,7 +190,7 @@ def test_max_dirty_input_on_rules_step_keeps_consent_pending() -> None:
 
 
 def test_max_registration_by_phone_after_rules_consent() -> None:
-    """Проверяет успешную регистрацию после согласия и ввода номера."""
+    """Проверяет переход к шагу ввода имени после согласия и ввода номера."""
 
     adapter = _build_adapter()
     adapter.handle_start(max_user_id=1001)
@@ -196,9 +198,8 @@ def test_max_registration_by_phone_after_rules_consent() -> None:
 
     response = adapter.handle_incoming(max_user_id=1001, text="+7 (912) 345-67-89", payload=None)
 
-    assert "Регистрация успешно подтверждена" in response.text
-    assert response.screen is not None
-    assert response.screen.screen_id == "main_menu"
+    assert "имя" in response.text.lower()
+    assert response.screen is None
 
 
 def test_max_profile_available_after_registration() -> None:
@@ -209,7 +210,7 @@ def test_max_profile_available_after_registration() -> None:
 
     response = adapter.handle_incoming(max_user_id=1001, text="👤 Профиль", payload=None)
 
-    assert "Ваш профиль" in response.text
+    assert "Проверьте введённые данные" in response.text
     assert "+79123456789" in response.text
 
 
@@ -383,3 +384,4 @@ def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     assert "Маршрут доставки: max" in routed.text
     assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
     assert "Канал создания: max" in details.text
+

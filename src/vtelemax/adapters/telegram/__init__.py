@@ -13,9 +13,12 @@ from .identity_adapter import (
     TelegramRegistrationResult,
 )
 from .menu import (
+    NOTIFY_NO_CALLBACK,
+    NOTIFY_YES_CALLBACK,
     RULES_ACCEPT_CALLBACK,
     build_contact_request_keyboard,
     build_main_menu_keyboard,
+    build_notifications_consent_inline_keyboard,
     build_rules_consent_inline_keyboard,
 )
 from .router import build_telegram_identity_router
@@ -27,6 +30,9 @@ __all__ = [
     "build_contact_request_keyboard",
     "build_main_menu_keyboard",
     "build_rules_consent_inline_keyboard",
+    "build_notifications_consent_inline_keyboard",
     "RULES_ACCEPT_CALLBACK",
+    "NOTIFY_YES_CALLBACK",
+    "NOTIFY_NO_CALLBACK",
     "build_telegram_identity_router",
 ]

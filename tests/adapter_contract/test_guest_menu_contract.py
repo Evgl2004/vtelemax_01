@@ -74,10 +74,14 @@ def _complete_cross_platform_registration(
     vk.handle_start(vk_user_id=2002)
     vk.handle_incoming(vk_user_id=2002, text="✅ Согласен", payload=None)
     vk.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
+    vk.handle_incoming(vk_user_id=2002, text="Иван", payload=None)
+    vk.handle_incoming(vk_user_id=2002, text="Да", payload=None)
 
     max_adapter.handle_start(max_user_id=3003)
     max_adapter.handle_incoming(max_user_id=3003, text="✅ Согласен", payload=None)
     max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
+    max_adapter.handle_incoming(max_user_id=3003, text="Иван", payload=None)
+    max_adapter.handle_incoming(max_user_id=3003, text="Да", payload=None)
 
 
 def test_main_menu_labels_are_identical_between_core_vk_max() -> None:
@@ -222,13 +226,29 @@ def test_onboarding_flow_transitions() -> None:
     assert max_accept.screen is not None
     assert max_accept.screen.screen_id == "start_contact"
 
-    # Шаг 3: отправка телефона -> главное меню
+    # Шаг 3: отправка телефона -> шаг имени
     vk_phone = vk.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
-    assert vk_phone.screen is not None
-    assert vk_phone.screen.screen_id == "main_menu"
+    assert vk_phone.screen is None
+    assert "имя" in vk_phone.text.lower()
     max_phone = max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
-    assert max_phone.screen is not None
-    assert max_phone.screen.screen_id == "main_menu"
+    assert max_phone.screen is None
+    assert "имя" in max_phone.text.lower()
+
+    # Шаг 4: имя -> экран согласия на рассылку
+    vk_name = vk.handle_incoming(vk_user_id=2002, text="Иван", payload=None)
+    assert vk_name.screen is not None
+    assert vk_name.screen.screen_id == "notifications_consent"
+    max_name = max_adapter.handle_incoming(max_user_id=3003, text="Иван", payload=None)
+    assert max_name.screen is not None
+    assert max_name.screen.screen_id == "notifications_consent"
+
+    # Шаг 5: выбор по рассылке -> главное меню
+    vk_notify = vk.handle_incoming(vk_user_id=2002, text="Да", payload=None)
+    assert vk_notify.screen is not None
+    assert vk_notify.screen.screen_id == "main_menu"
+    max_notify = max_adapter.handle_incoming(max_user_id=3003, text="Да", payload=None)
+    assert max_notify.screen is not None
+    assert max_notify.screen.screen_id == "main_menu"
 
 
 def test_invalid_phone_returns_error() -> None:
@@ -253,3 +273,4 @@ def test_invalid_phone_returns_error() -> None:
     # Проверяем, что текст содержит сообщение об ошибке
     assert "Не удалось обработать номер телефона" in vk_response.text
     assert "Не удалось обработать номер телефона" in max_response.text
+

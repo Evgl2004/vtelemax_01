@@ -19,6 +19,9 @@ from vtelemax.core import (
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
     BUTTON_MY_TICKETS,
+    BUTTON_NOTIFICATIONS_DOCS,
+    BUTTON_NOTIFICATIONS_NO,
+    BUTTON_NOTIFICATIONS_YES,
     BUTTON_PROFILE,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT,
@@ -30,7 +33,10 @@ from vtelemax.core import (
 )
 
 RULES_ACCEPT_CALLBACK = "rules_accept"
+NOTIFY_YES_CALLBACK = "notify_yes"
+NOTIFY_NO_CALLBACK = "notify_no"
 DOCS_URL = "https://sagur.24vds.ru/agreement/#"
+NOTIFICATIONS_DOCS_URL = "https://sagur.24vds.ru/notifications/#"
 
 
 def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
@@ -57,6 +63,18 @@ def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=BUTTON_DOCS_LINK, url=DOCS_URL)],
             [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)],
+        ]
+    )
+
+
+def build_notifications_consent_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру шага согласия на уведомления."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTON_NOTIFICATIONS_DOCS, url=NOTIFICATIONS_DOCS_URL)],
+            [InlineKeyboardButton(text=BUTTON_NOTIFICATIONS_YES, callback_data=NOTIFY_YES_CALLBACK)],
+            [InlineKeyboardButton(text=BUTTON_NOTIFICATIONS_NO, callback_data=NOTIFY_NO_CALLBACK)],
         ]
     )
 

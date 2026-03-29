@@ -33,6 +33,8 @@ class GuestMenuAction(StrEnum):
     BACK_TO_MAIN = "back_to_main"
     BACK_TO_SUPPORT = "back_to_support"
     OPEN_DOCS = "open_docs"
+    NOTIFY_YES = "notify_yes"
+    NOTIFY_NO = "notify_no"
 
 
 @dataclass(frozen=True, slots=True)

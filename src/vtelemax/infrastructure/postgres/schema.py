@@ -13,11 +13,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -51,6 +53,19 @@ class PersonRow(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    rules_accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    rules_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notifications_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    notifications_allowed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_legacy: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    is_registered: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    first_name_input: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_name_input: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    phone_verification_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 
 class PhoneRow(Base):

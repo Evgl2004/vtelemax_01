@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import re
 from uuid import UUID
 
 from loguru import logger
@@ -36,12 +38,15 @@ from .payloads import resolve_action_from_max_payload
 
 _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
+_STATE_WAITING_FIRST_NAME = OnboardingState.WAITING_FIRST_NAME.value
+_STATE_WAITING_NOTIFICATIONS_CONSENT = OnboardingState.WAITING_NOTIFICATIONS_CONSENT.value
 _STATE_WAITING_LEGACY_PHONE = OnboardingState.WAITING_LEGACY_PHONE.value
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
 _STATE_MOD_MENU = "moderation_menu"
 _STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
 _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
 _STATE_MOD_WAIT_TICKET_FOR_DETAILS = "moderation_wait_ticket_for_details"
+_FIRST_NAME_ALLOWED_PATTERN = re.compile(r"^[A-Za-zА-Яа-яЁё\\-\\s]{2,50}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +55,17 @@ class MaxAdapterResponse:
 
     text: str
     screen: MaxScreen | None = None
+
+
+@dataclass(slots=True)
+class _OnboardingDraft:
+    """Промежуточные данные сокращённой регистрации до финальной фиксации."""
+
+    rules_accepted_at: datetime | None = None
+    phone_e164: str | None = None
+    phone_verified_at: datetime | None = None
+    phone_verification_method: str | None = None
+    first_name_input: str | None = None
 
 
 class MaxIdentityAdapter:
@@ -73,6 +89,7 @@ class MaxIdentityAdapter:
         self._person_lookup_use_case = person_lookup_use_case
         self._menu_adapter = menu_adapter or MaxGuestMenuAdapter()
         self._state_by_user_id: dict[int, str] = {}
+        self._onboarding_draft_by_user_id: dict[int, _OnboardingDraft] = {}
         self._moderator_state_by_user_id: dict[int, str] = {}
         self._moderator_context_by_user_id: dict[int, dict[str, str]] = {}
         self._onboarding_flow = OnboardingFlowService(platform="max")
@@ -96,11 +113,60 @@ class MaxIdentityAdapter:
             method_logger.info("Пользователь не найден, запускаем onboarding.")
             transition = self._onboarding_flow.begin_new_user()
             self._state_by_user_id[max_user_id] = transition.state.value
+            self._onboarding_draft_by_user_id[max_user_id] = _OnboardingDraft()
             self._clear_moderator_state(max_user_id)
             rules_screen = self._menu_adapter.build_start_rules_screen()
             return MaxAdapterResponse(text=transition.message, screen=rules_screen)
 
+        if not person.is_registered:
+            method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
+            draft = _OnboardingDraft(
+                rules_accepted_at=person.rules_accepted_at,
+                phone_e164=person.phone_e164,
+                phone_verified_at=person.phone_verified_at,
+                phone_verification_method=person.phone_verification_method,
+                first_name_input=person.first_name_input,
+            )
+            self._onboarding_draft_by_user_id[max_user_id] = draft
+            self._clear_moderator_state(max_user_id)
+            if not person.rules_accepted:
+                transition = self._onboarding_flow.begin_new_user()
+                self._state_by_user_id[max_user_id] = transition.state.value
+                return MaxAdapterResponse(
+                    text=transition.message,
+                    screen=self._menu_adapter.build_start_rules_screen(),
+                )
+            if not person.first_name_input:
+                transition = self._onboarding_flow.begin_first_name_step()
+                self._state_by_user_id[max_user_id] = transition.state.value
+                return MaxAdapterResponse(text=transition.message, screen=None)
+
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+            )
+            self._state_by_user_id[max_user_id] = transition.state.value
+            profile_text = self._menu_adapter.build_profile_screen(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+                last_name_input=person.last_name_input,
+                gender=person.gender,
+                birth_date=person.birth_date,
+                email=person.email,
+                rules_accepted=person.rules_accepted,
+                rules_accepted_at=person.rules_accepted_at,
+                notifications_allowed=person.notifications_allowed,
+                notifications_allowed_at=person.notifications_allowed_at,
+            ).text
+            return MaxAdapterResponse(
+                text=transition.message,
+                screen=self._menu_adapter.build_notifications_consent_screen(profile_text=profile_text),
+            )
+
         self._state_by_user_id.pop(max_user_id, None)
+        self._onboarding_draft_by_user_id.pop(max_user_id, None)
         self._clear_moderator_state(max_user_id)
         method_logger.info("Пользователь найден, открываем главное меню.")
         main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
@@ -121,6 +187,7 @@ class MaxIdentityAdapter:
         transition = self._onboarding_flow.begin_legacy_upgrade()
         method_logger.info("Legacy-flow запущен.")
         self._state_by_user_id[max_user_id] = transition.state.value
+        self._onboarding_draft_by_user_id[max_user_id] = _OnboardingDraft()
         self._clear_moderator_state(max_user_id)
         contact_screen = self._menu_adapter.build_start_contact_screen()
         return MaxAdapterResponse(text=transition.message, screen=contact_screen)
@@ -157,6 +224,14 @@ class MaxIdentityAdapter:
             return self._handle_rules_consent(max_user_id=max_user_id, text=text, payload=payload)
         if state == _STATE_WAITING_PHONE:
             return self._handle_phone_input(max_user_id=max_user_id, text=text, is_legacy=False)
+        if state == _STATE_WAITING_FIRST_NAME:
+            return self._handle_first_name_input(max_user_id=max_user_id, text=text)
+        if state == _STATE_WAITING_NOTIFICATIONS_CONSENT:
+            return self._handle_notifications_consent(
+                max_user_id=max_user_id,
+                text=text,
+                payload=payload,
+            )
         if state == _STATE_WAITING_LEGACY_PHONE:
             return self._handle_phone_input(max_user_id=max_user_id, text=text, is_legacy=True)
         if state == _STATE_WAITING_SUPPORT_QUESTION:
@@ -216,6 +291,8 @@ class MaxIdentityAdapter:
         transition = self._onboarding_flow.handle_rules_input(consent_input)
         self._state_by_user_id[max_user_id] = transition.state.value
         if transition.state == OnboardingState.WAITING_PHONE:
+            draft = self._onboarding_draft_by_user_id.setdefault(max_user_id, _OnboardingDraft())
+            draft.rules_accepted_at = datetime.now(timezone.utc)
             screen = self._menu_adapter.build_start_contact_screen()
         else:
             screen = self._menu_adapter.build_start_rules_screen()
@@ -226,6 +303,8 @@ class MaxIdentityAdapter:
 
         method_logger = self._logger.bind(stage="phone_input", user_id=str(max_user_id))
         phone_text = (text or "").strip()
+        draft = self._onboarding_draft_by_user_id.setdefault(max_user_id, _OnboardingDraft())
+        phone_verified_at = datetime.now(timezone.utc)
         if not phone_text:
             method_logger.warning("Пустой ввод телефона.")
             return MaxAdapterResponse(
@@ -239,6 +318,12 @@ class MaxIdentityAdapter:
                     platform="max",
                     external_id=str(max_user_id),
                     raw_phone=phone_text,
+                    rules_accepted=True if draft.rules_accepted_at is not None else None,
+                    rules_accepted_at=draft.rules_accepted_at,
+                    phone_verified_at=phone_verified_at,
+                    phone_verification_method="max_contact_or_text",
+                    is_legacy=False if is_legacy else None,
+                    is_registered=True if is_legacy else None,
                 )
             )
         except IdentityConflictError:
@@ -259,19 +344,160 @@ class MaxIdentityAdapter:
                 screen=self._menu_adapter.build_start_contact_screen(),
             )
 
-        self._state_by_user_id.pop(max_user_id, None)
-        self._clear_moderator_state(max_user_id)
-        method_logger.info("Телефон успешно зарегистрирован. person_id={person_id}.", person_id=person.person_id)
-        main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
         if is_legacy:
-            success_title = "Профиль legacy успешно обновлен. Номер подтвержден в единой базе."
-        else:
-            success_title = "Регистрация успешно подтверждена. Ваш номер сохранен в единой базе."
+            self._state_by_user_id.pop(max_user_id, None)
+            self._onboarding_draft_by_user_id.pop(max_user_id, None)
+            self._clear_moderator_state(max_user_id)
+            method_logger.info("Телефон legacy подтвержден. person_id={person_id}.", person_id=person.person_id)
+            main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+            return MaxAdapterResponse(
+                text=(
+                    "Профиль legacy успешно обновлен. Номер подтвержден в единой базе.\n\n"
+                    f"{main_screen.text}\n\n"
+                    f"Ваш телефон: {person.phone_e164}"
+                ),
+                screen=main_screen,
+            )
+
+        draft.phone_e164 = person.phone_e164
+        draft.phone_verified_at = phone_verified_at
+        draft.phone_verification_method = "max_contact_or_text"
+        transition = self._onboarding_flow.begin_first_name_step()
+        self._state_by_user_id[max_user_id] = transition.state.value
+        method_logger.info(
+            "Телефон подтвержден, переходим к шагу имени. person_id={person_id}.",
+            person_id=person.person_id,
+        )
+        return MaxAdapterResponse(text=transition.message, screen=None)
+
+    def _handle_first_name_input(self, max_user_id: int, text: str) -> MaxAdapterResponse:
+        """Обрабатывает шаг ввода имени в сокращенной регистрации."""
+
+        normalized_name = self._normalize_first_name(text)
+        if normalized_name is None:
+            return MaxAdapterResponse(
+                text=(
+                    "Пожалуйста, укажите имя текстом (только буквы, пробел и дефис, "
+                    "от 2 до 50 символов)."
+                )
+            )
+
+        draft = self._onboarding_draft_by_user_id.get(max_user_id)
+        if draft is None or not draft.phone_e164:
+            self._state_by_user_id[max_user_id] = _STATE_WAITING_PHONE
+            return MaxAdapterResponse(
+                text=(
+                    "Потерян шаг подтверждения телефона. "
+                    "Введите номер телефона в формате +79991234567."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+
+        draft.first_name_input = normalized_name
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
+        )
+        accounts_count = len(person.accounts) if person is not None else 1
+        profile_text = self._build_profile_text_for_draft(max_user_id)
+        transition = self._onboarding_flow.begin_notifications_consent_step(
+            phone_e164=draft.phone_e164,
+            accounts_count=accounts_count,
+            first_name_input=normalized_name,
+        )
+        self._state_by_user_id[max_user_id] = transition.state.value
+        return MaxAdapterResponse(
+            text=transition.message,
+            screen=self._menu_adapter.build_notifications_consent_screen(profile_text=profile_text),
+        )
+
+    def _handle_notifications_consent(
+        self,
+        *,
+        max_user_id: int,
+        text: str,
+        payload: object | None,
+    ) -> MaxAdapterResponse:
+        """Обрабатывает выбор пользователя по шагу согласия на рассылку."""
+
+        action = resolve_action_from_max_payload(payload)
+        consent_input = action.value if action is not None else text
+        notifications_choice = self._onboarding_flow.handle_notifications_input(consent_input)
+        if notifications_choice is None:
+            draft_profile = self._build_profile_text_for_draft(max_user_id)
+            return MaxAdapterResponse(
+                text=(
+                    "Пожалуйста, выберите один из вариантов согласия на рассылку "
+                    "(кнопка «Да» или «Нет»)."
+                ),
+                screen=self._menu_adapter.build_notifications_consent_screen(profile_text=draft_profile),
+            )
+
+        draft = self._onboarding_draft_by_user_id.get(max_user_id)
+        if draft is None or not draft.phone_e164 or not draft.first_name_input:
+            self._state_by_user_id[max_user_id] = _STATE_WAITING_PHONE
+            return MaxAdapterResponse(
+                text=(
+                    "Потеряны промежуточные данные регистрации. "
+                    "Введите номер телефона в формате +79991234567."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+
+        notifications_fixed_at = datetime.now(timezone.utc)
+        try:
+            person = self._registration_use_case.execute(
+                RegisterOrAttachAccountCommand(
+                    platform="max",
+                    external_id=str(max_user_id),
+                    raw_phone=draft.phone_e164,
+                    rules_accepted=True,
+                    rules_accepted_at=draft.rules_accepted_at or notifications_fixed_at,
+                    notifications_allowed=notifications_choice,
+                    notifications_allowed_at=notifications_fixed_at,
+                    first_name_input=draft.first_name_input,
+                    is_legacy=False,
+                    is_registered=True,
+                    phone_verified_at=draft.phone_verified_at or notifications_fixed_at,
+                    phone_verification_method=draft.phone_verification_method or "max_contact_or_text",
+                )
+            )
+        except IdentityConflictError:
+            return MaxAdapterResponse(
+                text=(
+                    "Обнаружен конфликт идентификации при сохранении анкеты. "
+                    "Повторите регистрацию через /start."
+                )
+            )
+        except ValueError:
+            return MaxAdapterResponse(
+                text="Не удалось завершить регистрацию из-за ошибки в данных. Повторите /start."
+            )
+
+        self._state_by_user_id.pop(max_user_id, None)
+        self._onboarding_draft_by_user_id.pop(max_user_id, None)
+        self._clear_moderator_state(max_user_id)
+
+        profile_screen = self._menu_adapter.build_profile_screen(
+            phone_e164=person.phone_e164,
+            accounts_count=len(person.accounts),
+            first_name_input=person.first_name_input,
+            last_name_input=person.last_name_input,
+            gender=person.gender,
+            birth_date=person.birth_date,
+            email=person.email,
+            rules_accepted=person.rules_accepted,
+            rules_accepted_at=person.rules_accepted_at,
+            notifications_allowed=person.notifications_allowed,
+            notifications_allowed_at=person.notifications_allowed_at,
+        )
+        loyalty_sync_text = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
+        main_screen = self._menu_adapter.build_main_menu_screen(user_name=person.first_name_input or "Гость")
         return MaxAdapterResponse(
             text=(
-                f"{success_title}\n\n"
-                f"{main_screen.text}\n\n"
-                f"Ваш телефон: {person.phone_e164}"
+                f"{profile_screen.text}\n\n"
+                f"{loyalty_sync_text}\n\n"
+                "✅ Регистрация завершена.\n\n"
+                f"{main_screen.text}"
             ),
             screen=main_screen,
         )
@@ -734,6 +960,15 @@ class MaxIdentityAdapter:
             screen = self._menu_adapter.build_profile_screen(
                 phone_e164=person.phone_e164,
                 accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+                last_name_input=person.last_name_input,
+                gender=person.gender,
+                birth_date=person.birth_date,
+                email=person.email,
+                rules_accepted=person.rules_accepted,
+                rules_accepted_at=person.rules_accepted_at,
+                notifications_allowed=person.notifications_allowed,
+                notifications_allowed_at=person.notifications_allowed_at,
             )
             return MaxAdapterResponse(text=screen.text, screen=screen)
 
@@ -845,3 +1080,69 @@ class MaxIdentityAdapter:
             )
         lines.append("\nЧтобы добавить новое сообщение, выберите «❓ Мне только спросить».")
         return "\n\n".join(lines)
+
+    def _build_profile_text_for_draft(self, max_user_id: int) -> str:
+        """Формирует текст review-профиля на основании черновика onboarding и сохранённого Person."""
+
+        draft = self._onboarding_draft_by_user_id.get(max_user_id)
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
+        )
+        phone_e164 = (
+            (draft.phone_e164 if draft is not None else None)
+            or (person.phone_e164 if person is not None else None)
+            or "не указан"
+        )
+        first_name_input = (
+            (draft.first_name_input if draft is not None else None)
+            or (person.first_name_input if person is not None else None)
+        )
+        rules_accepted_at = (
+            (draft.rules_accepted_at if draft is not None else None)
+            or (person.rules_accepted_at if person is not None else None)
+        )
+        rules_accepted = bool(
+            (draft is not None and draft.rules_accepted_at is not None)
+            or (person is not None and person.rules_accepted)
+        )
+        accounts_count = len(person.accounts) if person is not None else 1
+
+        return self._menu_adapter.build_profile_screen(
+            phone_e164=phone_e164,
+            accounts_count=accounts_count,
+            first_name_input=first_name_input,
+            last_name_input=person.last_name_input if person is not None else None,
+            gender=person.gender if person is not None else None,
+            birth_date=person.birth_date if person is not None else None,
+            email=person.email if person is not None else None,
+            rules_accepted=rules_accepted,
+            rules_accepted_at=rules_accepted_at,
+            notifications_allowed=person.notifications_allowed if person is not None else None,
+            notifications_allowed_at=person.notifications_allowed_at if person is not None else None,
+        ).text
+
+    @staticmethod
+    def _normalize_first_name(raw_text: str) -> str | None:
+        """Проверяет и нормализует имя пользователя для шага сокращённой регистрации."""
+
+        normalized = " ".join(str(raw_text or "").strip().split())
+        if not normalized:
+            return None
+        if not _FIRST_NAME_ALLOWED_PATTERN.fullmatch(normalized):
+            return None
+        return normalized.title()
+
+    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> str:
+        """Запускает синхронизацию с iiko через сценарий выдачи/поиска виртуальной карты."""
+
+        if self._virtual_card_use_case is None:
+            return "ℹ️ Интеграция с iiko отключена. Синхронизация профиля будет выполнена позже."
+
+        result = self._virtual_card_use_case.execute(phone_e164=phone_e164)
+        if result.status == "virtual_card":
+            return "✅ Синхронизация с iiko выполнена.\n" + result.message
+        return (
+            "⚠️ Регистрация завершена, но синхронизация с iiko выполнилась с ограничениями.\n"
+            f"{result.message}"
+        )
+

@@ -19,6 +19,9 @@ from .guest_content import (
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
     BUTTON_MY_TICKETS,
+    BUTTON_NOTIFICATIONS_DOCS,
+    BUTTON_NOTIFICATIONS_NO,
+    BUTTON_NOTIFICATIONS_YES,
     BUTTON_PROFILE,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT,
@@ -32,8 +35,11 @@ from .guest_content import (
     build_legacy_upgrade_screen,
     build_help_screen,
     build_main_menu_screen,
+    build_notifications_consent_screen,
+    build_profile_review_text,
     build_profile_not_found_screen,
     build_profile_screen,
+    build_first_name_input_screen,
     build_start_contact_screen,
     build_start_rules_screen,
     build_support_contacts_screen,
@@ -62,7 +68,7 @@ from .loyalty_use_cases import (
     LoyaltyMenuResult,
 )
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
-from .models import Person, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
+from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .phone import normalize_phone
 from .ports import IdentityRepository, IdentityUnitOfWork
 from .support_models import (
@@ -121,6 +127,7 @@ __all__ = [
     "MenuButtonContract",
     "MenuScreenContract",
     "Person",
+    "PersonProfilePatch",
     "PlatformAccount",
     "PlatformName",
     "SUPPORTED_PLATFORMS",
@@ -139,6 +146,9 @@ __all__ = [
     "BUTTON_MAIN_MENU",
     "BUTTON_MY_TICKETS",
     "BUTTON_PROFILE",
+    "BUTTON_NOTIFICATIONS_DOCS",
+    "BUTTON_NOTIFICATIONS_YES",
+    "BUTTON_NOTIFICATIONS_NO",
     "BUTTON_SEND_PHONE",
     "BUTTON_SUPPORT",
     "BUTTON_SUPPORT_CONTACTS",
@@ -153,6 +163,9 @@ __all__ = [
     "build_help_screen",
     "build_legacy_upgrade_screen",
     "build_main_menu_screen",
+    "build_first_name_input_screen",
+    "build_notifications_consent_screen",
+    "build_profile_review_text",
     "build_profile_not_found_screen",
     "build_profile_screen",
     "build_start_contact_screen",

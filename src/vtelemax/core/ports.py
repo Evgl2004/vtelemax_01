@@ -11,7 +11,7 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
-from .models import Person, PlatformAccount, PlatformName
+from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName
 
 
 class IdentityRepository(Protocol):
@@ -31,6 +31,9 @@ class IdentityRepository(Protocol):
 
     def attach_account(self, person_id: UUID, account: PlatformAccount) -> None:
         """Привязывает аккаунт к существующему человеку."""
+
+    def update_person_profile(self, person_id: UUID, patch: PersonProfilePatch) -> None:
+        """Частично обновляет профиль пользователя."""
 
 
 class IdentityUnitOfWork(Protocol):

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
 
 BUTTON_BALANCE = "💰 Мой баланс"
@@ -31,6 +33,9 @@ BUTTON_SEND_PHONE = "📱 Поделиться контактом"
 BUTTON_ACCEPT_RULES = "✅ Согласен"
 BUTTON_DOCS_LINK = "📄 Открыть документы"
 BUTTON_BONUSES = "💰 Бонусы"
+BUTTON_NOTIFICATIONS_DOCS = "📄 Условия рассылки"
+BUTTON_NOTIFICATIONS_YES = "✅ О да, кидай всё, что есть! 🔥"
+BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков… 🙁"
 
 
 CONTACT_SCREEN_TEXTS = {
@@ -84,6 +89,8 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_BACK_TO_MAIN.lower(): GuestMenuAction.BACK_TO_MAIN,
         BUTTON_BACK_TO_SUPPORT.lower(): GuestMenuAction.BACK_TO_SUPPORT,
         BUTTON_DOCS_LINK.lower(): GuestMenuAction.OPEN_DOCS,
+        BUTTON_NOTIFICATIONS_YES.lower(): GuestMenuAction.NOTIFY_YES,
+        BUTTON_NOTIFICATIONS_NO.lower(): GuestMenuAction.NOTIFY_NO,
     }
     return mapping.get(normalized)
 
@@ -120,6 +127,40 @@ def build_start_contact_screen(platform: str = "telegram") -> MenuScreenContract
         text=text,
         buttons=(
             MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_SEND_PHONE),
+        ),
+    )
+
+
+def build_first_name_input_screen() -> MenuScreenContract:
+    """Экран запроса имени в сокращенной регистрации."""
+
+    return MenuScreenContract(
+        screen_id="first_name_input",
+        text=(
+            "👤 Отлично, номер сохранен.\n\n"
+            "Теперь напишите ваше имя текстовым сообщением."
+        ),
+    )
+
+
+def build_notifications_consent_screen(profile_text: str) -> MenuScreenContract:
+    """Экран обязательного выбора по уведомлениям после проверки анкеты."""
+
+    return MenuScreenContract(
+        screen_id="notifications_consent",
+        text=(
+            f"{profile_text}\n\n"
+            "📢 Мы хотим радовать вас персональными предложениями и акциями.\n"
+            "Ознакомьтесь с условиями получения уведомлений по ссылке ниже и сделайте выбор:"
+        ),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_NOTIFICATIONS_DOCS,
+                url="https://sagur.24vds.ru/notifications/#",
+            ),
+            MenuButtonContract(action=GuestMenuAction.NOTIFY_YES, label=BUTTON_NOTIFICATIONS_YES),
+            MenuButtonContract(action=GuestMenuAction.NOTIFY_NO, label=BUTTON_NOTIFICATIONS_NO),
         ),
     )
 
@@ -313,14 +354,103 @@ def build_profile_not_found_screen() -> MenuScreenContract:
     )
 
 
-def build_profile_screen(phone_e164: str, accounts_count: int) -> MenuScreenContract:
-    """Экран профиля зарегистрированного пользователя."""
+def build_profile_screen(
+    phone_e164: str,
+    accounts_count: int,
+    *,
+    first_name_input: str | None = None,
+    last_name_input: str | None = None,
+    gender: str | None = None,
+    birth_date: date | None = None,
+    email: str | None = None,
+    rules_accepted: bool = False,
+    rules_accepted_at: datetime | None = None,
+    notifications_allowed: bool | None = None,
+    notifications_allowed_at: datetime | None = None,
+) -> MenuScreenContract:
+    """Экран профиля зарегистрированного пользователя в формате review-анкеты."""
 
     return MenuScreenContract(
         screen_id="profile",
-        text=(
-            "Ваш профиль:\n"
-            f"Телефон: {phone_e164}\n"
-            f"Привязанных аккаунтов: {accounts_count}"
+        text=build_profile_review_text(
+            phone_e164=phone_e164,
+            accounts_count=accounts_count,
+            first_name_input=first_name_input,
+            last_name_input=last_name_input,
+            gender=gender,
+            birth_date=birth_date,
+            email=email,
+            rules_accepted=rules_accepted,
+            rules_accepted_at=rules_accepted_at,
+            notifications_allowed=notifications_allowed,
+            notifications_allowed_at=notifications_allowed_at,
         ),
     )
+
+
+def build_profile_review_text(
+    *,
+    phone_e164: str,
+    accounts_count: int,
+    first_name_input: str | None = None,
+    last_name_input: str | None = None,
+    gender: str | None = None,
+    birth_date: date | None = None,
+    email: str | None = None,
+    rules_accepted: bool = False,
+    rules_accepted_at: datetime | None = None,
+    notifications_allowed: bool | None = None,
+    notifications_allowed_at: datetime | None = None,
+) -> str:
+    """Формирует единый текст review-профиля для финала регистрации и кнопки «Профиль»."""
+
+    return (
+        "📋 Проверьте введённые данные:\n\n"
+        f"👤 Имя: {first_name_input or 'не указано'}\n"
+        f"👥 Фамилия: {last_name_input or 'не указана'}\n"
+        f"📞 Телефон: {phone_e164}\n"
+        f"⚥ Пол: {_format_gender(gender)}\n"
+        f"🎂 Дата рождения: {_format_birth_date(birth_date)}\n"
+        f"📧 Email: {email or 'не указан'}\n"
+        f"📜 Согласие с правилами: {'принято' if rules_accepted else 'не принято'}\n"
+        f"🕒 Дата согласия с правилами: {_format_datetime(rules_accepted_at)}\n"
+        f"📢 Согласие на рассылку: {_format_notifications_choice(notifications_allowed)}\n"
+        f"🕒 Дата решения по рассылке: {_format_datetime(notifications_allowed_at)}\n"
+        f"🔗 Привязанных аккаунтов: {accounts_count}"
+    )
+
+
+def _format_gender(raw_gender: str | None) -> str:
+    """Преобразует внутреннее значение пола в человекочитаемый текст."""
+
+    if raw_gender == "male":
+        return "мужской"
+    if raw_gender == "female":
+        return "женский"
+    return "не указан"
+
+
+def _format_birth_date(raw_birth_date: date | None) -> str:
+    """Форматирует дату рождения в формат ДД.ММ.ГГГГ."""
+
+    if raw_birth_date is None:
+        return "не указана"
+    return raw_birth_date.strftime("%d.%m.%Y")
+
+
+def _format_datetime(raw_datetime: datetime | None) -> str:
+    """Форматирует дату/время юридически значимых согласий."""
+
+    if raw_datetime is None:
+        return "не зафиксирована"
+    return raw_datetime.strftime("%d.%m.%Y %H:%M:%S")
+
+
+def _format_notifications_choice(allowed: bool | None) -> str:
+    """Форматирует выбор пользователя по уведомлениям."""
+
+    if allowed is True:
+        return "согласен"
+    if allowed is False:
+        return "отказался"
+    return "не выбран"

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import re
 from uuid import UUID
 
 from loguru import logger
@@ -38,6 +40,7 @@ from vtelemax.core import (
     RouteModeratorReplyTransactionalUseCase,
     SUPPORTED_PLATFORMS,
     build_about_screen,
+    build_first_name_input_screen,
     build_help_screen,
     build_main_menu_screen,
     build_profile_not_found_screen,
@@ -74,11 +77,23 @@ class TelegramMenuActionResult:
     has_support_tickets: bool = False
 
 
+_FIRST_NAME_ALLOWED_PATTERN = re.compile(r"^[A-Za-zА-Яа-яЁё\\-\\s]{2,50}$")
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
 _STATE_MOD_MENU = "moderation_menu"
 _STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
 _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
 _STATE_MOD_WAIT_TICKET_FOR_DETAILS = "moderation_wait_ticket_for_details"
+
+
+@dataclass(slots=True)
+class _OnboardingDraft:
+    """Промежуточные данные сокращенной регистрации до финальной фиксации."""
+
+    rules_accepted_at: datetime | None = None
+    phone_e164: str | None = None
+    phone_verified_at: datetime | None = None
+    phone_verification_method: str | None = None
+    first_name_input: str | None = None
 
 
 class TelegramIdentityAdapter:
@@ -101,6 +116,7 @@ class TelegramIdentityAdapter:
         self._person_lookup_use_case = person_lookup_use_case
         self._onboarding_flow = OnboardingFlowService(platform="telegram")
         self._onboarding_state_by_user_id: dict[int, OnboardingState] = {}
+        self._onboarding_draft_by_user_id: dict[int, _OnboardingDraft] = {}
         self._dialog_state_by_user_id: dict[int, str] = {}
         self._moderator_state_by_user_id: dict[int, str] = {}
         self._moderator_context_by_user_id: dict[int, dict[str, str]] = {}
@@ -136,6 +152,7 @@ class TelegramIdentityAdapter:
             method_logger.info("Пользователь не найден, запускаем onboarding для нового пользователя.")
             transition = self._onboarding_flow.begin_new_user()
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            self._onboarding_draft_by_user_id[telegram_user_id] = _OnboardingDraft()
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
             return TelegramMenuActionResult(
@@ -148,6 +165,7 @@ class TelegramIdentityAdapter:
             method_logger.info("Запрошен legacy-flow обновления профиля.")
             transition = self._onboarding_flow.begin_legacy_upgrade()
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            self._onboarding_draft_by_user_id[telegram_user_id] = _OnboardingDraft()
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
             return TelegramMenuActionResult(
@@ -156,7 +174,43 @@ class TelegramIdentityAdapter:
                 requires_contact_keyboard=transition.requires_contact_keyboard,
             )
 
+        if not person.is_registered:
+            method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
+            draft = _OnboardingDraft(
+                rules_accepted_at=person.rules_accepted_at,
+                phone_e164=person.phone_e164,
+                phone_verified_at=person.phone_verified_at,
+                phone_verification_method=person.phone_verification_method,
+                first_name_input=person.first_name_input,
+            )
+            self._onboarding_draft_by_user_id[telegram_user_id] = draft
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            self._clear_moderator_state(telegram_user_id)
+
+            if not person.rules_accepted:
+                transition = self._onboarding_flow.begin_new_user()
+                self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+                return TelegramMenuActionResult(
+                    status=transition.status,
+                    message=transition.message,
+                    requires_contact_keyboard=transition.requires_contact_keyboard,
+                )
+
+            if not person.first_name_input:
+                transition = self._onboarding_flow.begin_first_name_step()
+                self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+                return TelegramMenuActionResult(status=transition.status, message=transition.message)
+
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+            )
+            self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            return TelegramMenuActionResult(status=transition.status, message=transition.message)
+
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+        self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
         self._dialog_state_by_user_id.pop(telegram_user_id, None)
         self._clear_moderator_state(telegram_user_id)
         method_logger.info("Пользователь найден, открываем главное меню.")
@@ -171,6 +225,8 @@ class TelegramIdentityAdapter:
         method_logger = self._logger.bind(stage="register_contact", user_id=str(telegram_user_id))
         method_logger.debug("Начата регистрация контакта.")
         previous_state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
+        draft = self._onboarding_draft_by_user_id.setdefault(telegram_user_id, _OnboardingDraft())
+        phone_verified_at = datetime.now(timezone.utc)
 
         try:
             person = self._registration_use_case.execute(
@@ -178,6 +234,12 @@ class TelegramIdentityAdapter:
                     platform="telegram",
                     external_id=str(telegram_user_id),
                     raw_phone=raw_phone,
+                    rules_accepted=True if draft.rules_accepted_at is not None else None,
+                    rules_accepted_at=draft.rules_accepted_at,
+                    phone_verified_at=phone_verified_at,
+                    phone_verification_method="telegram_contact",
+                    is_legacy=False if previous_state == OnboardingState.WAITING_LEGACY_PHONE else None,
+                    is_registered=True if previous_state == OnboardingState.WAITING_LEGACY_PHONE else None,
                 )
             )
         except IdentityConflictError:
@@ -198,7 +260,26 @@ class TelegramIdentityAdapter:
                 message="Не удалось обработать телефон. Проверьте формат и отправьте контакт еще раз.",
             )
 
+        if previous_state == OnboardingState.WAITING_PHONE:
+            draft.phone_e164 = person.phone_e164
+            draft.phone_verified_at = phone_verified_at
+            draft.phone_verification_method = "telegram_contact"
+            self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_FIRST_NAME
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            self._clear_moderator_state(telegram_user_id)
+            method_logger.info(
+                "Телефон подтвержден, переходим к шагу ввода имени. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return TelegramRegistrationResult(
+                is_success=False,
+                status="first_name_required",
+                message=build_first_name_input_screen().text,
+                person_id=person.person_id,
+            )
+
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+        self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
         self._dialog_state_by_user_id.pop(telegram_user_id, None)
         self._clear_moderator_state(telegram_user_id)
         method_logger.info("Контакт успешно зарегистрирован. person_id={person_id}.", person_id=person.person_id)
@@ -239,6 +320,9 @@ class TelegramIdentityAdapter:
         if onboarding_state == OnboardingState.WAITING_RULES_CONSENT:
             transition = self._onboarding_flow.handle_rules_input(action_text)
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            if transition.state == OnboardingState.WAITING_PHONE:
+                draft = self._onboarding_draft_by_user_id.setdefault(telegram_user_id, _OnboardingDraft())
+                draft.rules_accepted_at = datetime.now(timezone.utc)
             method_logger.info(
                 "Обработано подтверждение правил. status={status}.",
                 status=transition.status,
@@ -257,6 +341,124 @@ class TelegramIdentityAdapter:
                     f"«{BUTTON_SEND_PHONE}»."
                 ),
                 requires_contact_keyboard=True,
+            )
+
+        if onboarding_state == OnboardingState.WAITING_FIRST_NAME:
+            normalized_name = self._normalize_first_name(action_text)
+            if normalized_name is None:
+                return TelegramMenuActionResult(
+                    status="first_name_required",
+                    message=(
+                        "Пожалуйста, укажите имя текстом (только буквы, пробел и дефис, "
+                        "от 2 до 50 символов)."
+                    ),
+                )
+            draft = self._onboarding_draft_by_user_id.get(telegram_user_id)
+            if draft is None or not draft.phone_e164:
+                self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_PHONE
+                return TelegramMenuActionResult(
+                    status="phone_required",
+                    message=(
+                        "Потерян шаг подтверждения телефона. Отправьте номер через кнопку "
+                        f"«{BUTTON_SEND_PHONE}»."
+                    ),
+                    requires_contact_keyboard=True,
+                )
+
+            draft.first_name_input = normalized_name
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=draft.phone_e164,
+                accounts_count=1,
+                first_name_input=normalized_name,
+            )
+            self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            return TelegramMenuActionResult(
+                status=transition.status,
+                message=transition.message,
+            )
+
+        if onboarding_state == OnboardingState.WAITING_NOTIFICATIONS_CONSENT:
+            notifications_choice = self._onboarding_flow.handle_notifications_input(action_text)
+            if notifications_choice is None:
+                return TelegramMenuActionResult(
+                    status="notifications_consent_pending",
+                    message=(
+                        "Пожалуйста, выберите один из вариантов согласия на рассылку "
+                        "(кнопка «Да» или «Нет»)."
+                    ),
+                )
+
+            draft = self._onboarding_draft_by_user_id.get(telegram_user_id)
+            if draft is None or not draft.phone_e164 or not draft.first_name_input:
+                self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_PHONE
+                return TelegramMenuActionResult(
+                    status="phone_required",
+                    message=(
+                        "Потеряны промежуточные данные регистрации. "
+                        f"Повторите отправку телефона через «{BUTTON_SEND_PHONE}»."
+                    ),
+                    requires_contact_keyboard=True,
+                )
+
+            notifications_fixed_at = datetime.now(timezone.utc)
+            try:
+                person = self._registration_use_case.execute(
+                    RegisterOrAttachAccountCommand(
+                        platform="telegram",
+                        external_id=str(telegram_user_id),
+                        raw_phone=draft.phone_e164,
+                        rules_accepted=True,
+                        rules_accepted_at=draft.rules_accepted_at or notifications_fixed_at,
+                        notifications_allowed=notifications_choice,
+                        notifications_allowed_at=notifications_fixed_at,
+                        first_name_input=draft.first_name_input,
+                        is_legacy=False,
+                        is_registered=True,
+                        phone_verified_at=draft.phone_verified_at or notifications_fixed_at,
+                        phone_verification_method=draft.phone_verification_method or "telegram_contact",
+                    )
+                )
+            except IdentityConflictError:
+                return TelegramMenuActionResult(
+                    status="conflict",
+                    message=(
+                        "Обнаружен конфликт идентификации при сохранении анкеты. "
+                        "Повторите регистрацию через /start."
+                    ),
+                )
+            except ValueError:
+                return TelegramMenuActionResult(
+                    status="validation_error",
+                    message="Не удалось завершить регистрацию из-за ошибки в данных. Повторите /start.",
+                )
+
+            self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+            self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            self._clear_moderator_state(telegram_user_id)
+
+            profile_screen = build_profile_screen(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+                last_name_input=person.last_name_input,
+                gender=person.gender,
+                birth_date=person.birth_date,
+                email=person.email,
+                rules_accepted=person.rules_accepted,
+                rules_accepted_at=person.rules_accepted_at,
+                notifications_allowed=person.notifications_allowed,
+                notifications_allowed_at=person.notifications_allowed_at,
+            )
+            loyalty_sync_text = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
+            return TelegramMenuActionResult(
+                status="menu",
+                message=(
+                    f"{profile_screen.text}\n\n"
+                    f"{loyalty_sync_text}\n\n"
+                    "✅ Регистрация завершена.\n\n"
+                    f"{self.build_menu_overview_message()}"
+                ),
             )
 
         if onboarding_state == OnboardingState.WAITING_LEGACY_PHONE:
@@ -348,7 +550,19 @@ class TelegramIdentityAdapter:
                     requires_contact_keyboard=True,
                 )
 
-            screen = build_profile_screen(phone_e164=person.phone_e164, accounts_count=len(person.accounts))
+            screen = build_profile_screen(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+                last_name_input=person.last_name_input,
+                gender=person.gender,
+                birth_date=person.birth_date,
+                email=person.email,
+                rules_accepted=person.rules_accepted,
+                rules_accepted_at=person.rules_accepted_at,
+                notifications_allowed=person.notifications_allowed,
+                notifications_allowed_at=person.notifications_allowed_at,
+            )
             return TelegramMenuActionResult(
                 status="profile",
                 message=screen.text,
@@ -1074,6 +1288,36 @@ class TelegramIdentityAdapter:
             )
         lines.append("\nЧтобы добавить новое сообщение, выберите «❓ Мне только спросить».")
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _normalize_first_name(raw_text: str) -> str | None:
+        """Проверяет и нормализует имя пользователя для шага сокращенной регистрации."""
+
+        normalized = " ".join(str(raw_text or "").strip().split())
+        if not normalized:
+            return None
+        if not _FIRST_NAME_ALLOWED_PATTERN.fullmatch(normalized):
+            return None
+        return normalized.title()
+
+    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> str:
+        """Запускает синхронизацию с iiko через use-case виртуальной карты.
+
+        Логика:
+        1. Если интеграция не настроена — возвращаем нейтральное информационное сообщение.
+        2. Если настроена — выполняем сценарий выдачи/получения виртуальной карты.
+        """
+
+        if self._virtual_card_use_case is None:
+            return "ℹ️ Интеграция с iiko отключена. Синхронизация профиля будет выполнена позже."
+
+        result = self._virtual_card_use_case.execute(phone_e164=phone_e164)
+        if result.status == "virtual_card":
+            return "✅ Синхронизация с iiko выполнена.\n" + result.message
+        return (
+            "⚠️ Регистрация завершена, но синхронизация с iiko выполнилась с ограничениями.\n"
+            f"{result.message}"
+        )
 
     @staticmethod
     def _parse_ticket_id(raw_ticket_id: str) -> UUID | None:

@@ -426,7 +426,16 @@ def test_telegram_start_interaction_for_registered_user_returns_menu() -> None:
     )
     adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
-    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    adapter.start_interaction(telegram_user_id=1001)
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="✅ Согласен")
+    contact_result = adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    assert contact_result.status == "first_name_required"
+
+    name_result = adapter.handle_menu_action(telegram_user_id=1001, action_text="Иван")
+    assert name_result.status == "notifications_consent_required"
+    finish_result = adapter.handle_menu_action(telegram_user_id=1001, action_text="Да")
+    assert finish_result.status == "menu"
+
     result = adapter.start_interaction(telegram_user_id=1001)
 
     assert result.status == "menu"
@@ -633,3 +642,4 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
     assert wait_details.status == "moderation_wait_ticket_for_details"
     assert details.status == "moderation_details"
     assert "Канал создания: telegram" in details.message
+

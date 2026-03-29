@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 
 from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
     build_about_screen,
     build_balance_screen,
+    build_notifications_consent_screen,
     build_help_screen,
     build_main_menu_screen,
     build_profile_not_found_screen,
@@ -91,11 +93,44 @@ class MaxGuestMenuAdapter:
             parse_mode="markdown" if screen.parse_mode == "markdown" else None,
         )
 
-    def build_profile_screen(self, phone_e164: str, accounts_count: int) -> MaxScreen:
+    def build_profile_screen(
+        self,
+        phone_e164: str,
+        accounts_count: int,
+        *,
+        first_name_input: str | None = None,
+        last_name_input: str | None = None,
+        gender: str | None = None,
+        birth_date: date | None = None,
+        email: str | None = None,
+        rules_accepted: bool = False,
+        rules_accepted_at: datetime | None = None,
+        notifications_allowed: bool | None = None,
+        notifications_allowed_at: datetime | None = None,
+    ) -> MaxScreen:
         """Экран профиля зарегистрированного пользователя."""
 
-        screen = build_profile_screen(phone_e164=phone_e164, accounts_count=accounts_count)
+        screen = build_profile_screen(
+            phone_e164=phone_e164,
+            accounts_count=accounts_count,
+            first_name_input=first_name_input,
+            last_name_input=last_name_input,
+            gender=gender,
+            birth_date=birth_date,
+            email=email,
+            rules_accepted=rules_accepted,
+            rules_accepted_at=rules_accepted_at,
+            notifications_allowed=notifications_allowed,
+            notifications_allowed_at=notifications_allowed_at,
+        )
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=())
+
+    def build_notifications_consent_screen(self, profile_text: str) -> MaxScreen:
+        """Экран согласия на рассылку после review-анкеты."""
+
+        screen = build_notifications_consent_screen(profile_text=profile_text)
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
+        return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_balance_screen(self, balance: float) -> MaxScreen:
         """Экран бонусного баланса."""

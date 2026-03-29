@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, datetime
 from uuid import uuid4
 
 from .errors import IdentityConflictError
-from .models import Person, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
+from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .phone import normalize_phone
 from .ports import IdentityRepository, IdentityUnitOfWork
 
@@ -20,11 +21,56 @@ class RegisterOrAttachAccountCommand:
         platform: Платформа аккаунта (`telegram`, `vk`, `max`).
         external_id: Идентификатор аккаунта на платформе.
         raw_phone: Телефон в произвольном пользовательском формате.
+        rules_accepted: Признак согласия с правилами и политикой ПДн.
+        rules_accepted_at: Дата/время согласия с правилами.
+        notifications_allowed: Выбор пользователя по уведомлениям.
+        notifications_allowed_at: Дата/время фиксации выбора по уведомлениям.
+        is_legacy: Признак legacy-профиля.
+        is_registered: Признак завершенной регистрации.
+        first_name_input: Имя пользователя из анкеты.
+        last_name_input: Фамилия пользователя из анкеты.
+        gender: Пол пользователя.
+        birth_date: Дата рождения пользователя.
+        email: E-mail пользователя.
+        phone_verified_at: Дата/время подтверждения телефона.
+        phone_verification_method: Способ подтверждения телефона.
     """
 
     platform: PlatformName
     external_id: str
     raw_phone: str
+    rules_accepted: bool | None = None
+    rules_accepted_at: datetime | None = None
+    notifications_allowed: bool | None = None
+    notifications_allowed_at: datetime | None = None
+    is_legacy: bool | None = None
+    is_registered: bool | None = None
+    first_name_input: str | None = None
+    last_name_input: str | None = None
+    gender: str | None = None
+    birth_date: date | None = None
+    email: str | None = None
+    phone_verified_at: datetime | None = None
+    phone_verification_method: str | None = None
+
+    def to_profile_patch(self) -> PersonProfilePatch:
+        """Преобразует команду в объект частичного обновления профиля."""
+
+        return PersonProfilePatch(
+            rules_accepted=self.rules_accepted,
+            rules_accepted_at=self.rules_accepted_at,
+            notifications_allowed=self.notifications_allowed,
+            notifications_allowed_at=self.notifications_allowed_at,
+            is_legacy=self.is_legacy,
+            is_registered=self.is_registered,
+            first_name_input=self.first_name_input,
+            last_name_input=self.last_name_input,
+            gender=self.gender,
+            birth_date=self.birth_date,
+            email=self.email,
+            phone_verified_at=self.phone_verified_at,
+            phone_verification_method=self.phone_verification_method,
+        )
 
 
 class RegisterOrAttachAccountUseCase:
@@ -66,8 +112,11 @@ class RegisterOrAttachAccountUseCase:
             )
 
         person = person_by_phone or person_by_account
+        profile_patch = command.to_profile_patch()
+
         if person is None:
             person = Person(person_id=uuid4(), phone_e164=phone_e164)
+            _apply_profile_patch(person, profile_patch)
             self._repository.add_person(person)
         elif person.phone_e164 != phone_e164:
             raise IdentityConflictError(
@@ -75,12 +124,13 @@ class RegisterOrAttachAccountUseCase:
             )
 
         account = PlatformAccount(platform=command.platform, external_id=external_id_value)
-        if account in person.accounts:
-            # Идемпотентное поведение: повторная привязка того же аккаунта не изменяет состояние.
-            return person
+        if account not in person.accounts:
+            self._repository.attach_account(person.person_id, account)
+            person.accounts.add(account)
 
-        self._repository.attach_account(person.person_id, account)
-        person.accounts.add(account)
+        if profile_patch.has_updates():
+            self._repository.update_person_profile(person.person_id, profile_patch)
+            _apply_profile_patch(person, profile_patch)
         return person
 
 
@@ -150,3 +200,34 @@ class GetPersonByAccountTransactionalUseCase:
         with self._unit_of_work_factory() as unit_of_work:
             use_case = GetPersonByAccountUseCase(unit_of_work.identity_repository)
             return use_case.execute(command)
+
+
+def _apply_profile_patch(person: Person, patch: PersonProfilePatch) -> None:
+    """Применяет частичное обновление профиля к доменной модели `Person`."""
+
+    if patch.rules_accepted is not None:
+        person.rules_accepted = patch.rules_accepted
+    if patch.rules_accepted_at is not None:
+        person.rules_accepted_at = patch.rules_accepted_at
+    if patch.notifications_allowed is not None:
+        person.notifications_allowed = patch.notifications_allowed
+    if patch.notifications_allowed_at is not None:
+        person.notifications_allowed_at = patch.notifications_allowed_at
+    if patch.is_legacy is not None:
+        person.is_legacy = patch.is_legacy
+    if patch.is_registered is not None:
+        person.is_registered = patch.is_registered
+    if patch.first_name_input is not None:
+        person.first_name_input = patch.first_name_input
+    if patch.last_name_input is not None:
+        person.last_name_input = patch.last_name_input
+    if patch.gender is not None:
+        person.gender = patch.gender
+    if patch.birth_date is not None:
+        person.birth_date = patch.birth_date
+    if patch.email is not None:
+        person.email = patch.email
+    if patch.phone_verified_at is not None:
+        person.phone_verified_at = patch.phone_verified_at
+    if patch.phone_verification_method is not None:
+        person.phone_verification_method = patch.phone_verification_method

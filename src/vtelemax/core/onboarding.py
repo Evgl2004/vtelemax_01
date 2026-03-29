@@ -16,7 +16,12 @@ from enum import StrEnum
 
 from .guest_content import (
     BUTTON_ACCEPT_RULES,
+    BUTTON_NOTIFICATIONS_NO,
+    BUTTON_NOTIFICATIONS_YES,
+    build_first_name_input_screen,
     build_legacy_upgrade_screen,
+    build_notifications_consent_screen,
+    build_profile_review_text,
     build_start_contact_screen,
     build_start_rules_screen,
     normalize_menu_text,
@@ -29,6 +34,8 @@ class OnboardingState(StrEnum):
     IDLE = "idle"
     WAITING_RULES_CONSENT = "waiting_rules_consent"
     WAITING_PHONE = "waiting_phone"
+    WAITING_FIRST_NAME = "waiting_first_name"
+    WAITING_NOTIFICATIONS_CONSENT = "waiting_notifications_consent"
     WAITING_LEGACY_PHONE = "waiting_legacy_phone"
 
 
@@ -76,6 +83,40 @@ class OnboardingFlowService:
             requires_contact_keyboard=True,
         )
 
+    def begin_first_name_step(self) -> OnboardingTransition:
+        """Переход на шаг ввода имени после успешной валидации телефона."""
+
+        screen = build_first_name_input_screen()
+        return OnboardingTransition(
+            state=OnboardingState.WAITING_FIRST_NAME,
+            status="first_name_required",
+            message=screen.text,
+        )
+
+    def begin_notifications_consent_step(
+        self,
+        *,
+        phone_e164: str,
+        accounts_count: int,
+        first_name_input: str | None,
+        rules_accepted_at_text: str | None = None,  # зарезервировано для совместимости
+    ) -> OnboardingTransition:
+        """Переход к шагу согласия на рассылку с review-экраном профиля."""
+
+        _ = rules_accepted_at_text
+        profile_text = build_profile_review_text(
+            phone_e164=phone_e164,
+            accounts_count=accounts_count,
+            first_name_input=first_name_input,
+            rules_accepted=True,
+        )
+        screen = build_notifications_consent_screen(profile_text=profile_text)
+        return OnboardingTransition(
+            state=OnboardingState.WAITING_NOTIFICATIONS_CONSENT,
+            status="notifications_consent_required",
+            message=screen.text,
+        )
+
     def handle_rules_input(self, raw_text: str) -> OnboardingTransition:
         """Обрабатывает пользовательский ответ на шаге согласия."""
 
@@ -96,6 +137,36 @@ class OnboardingFlowService:
                 "после ознакомления с условиями."
             ),
         )
+
+    def handle_notifications_input(self, raw_text: str) -> bool | None:
+        """Разбирает выбор пользователя по шагу уведомлений.
+
+        Returns:
+            `True`, если пользователь согласился на рассылку;
+            `False`, если пользователь отказался;
+            `None`, если ввод не распознан.
+        """
+
+        normalized = normalize_menu_text(raw_text)
+        yes_variants = {
+            normalize_menu_text(BUTTON_NOTIFICATIONS_YES),
+            "да",
+            "yes",
+            "notify_yes",
+            "согласен",
+        }
+        no_variants = {
+            normalize_menu_text(BUTTON_NOTIFICATIONS_NO),
+            "нет",
+            "no",
+            "notify_no",
+            "не согласен",
+        }
+        if normalized in yes_variants:
+            return True
+        if normalized in no_variants:
+            return False
+        return None
 
     @staticmethod
     def _is_rules_consent(raw_text: str) -> bool:

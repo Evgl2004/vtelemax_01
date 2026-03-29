@@ -1,0 +1,21 @@
+-- Расширение схемы strict identity до полной модели профиля из прототипов.
+-- Версия миграции: 0003
+
+BEGIN;
+
+ALTER TABLE persons
+    ADD COLUMN IF NOT EXISTS rules_accepted BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS rules_accepted_at TIMESTAMPTZ NULL,
+    ADD COLUMN IF NOT EXISTS notifications_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS notifications_allowed_at TIMESTAMPTZ NULL,
+    ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS is_registered BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS first_name_input VARCHAR(255) NULL,
+    ADD COLUMN IF NOT EXISTS last_name_input VARCHAR(255) NULL,
+    ADD COLUMN IF NOT EXISTS gender VARCHAR(10) NULL,
+    ADD COLUMN IF NOT EXISTS birth_date DATE NULL,
+    ADD COLUMN IF NOT EXISTS email VARCHAR(255) NULL,
+    ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMPTZ NULL,
+    ADD COLUMN IF NOT EXISTS phone_verification_method VARCHAR(20) NULL;
+
+COMMIT;
