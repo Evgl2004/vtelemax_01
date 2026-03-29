@@ -71,6 +71,7 @@ class TelegramMenuActionResult:
     message: str
     requires_contact_keyboard: bool = False
     parse_mode: str | None = None
+    has_support_tickets: bool = False
 
 
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
@@ -363,6 +364,7 @@ class TelegramIdentityAdapter:
                 status="support",
                 message=screen.text,
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+                has_support_tickets=has_tickets,
             )
 
         if action == GuestMenuAction.VACANCIES:
@@ -375,26 +377,41 @@ class TelegramIdentityAdapter:
 
         if action == GuestMenuAction.SUPPORT_FEEDBACK:
             screen = build_support_feedback_screen()
+            has_tickets = self._has_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
             return TelegramMenuActionResult(
                 status="support_feedback",
                 message=screen.text,
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+                has_support_tickets=has_tickets,
             )
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
             self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
             screen = build_support_question_screen()
+            has_tickets = self._has_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
             return TelegramMenuActionResult(
                 status="support_question",
                 message=screen.text,
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+                has_support_tickets=has_tickets,
             )
 
         if action == GuestMenuAction.SUPPORT_CONTACTS:
             screen = build_support_contacts_screen()
+            has_tickets = self._has_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
             return TelegramMenuActionResult(
                 status="support_contacts",
                 message=screen.text,
+                has_support_tickets=has_tickets,
             )
 
         if action == GuestMenuAction.BALANCE:
@@ -416,10 +433,12 @@ class TelegramIdentityAdapter:
                         "📭 У вас пока нет обращений.\n\n"
                         "Чтобы создать обращение, нажмите «❓ Мне только спросить» в меню отдела заботы."
                     ),
+                    has_support_tickets=False,
                 )
             return TelegramMenuActionResult(
                 status="tickets_list",
                 message=self._format_person_tickets_message(tickets),
+                has_support_tickets=True,
             )
 
         return TelegramMenuActionResult(

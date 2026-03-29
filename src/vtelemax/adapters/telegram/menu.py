@@ -13,6 +13,7 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
     BUTTON_BALANCE,
+    BUTTON_DOCS_LINK,
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
     BUTTON_PROFILE,
@@ -23,6 +24,7 @@ from vtelemax.core import (
 )
 
 RULES_ACCEPT_CALLBACK = "rules_accept"
+DOCS_URL = "https://sagur.24vds.ru/agreement/#"
 
 
 def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
@@ -47,7 +49,10 @@ def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)]
+            [
+                InlineKeyboardButton(text=BUTTON_DOCS_LINK, url=DOCS_URL),
+                InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK),
+            ],
         ]
     )
 

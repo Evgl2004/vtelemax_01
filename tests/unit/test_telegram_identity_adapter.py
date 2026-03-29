@@ -298,6 +298,45 @@ def test_telegram_adapter_returns_support_screen_for_support_action() -> None:
 
     assert result.status == "support"
     assert "Отдел заботы" in result.message
+    assert result.has_support_tickets is False
+
+
+def test_telegram_support_screen_marks_has_tickets_when_user_has_ticket() -> None:
+    """Проверяет, что флаг has_support_tickets=true, если у пользователя уже есть тикет."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="1001",
+            question_text="Проверка тикета для меню поддержки",
+        )
+    )
+
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="🆘 Отдел заботы")
+
+    assert result.status == "support"
+    assert result.has_support_tickets is True
 
 
 def test_telegram_adapter_returns_vacancies_screen_for_vacancies_action() -> None:

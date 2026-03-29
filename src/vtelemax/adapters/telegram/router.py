@@ -6,13 +6,13 @@ import asyncio
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 from loguru import logger
 
 from vtelemax.core import BUTTON_ACCEPT_RULES
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 
-from .identity_adapter import TelegramIdentityAdapter
+from .identity_adapter import TelegramIdentityAdapter, TelegramMenuActionResult
 from .menu import (
     RULES_ACCEPT_CALLBACK,
     build_contact_request_keyboard,
