@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from vtelemax.core import (
     GuestMenuAction,
+    build_help_screen,
     build_iiko_sync_retry_screen,
     build_main_menu_screen,
     build_profile_review_text,
@@ -94,6 +95,15 @@ def test_support_feedback_screen_uses_actual_review_link() -> None:
     assert "https://rdata.one/Nyyl" not in screen.text
     assert len(screen.buttons) == 2
     assert screen.buttons[0].url == "https://rdata.one/Nyyl"
+
+
+def test_help_screen_does_not_mention_menu_command() -> None:
+    """Проверяет, что в `/help` не рекламируется команда `/menu`."""
+
+    screen = build_help_screen()
+
+    assert "/start" in screen.text
+    assert "/menu" not in screen.text
 
 
 def test_iiko_sync_retry_screen_contains_retry_action() -> None:
