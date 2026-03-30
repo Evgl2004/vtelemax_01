@@ -171,7 +171,7 @@ def test_max_onboarding_moves_from_rules_to_phone() -> None:
 
     response = adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
-    assert "Поделиться контактом" in response.text
+    assert "+79991234567" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
 

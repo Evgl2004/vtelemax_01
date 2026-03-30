@@ -46,7 +46,7 @@ def test_resolve_guest_menu_action_detects_text_and_command() -> None:
 
 
 def test_start_contact_screen_contains_phone_prompt() -> None:
-    """Проверяет наличие текстового запроса отправки контакта."""
+    """Проверяет наличие текстового запроса ручного ввода телефона."""
 
     screen = build_start_contact_screen()
-    assert "Поделиться контактом" in screen.text
+    assert "+79991234567" in screen.text

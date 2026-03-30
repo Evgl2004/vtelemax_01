@@ -391,13 +391,18 @@ def _extract_contact_attachment(event: Any) -> str | None:
     return None
 
 
-def _extract_callback_message_id(event: Any) -> int | None:
+def _extract_callback_message_id(event: Any) -> str | int | None:
     """Извлекает ID сообщения, которое можно редактировать в callback-сценарии."""
 
     if hasattr(event, "callback") and hasattr(event, "message"):
         message = getattr(event, "message", None)
         if message is not None and hasattr(message, "body") and hasattr(message.body, "mid"):
-            return int(message.body.mid)
+            mid = message.body.mid
+            if mid is None:
+                return None
+            # В MAX встречаются строковые идентификаторы вида `mid.<hex>`, поэтому
+            # сохраняем исходный тип без принудительного приведения к int.
+            return mid
     return None
 
 

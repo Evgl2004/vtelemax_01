@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from vtelemax.adapters.max.router import (
+    _extract_callback_message_id,
     _extract_max_upload_token,
     _extract_contact_attachment,
     _extract_phone_from_vcf,
@@ -103,3 +104,29 @@ def test_extract_max_upload_token_returns_none_for_dirty_payload() -> None:
     token = _extract_max_upload_token({"photos": {"photo_1": {}}})
 
     assert token is None
+
+
+def test_extract_callback_message_id_returns_string_mid_as_is() -> None:
+    """Проверяет поддержку строкового `mid` из callback-события MAX."""
+
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="support"),
+        message=SimpleNamespace(body=SimpleNamespace(mid="mid.000000000b3fa41d019d3c5701b319ae")),
+    )
+
+    callback_mid = _extract_callback_message_id(event)
+
+    assert callback_mid == "mid.000000000b3fa41d019d3c5701b319ae"
+
+
+def test_extract_callback_message_id_returns_int_mid_without_conversion_errors() -> None:
+    """Проверяет, что числовой `mid` также корректно возвращается helper-ом."""
+
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="support"),
+        message=SimpleNamespace(body=SimpleNamespace(mid=12345)),
+    )
+
+    callback_mid = _extract_callback_message_id(event)
+
+    assert callback_mid == 12345

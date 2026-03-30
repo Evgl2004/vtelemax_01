@@ -49,16 +49,16 @@ BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков�
 
 CONTACT_SCREEN_TEXTS = {
     "telegram": (
-        "📱 Чтобы подключиться к программе лояльности, нажми кнопку «Поделиться контактом».\n"
-        "После этого мы будем знакомы чуть ближе."
+        "📱 Чтобы подключиться к программе лояльности, отправьте номер телефона "
+        "текстом в формате +79991234567."
     ),
     "vk": (
-        "📱 Чтобы подключиться к программе лояльности, нажмите кнопку «Поделиться контактом».\n"
-        "После нажатия отправьте номер в формате +79991234567."
+        "📱 Чтобы подключиться к программе лояльности, отправьте номер телефона "
+        "текстом в формате +79991234567."
     ),
     "max": (
-        "📱 Чтобы подключиться к программе лояльности, нажми кнопку «Поделиться контактом».\n"
-        "После этого мы будем знакомы чуть ближе."
+        "📱 Чтобы подключиться к программе лояльности, отправьте номер телефона "
+        "текстом в формате +79991234567."
     ),
 }
 
@@ -81,6 +81,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         "меню": GuestMenuAction.MAIN_MENU,
         "/menu": GuestMenuAction.MAIN_MENU,
         BUTTON_PROFILE.lower(): GuestMenuAction.PROFILE,
+        "профиль": GuestMenuAction.PROFILE,
         BUTTON_PROFILE_EDIT.lower(): GuestMenuAction.PROFILE_EDIT,
         BUTTON_PROFILE_EDIT_FIRST_NAME.lower(): GuestMenuAction.PROFILE_EDIT_FIRST_NAME,
         BUTTON_PROFILE_EDIT_LAST_NAME.lower(): GuestMenuAction.PROFILE_EDIT_LAST_NAME,
@@ -97,14 +98,25 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         "/about": GuestMenuAction.ABOUT,
         BUTTON_SEND_PHONE.lower(): GuestMenuAction.SHARE_CONTACT,
         BUTTON_BALANCE.lower(): GuestMenuAction.BALANCE,
+        "мой баланс": GuestMenuAction.BALANCE,
+        "баланс": GuestMenuAction.BALANCE,
         BUTTON_BONUSES.lower(): GuestMenuAction.BALANCE,
         BUTTON_VIRTUAL_CARD.lower(): GuestMenuAction.VIRTUAL_CARD,
+        "виртуальная карта": GuestMenuAction.VIRTUAL_CARD,
         BUTTON_SUPPORT.lower(): GuestMenuAction.SUPPORT,
+        "отдел заботы": GuestMenuAction.SUPPORT,
+        "поддержка": GuestMenuAction.SUPPORT,
         BUTTON_VACANCIES.lower(): GuestMenuAction.VACANCIES,
+        "вакансии": GuestMenuAction.VACANCIES,
         BUTTON_SUPPORT_FEEDBACK.lower(): GuestMenuAction.SUPPORT_FEEDBACK,
+        "оставить отзыв": GuestMenuAction.SUPPORT_FEEDBACK,
         BUTTON_SUPPORT_QUESTION.lower(): GuestMenuAction.SUPPORT_QUESTION,
+        "задать вопрос": GuestMenuAction.SUPPORT_QUESTION,
+        "мне только спросить": GuestMenuAction.SUPPORT_QUESTION,
         BUTTON_MY_TICKETS.lower(): GuestMenuAction.MY_TICKETS,
+        "мои обращения": GuestMenuAction.MY_TICKETS,
         BUTTON_SUPPORT_CONTACTS.lower(): GuestMenuAction.SUPPORT_CONTACTS,
+        "контакты": GuestMenuAction.SUPPORT_CONTACTS,
         BUTTON_BACK_TO_MAIN.lower(): GuestMenuAction.BACK_TO_MAIN,
         BUTTON_BACK_TO_SUPPORT.lower(): GuestMenuAction.BACK_TO_SUPPORT,
         BUTTON_DOCS_LINK.lower(): GuestMenuAction.OPEN_DOCS,
@@ -128,14 +140,8 @@ def build_start_rules_screen() -> MenuScreenContract:
             "👉 Ознакомься с документами по ссылке ниже и отправь сообщение «✅ Согласен».\n\n"
             "После ознакомления отправьте сообщение «✅ Согласен»."
         ),
-        buttons=(
-            MenuButtonContract(
-                action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_DOCS_LINK,
-                url="https://sagur.24vds.ru/agreement/#",  # URL из прототипов MAX
-            ),
-            MenuButtonContract(action=GuestMenuAction.ACCEPT_RULES, label=BUTTON_ACCEPT_RULES),
-        ),
+        # Временное решение: onboarding проходит без кнопок, только текстовыми ответами.
+        buttons=(),
     )
 
 
@@ -146,9 +152,8 @@ def build_start_contact_screen(platform: str = "telegram") -> MenuScreenContract
     return MenuScreenContract(
         screen_id="start_contact",
         text=text,
-        buttons=(
-            MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_SEND_PHONE),
-        ),
+        # Временное решение: телефон вводится текстом, без кнопки "Поделиться контактом".
+        buttons=(),
     )
 
 
@@ -173,22 +178,15 @@ def build_notifications_consent_screen(profile_text: str | None = None) -> MenuS
     """
 
     notification_text = (
-        "📢 Мы хотим радовать вас персональными предложениями и акциями.\n"
-        "Ознакомьтесь с условиями получения уведомлений по ссылке ниже и сделайте выбор:"
+        "📣 Мы хотим радовать вас персональными предложениями и акциями.\n"
+        "Ознакомьтесь с условиями получения уведомлений и отправьте сообщение «Да» или «Нет»."
     )
     full_text = notification_text if not profile_text else f"{profile_text}\n\n{notification_text}"
     return MenuScreenContract(
         screen_id="notifications_consent",
         text=full_text,
-        buttons=(
-            MenuButtonContract(
-                action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_NOTIFICATIONS_DOCS,
-                url="https://sagur.24vds.ru/notifications/#",
-            ),
-            MenuButtonContract(action=GuestMenuAction.NOTIFY_YES, label=BUTTON_NOTIFICATIONS_YES),
-            MenuButtonContract(action=GuestMenuAction.NOTIFY_NO, label=BUTTON_NOTIFICATIONS_NO),
-        ),
+        # Временное решение: выбор уведомлений текстом, без inline-кнопок.
+        buttons=(),
     )
 
 
@@ -569,3 +567,4 @@ def _format_notifications_choice(allowed: bool | None) -> str:
     if allowed is False:
         return "❌ отказался"
     return "не выбран"
+

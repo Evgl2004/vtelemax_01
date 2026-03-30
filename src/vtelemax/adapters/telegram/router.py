@@ -13,6 +13,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from loguru import logger
 
@@ -40,15 +41,12 @@ from .menu import (
     BUTTON_SUPPORT_FEEDBACK,
     BUTTON_SUPPORT_QUESTION,
     BUTTON_MY_TICKETS,
-    build_contact_request_keyboard,
     build_back_to_main_inline_keyboard,
     build_back_to_support_inline_keyboard,
     build_main_menu_inline_keyboard,
-    build_notifications_consent_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
     build_profile_inline_keyboard,
-    build_rules_consent_inline_keyboard,
     build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
     BUTTON_SUPPORT,
@@ -76,14 +74,20 @@ def build_telegram_identity_router(
 
     router = Router(name="telegram_identity")
     router_logger = logger.bind(platform="telegram", component="router")
-    request_contact_keyboard = build_contact_request_keyboard()
     main_menu_inline_keyboard = build_main_menu_inline_keyboard()
     back_to_main_keyboard = build_back_to_main_inline_keyboard()
     back_to_support_keyboard = build_back_to_support_inline_keyboard()
-    rules_consent_keyboard = build_rules_consent_inline_keyboard()
-    notifications_consent_keyboard = build_notifications_consent_inline_keyboard()
     profile_keyboard = build_profile_inline_keyboard()
     delivery_lock = asyncio.Lock()
+
+    def _with_reply_keyboard_cleanup(
+        reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None,
+    ) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove:
+        """Гарантированно убирает legacy reply-клавиатуру, когда новая клавиатура не передана."""
+
+        if reply_markup is None:
+            return ReplyKeyboardRemove()
+        return reply_markup
 
     async def _send_virtual_card_qr(
         *,
@@ -126,7 +130,7 @@ def build_telegram_identity_router(
         await message.answer(
             result.message,
             parse_mode=result.parse_mode,
-            reply_markup=reply_markup,
+            reply_markup=_with_reply_keyboard_cleanup(reply_markup),
         )
 
     async def _send_to_chat_with_result(
@@ -143,17 +147,17 @@ def build_telegram_identity_router(
             chat_id=chat_id,
             text=result.message,
             parse_mode=result.parse_mode,
-            reply_markup=reply_markup,
+            reply_markup=_with_reply_keyboard_cleanup(reply_markup),
         )
 
     def _choose_reply_markup(result: TelegramMenuActionResult) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
         """Выбирает клавиатуру для ответа на основе результата адаптера."""
-        if result.requires_contact_keyboard:
-            return request_contact_keyboard
         if result.status in {"rules_consent_required", "rules_consent_pending"}:
-            return rules_consent_keyboard
+            return None
+        if result.status in {"phone_required", "phone_validation_error"}:
+            return None
         if result.status in {"notifications_consent_required", "notifications_consent_pending"}:
-            return notifications_consent_keyboard
+            return None
         if result.status in {"support", "tickets_list", "tickets_empty"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status in {"support_feedback", "support_question", "support_contacts", "support_question_empty"}:
@@ -249,8 +253,7 @@ def build_telegram_identity_router(
             force_legacy_upgrade=True,
         )
         event_logger.info("Legacy-flow запущен. status={status}.", status=result.status)
-        reply_markup = request_contact_keyboard if result.requires_contact_keyboard else None
-        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
+        await _answer_with_result(message=message, result=result, reply_markup=None)
 
     @router.message(F.contact)
     async def contact_handler(message: Message) -> None:
@@ -289,8 +292,8 @@ def build_telegram_identity_router(
         elif result.is_success:
             reply_markup = main_menu_inline_keyboard
         else:
-            reply_markup = request_contact_keyboard
-        await message.answer(result.message, reply_markup=reply_markup)
+            reply_markup = None
+        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
     @router.message(Command("menu"))
     async def command_menu_handler(message: Message) -> None:
@@ -493,14 +496,14 @@ def build_telegram_identity_router(
             return
 
         if callback.message is not None:
-            if isinstance(reply_markup, ReplyKeyboardMarkup):
+            if not isinstance(reply_markup, InlineKeyboardMarkup):
                 try:
                     await callback.message.edit_reply_markup(reply_markup=None)
                 except Exception as error:  # noqa: BLE001
                     if _is_message_not_modified_error(error):
-                        event_logger.debug("Inline-клавиатура уже очищена перед reply-клавиатурой.")
+                        event_logger.debug("Inline-клавиатура уже очищена перед текстовым ответом.")
                     else:
-                        event_logger.debug("Не удалось убрать inline-клавиатуру перед показом reply-клавиатуры.")
+                        event_logger.debug("Не удалось убрать inline-клавиатуру перед отправкой текстового ответа.")
                 await _answer_with_result(message=callback.message, result=result, reply_markup=reply_markup)
                 return
             try:

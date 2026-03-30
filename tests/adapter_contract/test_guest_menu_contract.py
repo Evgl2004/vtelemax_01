@@ -145,50 +145,28 @@ def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
     assert "Команда не распознана" in max_result.text
 
 
-def test_url_button_present_in_rules_screen() -> None:
-    """Проверяет, что кнопка «Документы» имеет URL во всех адаптерах."""
+def test_rules_screen_has_no_buttons_in_temporary_text_mode() -> None:
+    """Проверяет, что в onboarding-экране правил кнопки временно отключены."""
     vk_adapter = VkGuestMenuAdapter()
     max_adapter = MaxGuestMenuAdapter()
 
     vk_screen = vk_adapter.build_start_rules_screen()
     max_screen = max_adapter.build_start_rules_screen()
 
-    # В экране правил две вертикальные кнопки: первая — URL, вторая — callback
-    vk_url_button = vk_screen.rows[0][0]
-    max_url_button = max_screen.rows[0][0]
-
-    assert vk_url_button.url is not None
-    assert max_url_button.url is not None
-    assert vk_url_button.url == max_url_button.url  # URL должны совпадать
-
-    # Проверяем, что вторая кнопка не имеет URL
-    vk_callback_button = vk_screen.rows[1][0]
-    max_callback_button = max_screen.rows[1][0]
-    assert vk_callback_button.url is None
-    assert max_callback_button.url is None
-    # В MAX кнопка «Согласен» — обычный callback (request_contact только у шага телефона)
-    assert max_callback_button.request_contact is False
+    assert vk_screen.rows == ()
+    assert max_screen.rows == ()
 
 
-def test_request_contact_button_present_in_contact_screen() -> None:
-    """Проверяет, что кнопка «Поделиться контактом» имеет request_contact в MAX и отсутствие URL в VK."""
+def test_contact_screen_has_no_buttons_in_temporary_text_mode() -> None:
+    """Проверяет, что в onboarding-экране телефона кнопки временно отключены."""
     vk_adapter = VkGuestMenuAdapter()
     max_adapter = MaxGuestMenuAdapter()
 
     vk_screen = vk_adapter.build_start_contact_screen()
     max_screen = max_adapter.build_start_contact_screen()
 
-    # В экране контакта одна кнопка
-    vk_button = vk_screen.rows[0][0]
-    max_button = max_screen.rows[0][0]
-
-    # В VK кнопка должна быть обычной (без URL и request_contact)
-    assert vk_button.url is None
-    # В MAX кнопка должна иметь request_contact = True
-    assert max_button.request_contact is True
-    assert max_button.url is None
-    # Действие кнопки — SHARE_CONTACT
-    # (можно проверить через payload, но это уже проверяется в других тестах)
+    assert vk_screen.rows == ()
+    assert max_screen.rows == ()
 
 
 def test_callback_buttons_have_no_url_or_request_contact() -> None:

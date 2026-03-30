@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import aiohttp
@@ -16,6 +17,14 @@ from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 from .identity_adapter import VkAdapterResponse, VkIdentityAdapter
 from .keyboard_renderer import render_vk_keyboard
 from .payloads import resolve_action_from_vk_payload
+
+_VK_REMOVE_KEYBOARD_JSON = json.dumps(
+    {
+        "buttons": [],
+        "one_time": True,
+    },
+    ensure_ascii=False,
+)
 
 
 def _normalize_vk_message(
@@ -291,10 +300,8 @@ async def _send_response(message: Any, response: VkAdapterResponse) -> None:
     kwargs: dict[str, Any] = {}
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
-    if keyboard_json is None:
-        await message.answer(message_text, **kwargs)
-        return
-    await message.answer(message_text, keyboard=keyboard_json, **kwargs)
+    kwargs["keyboard"] = keyboard_json if keyboard_json is not None else _VK_REMOVE_KEYBOARD_JSON
+    await message.answer(message_text, **kwargs)
 
 
 async def _send_event_response(event: MessageEvent, response: VkAdapterResponse) -> None:
@@ -318,8 +325,7 @@ async def _send_event_response(event: MessageEvent, response: VkAdapterResponse)
         parse_mode = response.screen.parse_mode
     message_text, parse_mode = _normalize_vk_message(response.text, parse_mode)
     kwargs: dict[str, Any] = {}
-    if keyboard_json is not None:
-        kwargs["keyboard"] = keyboard_json
+    kwargs["keyboard"] = keyboard_json if keyboard_json is not None else _VK_REMOVE_KEYBOARD_JSON
     if parse_mode is not None:
         kwargs["parse_mode"] = parse_mode
 
