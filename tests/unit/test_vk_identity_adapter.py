@@ -302,6 +302,22 @@ def test_vk_support_question_flow_returns_to_main_menu() -> None:
     assert second.screen.screen_id == "main_menu"
 
 
+def test_vk_support_question_flow_allows_back_to_support_by_callback() -> None:
+    """В состоянии ожидания вопроса callback «Назад в отдел заботы» должен вернуть в меню заботы."""
+
+    adapter = _build_adapter(with_support=True)
+    _complete_vk_registration(adapter)
+
+    first = adapter.handle_incoming(vk_user_id=1001, text="❓ Мне только спросить", payload=None)
+    back = adapter.handle_incoming(vk_user_id=1001, text="", payload={"cmd": "back_to_support"})
+
+    assert first.screen is not None
+    assert first.screen.screen_id == "support_question"
+    assert back.screen is not None
+    assert back.screen.screen_id == "support_menu"
+    assert "Отдел заботы" in back.text
+
+
 def test_vk_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения»: после создания тикета возвращается список."""
 

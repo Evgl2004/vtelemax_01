@@ -495,6 +495,27 @@ def test_telegram_support_question_creates_ticket_when_support_use_case_connecte
     assert "Создан тикет #" in result.message
 
 
+def test_telegram_support_question_flow_allows_back_to_support_menu() -> None:
+    """При вводе вопроса кнопка «Назад в отдел заботы» должна возвращать в меню заботы."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    first = adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
+    back = adapter.handle_menu_action(telegram_user_id=1001, action_text="🔙 Назад в отдел заботы")
+
+    assert first.status == "support_question"
+    assert back.status == "support"
+    assert "Отдел заботы" in back.message
+
+
 def test_telegram_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения» после создания обращения пользователем."""
 

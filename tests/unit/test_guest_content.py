@@ -5,6 +5,7 @@ from __future__ import annotations
 from vtelemax.core import (
     GuestMenuAction,
     build_main_menu_screen,
+    build_profile_review_text,
     build_start_contact_screen,
     build_support_menu_screen,
     resolve_guest_menu_action,
@@ -55,9 +56,29 @@ def test_start_contact_screen_contains_phone_prompt() -> None:
     assert "+79991234567" in telegram_screen.text
     assert "+79991234567" in vk_screen.text
     assert "+79991234567" in max_screen.text
+    assert "Поделиться контактом" in telegram_screen.text
+    assert "Поделиться контактом" in max_screen.text
 
     assert len(telegram_screen.buttons) == 1
     assert telegram_screen.buttons[0].action == GuestMenuAction.SHARE_CONTACT
     assert vk_screen.buttons == ()
     assert len(max_screen.buttons) == 1
     assert max_screen.buttons[0].action == GuestMenuAction.SHARE_CONTACT
+
+
+def test_profile_review_text_hides_consents_and_shows_platforms() -> None:
+    """Профиль должен быть компактным: без дат согласий, но с платформами привязок."""
+
+    profile_text = build_profile_review_text(
+        phone_e164="+79123456789",
+        accounts_count=3,
+        accounts_platforms=("telegram", "vk", "max"),
+        first_name_input="Иван",
+    )
+
+    assert "Согласие с правилами" not in profile_text
+    assert "Дата согласия" not in profile_text
+    assert "Дата решения по рассылке" not in profile_text
+    assert "Привязанных аккаунтов" in profile_text
+    assert "* 3" in profile_text
+    assert "Telegram, VK, MAX" in profile_text

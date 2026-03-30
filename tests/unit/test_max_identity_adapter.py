@@ -302,6 +302,22 @@ def test_max_support_question_flow_returns_to_main_menu() -> None:
     assert second.screen.screen_id == "main_menu"
 
 
+def test_max_support_question_flow_allows_back_to_support_by_callback() -> None:
+    """В состоянии ожидания вопроса кнопка «Назад в отдел заботы» должна возвращать в меню заботы."""
+
+    adapter = _build_adapter(with_support=True)
+    _complete_max_registration(adapter)
+
+    first = adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
+    back = adapter.handle_incoming(max_user_id=1001, text="", payload="back_to_support")
+
+    assert first.screen is not None
+    assert first.screen.screen_id == "support_question"
+    assert back.screen is not None
+    assert back.screen.screen_id == "support_menu"
+    assert "Отдел заботы" in back.text
+
+
 def test_max_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения»: после создания тикета возвращается список."""
 

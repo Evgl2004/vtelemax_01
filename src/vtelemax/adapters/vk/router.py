@@ -152,6 +152,44 @@ async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_num
         )
 
 
+def _extract_vk_peer_id(event: MessageEvent) -> int | None:
+    """Извлекает peer_id из callback-события VK."""
+
+    peer_id = getattr(event, "peer_id", None)
+    if peer_id is not None:
+        return int(peer_id)
+    user_id = getattr(event, "user_id", None)
+    if user_id is not None:
+        return int(user_id)
+    return None
+
+
+async def _try_delete_callback_message(event: MessageEvent) -> None:
+    """Пытается удалить исходное callback-сообщение перед отправкой нового контента."""
+
+    ctx_api = getattr(event, "ctx_api", None)
+    peer_id = _extract_vk_peer_id(event)
+    cmid = getattr(event, "conversation_message_id", None)
+    if ctx_api is None or peer_id is None or cmid is None:
+        return
+
+    delete_variants: tuple[dict[str, object], ...] = (
+        {"peer_id": peer_id, "conversation_message_ids": [int(cmid)], "delete_for_all": 1},
+        {"peer_id": peer_id, "conversation_message_ids": str(int(cmid)), "delete_for_all": 1},
+        {"peer_id": peer_id, "cmids": [int(cmid)], "delete_for_all": 1},
+        {"peer_id": peer_id, "cmids": str(int(cmid)), "delete_for_all": 1},
+    )
+    for payload in delete_variants:
+        try:
+            if hasattr(ctx_api, "request"):
+                await ctx_api.request("messages.delete", payload)
+            else:
+                await ctx_api.messages.delete(**payload)
+            return
+        except Exception:  # noqa: BLE001
+            continue
+
+
 def register_vk_guest_handlers(
     bot: Any,
     adapter: VkIdentityAdapter,
@@ -307,17 +345,27 @@ async def _send_response(message: Any, response: VkAdapterResponse) -> None:
 async def _send_event_response(event: MessageEvent, response: VkAdapterResponse) -> None:
     """Пытается обновить исходное callback-сообщение, иначе отправляет новое."""
 
+    ctx_api = getattr(event, "ctx_api", None)
+    peer_id = _extract_vk_peer_id(event)
     if response.virtual_card_numbers:
-        ctx_api = getattr(event, "ctx_api", None)
-        peer_id = getattr(event, "peer_id", None)
-        if peer_id is None:
-            peer_id = getattr(event, "user_id", None)
+        await _try_delete_callback_message(event)
         if ctx_api is not None and peer_id is not None:
             await _send_virtual_card_qr_messages(
                 ctx_api=ctx_api,
                 peer_id=int(peer_id),
                 card_numbers=response.virtual_card_numbers,
             )
+        keyboard_json = render_vk_keyboard(response.screen)
+        parse_mode = response.parse_mode
+        if parse_mode is None and response.screen is not None:
+            parse_mode = response.screen.parse_mode
+        message_text, parse_mode = _normalize_vk_message(response.text, parse_mode)
+        kwargs: dict[str, Any] = {}
+        kwargs["keyboard"] = keyboard_json if keyboard_json is not None else _VK_REMOVE_KEYBOARD_JSON
+        if parse_mode is not None:
+            kwargs["parse_mode"] = parse_mode
+        await event.send_message(message=message_text, **kwargs)
+        return
 
     keyboard_json = render_vk_keyboard(response.screen)
     parse_mode = response.parse_mode

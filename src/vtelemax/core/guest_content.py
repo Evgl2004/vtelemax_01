@@ -49,16 +49,18 @@ BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков�
 
 CONTACT_SCREEN_TEXTS = {
     "telegram": (
-        "📱 Чтобы подключиться к программе лояльности, отправьте номер телефона "
-        "текстом в формате +79991234567."
+        "📱 Чтобы подключиться к программе лояльности, нажмите кнопку «📱 Поделиться контактом».\n"
+        "После отправки контакта мы продолжим регистрацию.\n\n"
+        "Если кнопка недоступна, отправьте номер телефона текстом в формате +79991234567."
     ),
     "vk": (
         "📱 Чтобы подключиться к программе лояльности, отправьте номер телефона "
         "текстом в формате +79991234567."
     ),
     "max": (
-        "📱 Чтобы подключиться к программе лояльности, отправьте номер телефона "
-        "текстом в формате +79991234567."
+        "📱 Чтобы подключиться к программе лояльности, нажмите кнопку «📱 Поделиться контактом».\n"
+        "После отправки контакта мы продолжим регистрацию.\n\n"
+        "Если кнопка недоступна, отправьте номер телефона текстом в формате +79991234567."
     ),
 }
 
@@ -412,6 +414,7 @@ def build_profile_not_found_screen() -> MenuScreenContract:
 def build_profile_screen(
     phone_e164: str,
     accounts_count: int,
+    accounts_platforms: tuple[str, ...] | None = None,
     *,
     first_name_input: str | None = None,
     last_name_input: str | None = None,
@@ -430,6 +433,7 @@ def build_profile_screen(
         text=build_profile_review_text(
             phone_e164=phone_e164,
             accounts_count=accounts_count,
+            accounts_platforms=accounts_platforms,
             first_name_input=first_name_input,
             last_name_input=last_name_input,
             gender=gender,
@@ -529,6 +533,7 @@ def build_profile_review_text(
     *,
     phone_e164: str,
     accounts_count: int,
+    accounts_platforms: tuple[str, ...] | None = None,
     first_name_input: str | None = None,
     last_name_input: str | None = None,
     gender: str | None = None,
@@ -549,11 +554,8 @@ def build_profile_review_text(
         f"⚥ *Пол:* {_format_gender(gender)}\n"
         f"🎂 *Дата рождения:* {_format_birth_date(birth_date)}\n"
         f"📧 *Email:* {email or 'не указан'}\n"
-        f"📜 *Согласие с правилами:* {_format_rules_choice(rules_accepted)}\n"
-        f"🕒 *Дата согласия с правилами:* {_format_datetime(rules_accepted_at)}\n"
-        f"📢 *Согласие на рассылку:* {_format_notifications_choice(notifications_allowed)}\n"
-        f"🕒 *Дата решения по рассылке:* {_format_datetime(notifications_allowed_at)}\n"
-        f"🔗 *Привязанных аккаунтов:* {accounts_count}"
+        f"🔗 *Привязанных аккаунтов:* {accounts_count}\n"
+        f"📲 *Платформы:* {_format_accounts_platforms(accounts_platforms)}"
     )
 
 
@@ -575,26 +577,16 @@ def _format_birth_date(raw_birth_date: date | None) -> str:
     return raw_birth_date.strftime("%d.%m.%Y")
 
 
-def _format_datetime(raw_datetime: datetime | None) -> str:
-    """Форматирует дату/время юридически значимых согласий."""
+def _format_accounts_platforms(accounts_platforms: tuple[str, ...] | None) -> str:
+    """Форматирует список платформ, к которым привязан пользователь."""
 
-    if raw_datetime is None:
-        return "не зафиксирована"
-    return raw_datetime.strftime("%d.%m.%Y %H:%M:%S")
-
-
-def _format_rules_choice(accepted: bool) -> str:
-    """Форматирует выбор пользователя по согласию с правилами."""
-
-    return "✅ принято" if accepted else "❌ не принято"
-
-
-def _format_notifications_choice(allowed: bool | None) -> str:
-    """Форматирует выбор пользователя по уведомлениям."""
-
-    if allowed is True:
-        return "✅ согласен"
-    if allowed is False:
-        return "❌ отказался"
-    return "не выбран"
+    if not accounts_platforms:
+        return "не указаны"
+    title_mapping = {
+        "telegram": "Telegram",
+        "vk": "VK",
+        "max": "MAX",
+    }
+    readable_platforms = [title_mapping.get(platform, platform.upper()) for platform in accounts_platforms]
+    return ", ".join(readable_platforms)
 

@@ -248,13 +248,6 @@ async def _send_response(event: Any, response: MaxAdapterResponse) -> None:
     if bot is None or chat_id is None:
         return
 
-    if response.virtual_card_numbers:
-        await _send_virtual_card_qr_messages(
-            bot=bot,
-            chat_id=chat_id,
-            card_numbers=response.virtual_card_numbers,
-        )
-
     kwargs: dict[str, object] = {}
     keyboard = render_max_keyboard(response.screen)
     if keyboard is not None:
@@ -269,6 +262,21 @@ async def _send_response(event: Any, response: MaxAdapterResponse) -> None:
             kwargs["parse_mode"] = markdown_parse_mode
 
     callback_mid = _extract_callback_message_id(event)
+    if response.virtual_card_numbers:
+        if callback_mid is not None:
+            try:
+                await bot.delete_message(message_id=callback_mid)
+            except Exception:  # noqa: BLE001
+                # Не блокируем сценарий, если исходное callback-сообщение удалить не удалось.
+                pass
+        await _send_virtual_card_qr_messages(
+            bot=bot,
+            chat_id=chat_id,
+            card_numbers=response.virtual_card_numbers,
+        )
+        await bot.send_message(chat_id=chat_id, text=response.text, **kwargs)
+        return
+
     if callback_mid is not None:
         try:
             await bot.edit_message(message_id=callback_mid, text=response.text, **kwargs)

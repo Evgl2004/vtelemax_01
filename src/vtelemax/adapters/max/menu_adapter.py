@@ -100,6 +100,7 @@ class MaxGuestMenuAdapter:
         self,
         phone_e164: str,
         accounts_count: int,
+        accounts_platforms: tuple[str, ...] | None = None,
         *,
         first_name_input: str | None = None,
         last_name_input: str | None = None,
@@ -116,6 +117,7 @@ class MaxGuestMenuAdapter:
         screen = build_profile_screen(
             phone_e164=phone_e164,
             accounts_count=accounts_count,
+            accounts_platforms=accounts_platforms,
             first_name_input=first_name_input,
             last_name_input=last_name_input,
             gender=gender,

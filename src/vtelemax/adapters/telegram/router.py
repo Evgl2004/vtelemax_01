@@ -517,12 +517,17 @@ def build_telegram_identity_router(
         if result.status == "virtual_card" and result.virtual_card_numbers:
             if callback.message is not None:
                 try:
-                    await callback.message.edit_reply_markup(reply_markup=None)
+                    await callback.message.delete()
                 except Exception as error:  # noqa: BLE001
                     if _is_message_not_modified_error(error):
-                        event_logger.debug("Inline-клавиатура уже очищена перед отправкой QR-кодов.")
+                        event_logger.debug("Callback-сообщение уже обновлено перед отправкой QR-кодов.")
                     else:
-                        event_logger.debug("Не удалось убрать inline-клавиатуру перед отправкой QR-кодов.")
+                        try:
+                            await callback.message.edit_reply_markup(reply_markup=None)
+                        except Exception:  # noqa: BLE001
+                            event_logger.debug(
+                                "Не удалось удалить callback-сообщение перед отправкой QR-кодов, продолжаем сценарий."
+                            )
             await _send_to_chat_with_result(
                 bot=callback.bot,
                 chat_id=callback.from_user.id,

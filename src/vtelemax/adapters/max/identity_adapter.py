@@ -237,6 +237,17 @@ class MaxIdentityAdapter:
         if state == _STATE_WAITING_LEGACY_PHONE:
             return self._handle_phone_input(max_user_id=max_user_id, text=text, is_legacy=True)
         if state == _STATE_WAITING_SUPPORT_QUESTION:
+            action = resolve_action_from_max_payload(payload)
+            if action is None:
+                action = resolve_guest_menu_action(text)
+            if action in {
+                GuestMenuAction.BACK_TO_SUPPORT,
+                GuestMenuAction.BACK_TO_MAIN,
+                GuestMenuAction.SUPPORT,
+                GuestMenuAction.MAIN_MENU,
+            }:
+                self._state_by_user_id.pop(max_user_id, None)
+                return self._handle_action(max_user_id=max_user_id, action=action)
             return self._handle_support_question(max_user_id=max_user_id, text=text)
         if state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice(max_user_id=max_user_id, text=text, payload=payload)
@@ -490,12 +501,13 @@ class MaxIdentityAdapter:
         self._clear_moderator_state(max_user_id)
 
         loyalty_sync_text = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
+        sync_summary = self._build_registration_sync_summary(loyalty_sync_text)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name=person.first_name_input or "Гость")
         return MaxAdapterResponse(
             text=(
-                f"{loyalty_sync_text}\n\n"
+                f"{sync_summary}\n\n"
                 "✅ Регистрация завершена.\n\n"
-                "Расширенную анкету и информацию профиля можно изменить в разделе «👤 Профиль».\n\n"
+                "Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».\n\n"
                 f"{main_screen.text}"
             ),
             screen=main_screen,
@@ -561,6 +573,7 @@ class MaxIdentityAdapter:
         screen = self._menu_adapter.build_profile_screen(
             phone_e164=person.phone_e164,
             accounts_count=len(person.accounts),
+            accounts_platforms=self._collect_account_platforms(person.accounts),
             first_name_input=person.first_name_input,
             last_name_input=person.last_name_input,
             gender=person.gender,
@@ -1358,10 +1371,16 @@ class MaxIdentityAdapter:
             or (person is not None and person.rules_accepted)
         )
         accounts_count = len(person.accounts) if person is not None else 1
+        accounts_platforms = (
+            self._collect_account_platforms(person.accounts)
+            if person is not None
+            else ("max",)
+        )
 
         return self._menu_adapter.build_profile_screen(
             phone_e164=phone_e164,
             accounts_count=accounts_count,
+            accounts_platforms=accounts_platforms,
             first_name_input=first_name_input,
             last_name_input=person.last_name_input if person is not None else None,
             gender=person.gender if person is not None else None,
@@ -1378,6 +1397,31 @@ class MaxIdentityAdapter:
         """Проверяет и нормализует имя пользователя для шага сокращённой регистрации."""
 
         return normalize_person_name(raw_text)
+
+    @staticmethod
+    def _build_registration_sync_summary(sync_result_text: str) -> str:
+        """Преобразует технический результат синхронизации в короткое сообщение для гостя."""
+
+        normalized = (sync_result_text or "").strip()
+        if normalized.startswith("✅"):
+            return "✅ Синхронизация с iiko выполнена."
+        if normalized.startswith("⚠️"):
+            return "⚠️ Синхронизация с iiko выполнена с ограничениями. Мы завершим обработку автоматически."
+        if normalized.startswith("ℹ️"):
+            return "ℹ️ Синхронизация с iiko сейчас недоступна. Можно продолжать работу с ботом."
+        return "ℹ️ Синхронизация с iiko запущена."
+
+    @staticmethod
+    def _collect_account_platforms(accounts: set[object]) -> tuple[str, ...]:
+        """Возвращает отсортированный список платформ привязанных аккаунтов пользователя."""
+
+        sort_order = {"telegram": 0, "vk": 1, "max": 2}
+        platforms: set[str] = {
+            str(getattr(account, "platform", "")).lower()
+            for account in accounts
+            if getattr(account, "platform", None)
+        }
+        return tuple(sorted(platforms, key=lambda platform: sort_order.get(platform, 99)))
 
     def _sync_registration_with_loyalty(self, *, phone_e164: str) -> str:
         """Запускает синхронизацию с iiko через сценарий выдачи/поиска виртуальной карты."""
