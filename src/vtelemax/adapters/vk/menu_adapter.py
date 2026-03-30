@@ -209,7 +209,7 @@ class VkGuestMenuAdapter:
         """Экран обратной связи."""
 
         screen = build_support_feedback_screen()
-        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,

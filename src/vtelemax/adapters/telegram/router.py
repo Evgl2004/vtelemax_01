@@ -52,6 +52,7 @@ from .menu import (
     build_profile_gender_inline_keyboard,
     build_profile_inline_keyboard,
     build_rules_consent_inline_keyboard,
+    build_support_feedback_inline_keyboard,
     build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
     BUTTON_RETRY_IIKO_SYNC,
@@ -205,13 +206,9 @@ def build_telegram_identity_router(
             return build_iiko_sync_retry_inline_keyboard()
         if result.status in {"support", "tickets_list", "tickets_empty"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
-        if result.status in {
-            "support_feedback",
-            "support_question",
-            "support_contacts",
-            "support_question_empty",
-            "support_question_unavailable",
-        }:
+        if result.status == "support_feedback":
+            return build_support_feedback_inline_keyboard()
+        if result.status in {"support_question", "support_contacts", "support_question_empty", "support_question_unavailable"}:
             return back_to_support_keyboard
         if result.status in {
             "balance",

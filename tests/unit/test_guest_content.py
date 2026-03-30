@@ -87,11 +87,13 @@ def test_profile_review_text_hides_consents_and_shows_platforms() -> None:
 
 
 def test_support_feedback_screen_uses_actual_review_link() -> None:
-    """Проверяет, что в разделе отзыва указана актуальная ссылка."""
+    """Проверяет, что ссылка отзыва вынесена в кнопку, а не отображается в тексте."""
 
     screen = build_support_feedback_screen()
 
-    assert "https://rdata.one/Nyyl" in screen.text
+    assert "https://rdata.one/Nyyl" not in screen.text
+    assert len(screen.buttons) == 2
+    assert screen.buttons[0].url == "https://rdata.one/Nyyl"
 
 
 def test_iiko_sync_retry_screen_contains_retry_action() -> None:

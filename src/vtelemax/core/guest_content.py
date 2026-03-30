@@ -19,6 +19,7 @@ BUTTON_SUPPORT = "🆘 Отдел заботы"
 BUTTON_VACANCIES = "💼 Вакансии"
 
 BUTTON_SUPPORT_FEEDBACK = "✍️ Оставить отзыв"
+BUTTON_SUPPORT_FEEDBACK_LINK = "✍️ Оставить отзыв!"
 BUTTON_SUPPORT_QUESTION = "❓ Мне только спросить (В разработке)"
 BUTTON_SUPPORT_QUESTION_LEGACY = "❓ Мне только спросить"
 BUTTON_MY_TICKETS = "📋 Мои обращения"
@@ -47,6 +48,7 @@ BUTTON_NOTIFICATIONS_DOCS = "📄 Условия рассылки"
 BUTTON_NOTIFICATIONS_YES = "✅ О да, кидай всё, что есть! 🔥"
 BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков… 🙁"
 BUTTON_RETRY_IIKO_SYNC = "🔄 Повторить синхронизацию"
+FEEDBACK_FORM_URL = "https://rdata.one/Nyyl"
 
 
 CONTACT_SCREEN_TEXTS = {
@@ -350,9 +352,16 @@ def build_support_feedback_screen() -> MenuScreenContract:
         text=(
             "✍️ Оставить отзыв\n\n"
             "Мы будем рады узнать ваше мнение.\n"
-            "👉 Оставить отзыв: https://rdata.one/Nyyl"
+            "Нажмите кнопку ниже:"
         ),
-        buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_SUPPORT, label=BUTTON_BACK_TO_SUPPORT),),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_SUPPORT_FEEDBACK_LINK,
+                url=FEEDBACK_FORM_URL,
+            ),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_SUPPORT, label=BUTTON_BACK_TO_SUPPORT),
+        ),
         parse_mode="plain",
     )
 

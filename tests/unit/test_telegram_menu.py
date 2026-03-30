@@ -11,6 +11,7 @@ from vtelemax.adapters.telegram.menu import (
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
     build_rules_consent_inline_keyboard,
+    build_support_feedback_inline_keyboard,
     build_support_menu_inline_keyboard,
 )
 from vtelemax.core import (
@@ -69,6 +70,19 @@ def test_build_iiko_sync_retry_keyboard_contains_retry_button() -> None:
     assert button.callback_data == GuestMenuAction.RETRY_IIKO_SYNC.value
 
 
+def test_build_support_feedback_keyboard_contains_link_and_back_button() -> None:
+    """Проверяет клавиатуру экрана «Оставить отзыв»: ссылка и кнопка возврата."""
+
+    keyboard = build_support_feedback_inline_keyboard()
+
+    assert len(keyboard.inline_keyboard) == 2
+    link_button = keyboard.inline_keyboard[0][0]
+    back_button = keyboard.inline_keyboard[1][0]
+
+    assert link_button.url == "https://rdata.one/Nyyl"
+    assert back_button.callback_data == GuestMenuAction.BACK_TO_SUPPORT.value
+
+
 def test_all_telegram_callback_data_fit_telegram_limits() -> None:
     """Проверяет, что callback_data не превышает лимит Telegram (64 байта)."""
 
@@ -76,6 +90,7 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
         build_main_menu_inline_keyboard(),
         build_support_menu_inline_keyboard(has_tickets=False),
         build_support_menu_inline_keyboard(has_tickets=True),
+        build_support_feedback_inline_keyboard(),
         build_profile_edit_inline_keyboard(can_edit_birth_date=True),
         build_profile_edit_inline_keyboard(can_edit_birth_date=False),
         build_profile_gender_inline_keyboard(),

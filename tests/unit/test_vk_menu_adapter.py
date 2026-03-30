@@ -62,3 +62,14 @@ def test_vk_start_contact_screen_has_no_buttons_for_manual_input() -> None:
     screen = adapter.build_start_contact_screen()
 
     assert screen.rows == ()
+
+
+def test_vk_support_feedback_screen_contains_link_and_back_button() -> None:
+    """Проверяет, что в VK-экране отзыва есть кнопка-ссылка и кнопка возврата."""
+
+    adapter = VkGuestMenuAdapter()
+    screen = adapter.build_support_feedback_screen()
+
+    assert len(screen.rows) == 2
+    assert screen.rows[0][0].url == "https://rdata.one/Nyyl"
+    assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.BACK_TO_SUPPORT.value

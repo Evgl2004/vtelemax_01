@@ -48,6 +48,8 @@ NOTIFY_YES_CALLBACK = "notify_yes"
 NOTIFY_NO_CALLBACK = "notify_no"
 DOCS_URL = "https://sagur.24vds.ru/agreement/#"
 NOTIFICATIONS_DOCS_URL = "https://sagur.24vds.ru/notifications/#"
+SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
+SUPPORT_FEEDBACK_BUTTON_LABEL = "✍️ Оставить отзыв!"
 
 
 def _action_callback(action: GuestMenuAction) -> str:
@@ -141,6 +143,17 @@ def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeybo
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_support_feedback_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру экрана «Оставить отзыв»."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=SUPPORT_FEEDBACK_BUTTON_LABEL, url=SUPPORT_FEEDBACK_URL)],
+            [InlineKeyboardButton(text=BUTTON_BACK_TO_SUPPORT, callback_data=_action_callback(GuestMenuAction.BACK_TO_SUPPORT))],
+        ]
+    )
 
 
 def build_back_to_main_inline_keyboard() -> InlineKeyboardMarkup:

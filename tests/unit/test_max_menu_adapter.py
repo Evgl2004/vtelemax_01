@@ -68,3 +68,14 @@ def test_max_start_contact_screen_has_request_contact_button() -> None:
     assert len(screen.rows) == 1
     assert screen.rows[0][0].request_contact is True
     assert screen.rows[0][0].payload == GuestMenuAction.SHARE_CONTACT.value
+
+
+def test_max_support_feedback_screen_contains_link_and_back_button() -> None:
+    """Проверяет, что в MAX-экране отзыва есть кнопка-ссылка и кнопка возврата."""
+
+    adapter = MaxGuestMenuAdapter()
+    screen = adapter.build_support_feedback_screen()
+
+    assert len(screen.rows) == 2
+    assert screen.rows[0][0].url == "https://rdata.one/Nyyl"
+    assert screen.rows[1][0].payload == GuestMenuAction.BACK_TO_SUPPORT.value
