@@ -46,6 +46,7 @@ BUTTON_BONUSES = "💰 Бонусы"
 BUTTON_NOTIFICATIONS_DOCS = "📄 Условия рассылки"
 BUTTON_NOTIFICATIONS_YES = "✅ О да, кидай всё, что есть! 🔥"
 BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков… 🙁"
+BUTTON_RETRY_IIKO_SYNC = "🔄 Повторить синхронизацию"
 
 
 CONTACT_SCREEN_TEXTS = {
@@ -126,6 +127,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_ACCEPT_RULES.lower(): GuestMenuAction.ACCEPT_RULES,
         BUTTON_NOTIFICATIONS_YES.lower(): GuestMenuAction.NOTIFY_YES,
         BUTTON_NOTIFICATIONS_NO.lower(): GuestMenuAction.NOTIFY_NO,
+        BUTTON_RETRY_IIKO_SYNC.lower(): GuestMenuAction.RETRY_IIKO_SYNC,
     }
     return mapping.get(normalized)
 
@@ -346,6 +348,25 @@ def build_support_feedback_screen() -> MenuScreenContract:
         ),
         buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_SUPPORT, label=BUTTON_BACK_TO_SUPPORT),),
         parse_mode="markdown",
+    )
+
+
+def build_iiko_sync_retry_screen() -> MenuScreenContract:
+    """Экран повторной синхронизации с iiko при временной ошибке."""
+
+    return MenuScreenContract(
+        screen_id="iiko_sync_retry",
+        text=(
+            "⚠️ Не удалось завершить синхронизацию с бонусной системой iiko.\n\n"
+            "Это может быть временная проблема связи. Пожалуйста, нажмите кнопку ниже "
+            "через несколько секунд."
+        ),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.RETRY_IIKO_SYNC,
+                label=BUTTON_RETRY_IIKO_SYNC,
+            ),
+        ),
     )
 
 

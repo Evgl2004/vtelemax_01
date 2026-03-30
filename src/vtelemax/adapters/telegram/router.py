@@ -44,6 +44,7 @@ from .menu import (
     build_back_to_main_inline_keyboard,
     build_back_to_support_inline_keyboard,
     build_contact_request_keyboard,
+    build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_notifications_consent_inline_keyboard,
     build_profile_edit_inline_keyboard,
@@ -52,6 +53,7 @@ from .menu import (
     build_rules_consent_inline_keyboard,
     build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
+    BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SUPPORT,
     BUTTON_BALANCE,
     BUTTON_VIRTUAL_CARD,
@@ -194,6 +196,8 @@ def build_telegram_identity_router(
             return None
         if result.status in {"notifications_consent_required", "notifications_consent_pending"}:
             return build_notifications_consent_inline_keyboard()
+        if result.status in {"iiko_sync_retry", "iiko_sync_retry_pending"}:
+            return build_iiko_sync_retry_inline_keyboard()
         if result.status in {"support", "tickets_list", "tickets_empty"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status in {
@@ -333,6 +337,8 @@ def build_telegram_identity_router(
             reply_markup = None
         elif result.status in {"notifications_consent_required", "notifications_consent_pending"}:
             reply_markup = build_notifications_consent_inline_keyboard()
+        elif result.status in {"iiko_sync_retry", "iiko_sync_retry_pending"}:
+            reply_markup = build_iiko_sync_retry_inline_keyboard()
         elif result.is_success:
             reply_markup = main_menu_inline_keyboard
         else:
@@ -522,6 +528,7 @@ def build_telegram_identity_router(
                 BUTTON_PROFILE_EDIT_CANCEL,
                 BUTTON_PROFILE_EDIT_GENDER_MALE,
                 BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+                BUTTON_RETRY_IIKO_SYNC,
             ]
         )
     )

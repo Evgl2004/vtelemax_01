@@ -11,6 +11,7 @@ from vtelemax.core import (
     build_about_screen,
     build_balance_screen,
     build_notifications_consent_screen,
+    build_iiko_sync_retry_screen,
     build_help_screen,
     build_main_menu_screen,
     build_profile_edit_screen,
@@ -242,6 +243,13 @@ class VkGuestMenuAdapter:
         rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
+    def build_iiko_sync_retry_screen(self) -> VkScreen:
+        """Экран повторной синхронизации с iiko."""
+
+        screen = build_iiko_sync_retry_screen()
+        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
+        return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
     def resolve_action_screen(
         self,
         action: GuestMenuAction,
@@ -273,4 +281,6 @@ class VkGuestMenuAdapter:
         if action == GuestMenuAction.BALANCE:
             # Возвращаем экран баланса с фиктивным значением (позже будет передаваться реальный баланс)
             return self.build_balance_screen(balance=0.0)
+        if action == GuestMenuAction.RETRY_IIKO_SYNC:
+            return self.build_iiko_sync_retry_screen()
         return self.build_main_menu_screen(user_name=user_name)

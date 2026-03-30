@@ -10,6 +10,7 @@ from loguru import logger
 
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
+    BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT_QUESTION,
     CreateSupportTicketCommand,
@@ -44,6 +45,7 @@ _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
 _STATE_WAITING_FIRST_NAME = OnboardingState.WAITING_FIRST_NAME.value
 _STATE_WAITING_NOTIFICATIONS_CONSENT = OnboardingState.WAITING_NOTIFICATIONS_CONSENT.value
+_STATE_WAITING_IIKO_SYNC = OnboardingState.WAITING_IIKO_SYNC.value
 _STATE_WAITING_LEGACY_PHONE = OnboardingState.WAITING_LEGACY_PHONE.value
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
 _STATE_PROFILE_EDIT_CHOICE = "profile_edit_choice"
@@ -117,6 +119,11 @@ class MaxIdentityAdapter:
 
         method_logger = self._logger.bind(stage="handle_start", user_id=str(max_user_id))
         method_logger.debug("Обработка стартового входа пользователя.")
+        if self._state_by_user_id.get(max_user_id) == _STATE_WAITING_IIKO_SYNC:
+            method_logger.info("Продолжаем шаг ожидания синхронизации iiko.")
+            retry_screen = self._menu_adapter.build_iiko_sync_retry_screen()
+            return MaxAdapterResponse(text=retry_screen.text, screen=retry_screen)
+
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
         )
@@ -244,6 +251,8 @@ class MaxIdentityAdapter:
                 text=text,
                 payload=payload,
             )
+        if state == _STATE_WAITING_IIKO_SYNC:
+            return self._handle_iiko_sync_retry(max_user_id=max_user_id, text=text, payload=payload)
         if state == _STATE_WAITING_LEGACY_PHONE:
             return MaxAdapterResponse(
                 text=(
@@ -532,15 +541,73 @@ class MaxIdentityAdapter:
                 text="Не удалось завершить регистрацию из-за ошибки в данных. Повторите /start."
             )
 
+        self._state_by_user_id[max_user_id] = _STATE_WAITING_IIKO_SYNC
+        draft.phone_e164 = person.phone_e164
+        draft.first_name_input = person.first_name_input or draft.first_name_input
+        return self._finalize_iiko_sync_step(
+            max_user_id=max_user_id,
+            phone_e164=person.phone_e164,
+            first_name=draft.first_name_input or "Гость",
+        )
+
+    def _handle_iiko_sync_retry(
+        self,
+        *,
+        max_user_id: int,
+        text: str,
+        payload: object | None,
+    ) -> MaxAdapterResponse:
+        """Обрабатывает повтор синхронизации с iiko в отдельном шаге onboarding."""
+
+        action = resolve_action_from_max_payload(payload) or resolve_guest_menu_action(text)
+        if action != GuestMenuAction.RETRY_IIKO_SYNC:
+            retry_screen = self._menu_adapter.build_iiko_sync_retry_screen()
+            return MaxAdapterResponse(
+                text=(
+                    f"{retry_screen.text}\n\n"
+                    f"Нажмите кнопку «{BUTTON_RETRY_IIKO_SYNC}», чтобы повторить попытку."
+                ),
+                screen=retry_screen,
+            )
+
+        draft = self._onboarding_draft_by_user_id.get(max_user_id)
+        if draft is None or not draft.phone_e164:
+            self._state_by_user_id[max_user_id] = _STATE_WAITING_PHONE
+            return MaxAdapterResponse(
+                text=(
+                    "Не удалось восстановить шаг синхронизации. "
+                    f"Нажмите кнопку «{BUTTON_SEND_PHONE}» и отправьте контакт снова."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+
+        return self._finalize_iiko_sync_step(
+            max_user_id=max_user_id,
+            phone_e164=draft.phone_e164,
+            first_name=draft.first_name_input or "Гость",
+        )
+
+    def _finalize_iiko_sync_step(
+        self,
+        *,
+        max_user_id: int,
+        phone_e164: str,
+        first_name: str,
+    ) -> MaxAdapterResponse:
+        """Выполняет синхронизацию с iiko и завершает onboarding только при успехе."""
+
+        registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=phone_e164)
+        if not registration_card_numbers and self._virtual_card_use_case is not None:
+            self._state_by_user_id[max_user_id] = _STATE_WAITING_IIKO_SYNC
+            retry_screen = self._menu_adapter.build_iiko_sync_retry_screen()
+            return MaxAdapterResponse(text=retry_screen.text, screen=retry_screen)
+
         self._state_by_user_id.pop(max_user_id, None)
         self._onboarding_draft_by_user_id.pop(max_user_id, None)
         self._clear_moderator_state(max_user_id)
 
-        registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
-        main_screen = self._menu_adapter.build_main_menu_screen(user_name=person.first_name_input or "Гость")
-        completion_parts = [
-            "✅ Регистрация успешно завершена.",
-        ]
+        main_screen = self._menu_adapter.build_main_menu_screen(user_name=first_name)
+        completion_parts = ["✅ Регистрация успешно завершена."]
         if registration_card_numbers:
             completion_parts.append("🪪 Выше представлены QR-коды ваших карт.")
         completion_parts.extend(

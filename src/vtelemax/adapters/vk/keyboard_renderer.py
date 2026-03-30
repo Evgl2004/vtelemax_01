@@ -83,7 +83,7 @@ def _resolve_button_color(button: VkButton) -> str:
         return "primary"
     if action in {GuestMenuAction.SUPPORT_FEEDBACK, GuestMenuAction.SUPPORT_CONTACTS, GuestMenuAction.OPEN_DOCS}:
         return "secondary"
-    if action in {GuestMenuAction.SHARE_CONTACT, GuestMenuAction.ACCEPT_RULES}:
+    if action in {GuestMenuAction.SHARE_CONTACT, GuestMenuAction.ACCEPT_RULES, GuestMenuAction.RETRY_IIKO_SYNC}:
         return "positive"
     if action == GuestMenuAction.VACANCIES:
         return "secondary"

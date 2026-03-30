@@ -35,6 +35,7 @@ class OnboardingState(StrEnum):
     WAITING_PHONE = "waiting_phone"
     WAITING_FIRST_NAME = "waiting_first_name"
     WAITING_NOTIFICATIONS_CONSENT = "waiting_notifications_consent"
+    WAITING_IIKO_SYNC = "waiting_iiko_sync"
     WAITING_LEGACY_PHONE = "waiting_legacy_phone"
 
 

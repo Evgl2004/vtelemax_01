@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from vtelemax.core import (
     GuestMenuAction,
+    build_iiko_sync_retry_screen,
     build_main_menu_screen,
     build_profile_review_text,
     build_start_contact_screen,
@@ -91,3 +92,14 @@ def test_support_feedback_screen_uses_actual_review_link() -> None:
     screen = build_support_feedback_screen()
 
     assert "https://rdata.one/Nyyl" in screen.text
+
+
+def test_iiko_sync_retry_screen_contains_retry_action() -> None:
+    """Проверяет экран ошибки синхронизации с iiko и кнопку повтора."""
+
+    screen = build_iiko_sync_retry_screen()
+
+    assert "iiko" in screen.text.lower()
+    assert len(screen.buttons) == 1
+    assert screen.buttons[0].action == GuestMenuAction.RETRY_IIKO_SYNC
+    assert resolve_guest_menu_action(screen.buttons[0].label) == GuestMenuAction.RETRY_IIKO_SYNC

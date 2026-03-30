@@ -21,6 +21,7 @@ from vtelemax.core import (
     LoyaltyCard,
     LoyaltyCustomer,
     LoyaltyGateway,
+    LoyaltyGatewayError,
     LoyaltyIssueCardResult,
     LoyaltyRegisterCustomerResult,
     RegisterOrAttachAccountCommand,
@@ -69,6 +70,42 @@ class StubLoyaltyGateway(LoyaltyGateway):
 
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         return self._customer
+
+    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+        return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
+
+    def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
+        return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
+
+
+class AlwaysFailLoyaltyGateway(LoyaltyGateway):
+    """Тестовый шлюз, который всегда возвращает ошибку iiko."""
+
+    def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
+        raise LoyaltyGatewayError("temporary unavailable")
+
+    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+        raise LoyaltyGatewayError("temporary unavailable")
+
+    def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
+        raise LoyaltyGatewayError("temporary unavailable")
+
+
+class FlakyLoyaltyGateway(LoyaltyGateway):
+    """Тестовый шлюз: первая попытка падает, повторная — успешна."""
+
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
+        self._calls += 1
+        if self._calls == 1:
+            raise LoyaltyGatewayError("temporary unavailable")
+        return LoyaltyCustomer(
+            customer_id="cust-1",
+            balance=0.0,
+            cards=(LoyaltyCard(number="79123456789_20260325"),),
+        )
 
     def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
         return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
@@ -226,6 +263,69 @@ def test_vk_start_for_registered_user_uses_first_name_in_menu() -> None:
 
     assert "Иван" in response.text
     assert "главном меню" in response.text
+
+
+def test_vk_onboarding_iiko_failure_moves_to_retry_step() -> None:
+    """Проверяет отдельный шаг retry, если синхронизация с iiko не удалась."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        virtual_card_use_case=GetVirtualCardUseCase(AlwaysFailLoyaltyGateway()),
+    )
+
+    adapter.handle_start(vk_user_id=2001)
+    adapter.handle_incoming(vk_user_id=2001, text="✅ Согласен", payload=None)
+    adapter.handle_incoming(vk_user_id=2001, text="+79123456789", payload=None)
+    adapter.handle_incoming(vk_user_id=2001, text="Иван", payload=None)
+    failure_result = adapter.handle_incoming(vk_user_id=2001, text="Да", payload=None)
+
+    assert failure_result.screen is not None
+    assert failure_result.screen.screen_id == "iiko_sync_retry"
+    assert "синхронизац" in failure_result.text.lower()
+
+    pending_result = adapter.handle_incoming(vk_user_id=2001, text="/menu", payload=None)
+    assert pending_result.screen is not None
+    assert pending_result.screen.screen_id == "iiko_sync_retry"
+    assert "Повторить синхронизацию" in pending_result.text
+
+
+def test_vk_onboarding_iiko_retry_eventually_returns_menu() -> None:
+    """Проверяет успешный выход в меню после повторной синхронизации iiko."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        virtual_card_use_case=GetVirtualCardUseCase(FlakyLoyaltyGateway()),
+    )
+
+    adapter.handle_start(vk_user_id=2002)
+    adapter.handle_incoming(vk_user_id=2002, text="✅ Согласен", payload=None)
+    adapter.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
+    adapter.handle_incoming(vk_user_id=2002, text="Иван", payload=None)
+
+    first_try = adapter.handle_incoming(vk_user_id=2002, text="Да", payload=None)
+    second_try = adapter.handle_incoming(vk_user_id=2002, text="", payload={"cmd": "retry_iiko_sync"})
+
+    assert first_try.screen is not None
+    assert first_try.screen.screen_id == "iiko_sync_retry"
+    assert second_try.screen is not None
+    assert second_try.screen.screen_id == "main_menu"
+    assert second_try.virtual_card_numbers == ("79123456789_20260325",)
 
 
 def test_vk_balance_uses_loyalty_use_case() -> None:

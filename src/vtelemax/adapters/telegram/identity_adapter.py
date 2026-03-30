@@ -24,6 +24,7 @@ from vtelemax.core import (
     BUTTON_PROFILE_EDIT_GENDER_FEMALE,
     BUTTON_PROFILE_EDIT_GENDER_MALE,
     BUTTON_PROFILE_EDIT_LAST_NAME,
+    BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT_QUESTION,
     BUTTON_SUPPORT,
@@ -51,6 +52,7 @@ from vtelemax.core import (
     build_about_screen,
     build_first_name_input_screen,
     build_help_screen,
+    build_iiko_sync_retry_screen,
     build_main_menu_screen,
     build_profile_edit_screen,
     build_profile_gender_screen,
@@ -162,6 +164,15 @@ class TelegramIdentityAdapter:
             "Запуск start_interaction. force_legacy_upgrade={force_legacy_upgrade}.",
             force_legacy_upgrade=force_legacy_upgrade,
         )
+        current_state = self._onboarding_state_by_user_id.get(telegram_user_id)
+        if current_state == OnboardingState.WAITING_IIKO_SYNC:
+            method_logger.info("Продолжаем шаг ожидания синхронизации iiko.")
+            retry_screen = build_iiko_sync_retry_screen()
+            return TelegramMenuActionResult(
+                status="iiko_sync_retry",
+                message=retry_screen.text,
+            )
+
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(
                 platform="telegram",
@@ -248,6 +259,13 @@ class TelegramIdentityAdapter:
         method_logger = self._logger.bind(stage="register_contact", user_id=str(telegram_user_id))
         method_logger.debug("Начата регистрация контакта.")
         previous_state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
+        if previous_state == OnboardingState.WAITING_IIKO_SYNC:
+            retry_screen = build_iiko_sync_retry_screen()
+            return TelegramRegistrationResult(
+                is_success=False,
+                status="iiko_sync_retry",
+                message=retry_screen.text,
+            )
         draft = self._onboarding_draft_by_user_id.setdefault(telegram_user_id, _OnboardingDraft())
         phone_verified_at = datetime.now(timezone.utc)
 
@@ -485,27 +503,43 @@ class TelegramIdentityAdapter:
                     message="Не удалось завершить регистрацию из-за ошибки в данных. Повторите /start.",
                 )
 
-            self._onboarding_state_by_user_id.pop(telegram_user_id, None)
-            self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
-            self._dialog_state_by_user_id.pop(telegram_user_id, None)
-            self._clear_moderator_state(telegram_user_id)
-
-            registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
-            completion_parts = [
-                "✅ Регистрация успешно завершена.",
-            ]
-            if registration_card_numbers:
-                completion_parts.append("🪪 Выше представлены QR-коды ваших карт.")
-            completion_parts.extend(
-                [
-                    "ℹ️ Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».",
-                    self.build_menu_overview_message(user_name=person.first_name_input or "Гость"),
-                ]
+            self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_IIKO_SYNC
+            draft.phone_e164 = person.phone_e164
+            draft.first_name_input = person.first_name_input or draft.first_name_input
+            return self._finalize_iiko_sync_step(
+                telegram_user_id=telegram_user_id,
+                phone_e164=person.phone_e164,
+                first_name=draft.first_name_input or "Гость",
             )
-            return TelegramMenuActionResult(
-                status="menu",
-                message="\n\n".join(completion_parts),
-                virtual_card_numbers=registration_card_numbers,
+
+        if onboarding_state == OnboardingState.WAITING_IIKO_SYNC:
+            action = resolve_guest_menu_action(action_text)
+            if action != GuestMenuAction.RETRY_IIKO_SYNC:
+                retry_screen = build_iiko_sync_retry_screen()
+                return TelegramMenuActionResult(
+                    status="iiko_sync_retry_pending",
+                    message=(
+                        f"{retry_screen.text}\n\n"
+                        f"Нажмите кнопку «{BUTTON_RETRY_IIKO_SYNC}», чтобы повторить попытку."
+                    ),
+                )
+
+            draft = self._onboarding_draft_by_user_id.get(telegram_user_id)
+            if draft is None or not draft.phone_e164:
+                self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_PHONE
+                return TelegramMenuActionResult(
+                    status="phone_required",
+                    message=(
+                        "Не удалось восстановить шаг синхронизации. "
+                        f"Повторите отправку телефона через «{BUTTON_SEND_PHONE}»."
+                    ),
+                    requires_contact_keyboard=True,
+                )
+
+            return self._finalize_iiko_sync_step(
+                telegram_user_id=telegram_user_id,
+                phone_e164=draft.phone_e164,
+                first_name=draft.first_name_input or "Гость",
             )
 
         if onboarding_state == OnboardingState.WAITING_LEGACY_PHONE:
@@ -1744,6 +1778,52 @@ class TelegramIdentityAdapter:
         """Проверяет и нормализует имя пользователя для шага сокращенной регистрации."""
 
         return normalize_person_name(raw_text)
+
+    def _finalize_iiko_sync_step(
+        self,
+        *,
+        telegram_user_id: int,
+        phone_e164: str,
+        first_name: str,
+    ) -> TelegramMenuActionResult:
+        """Выполняет синхронизацию с iiko и завершает onboarding только при успехе."""
+
+        registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=phone_e164)
+        if not registration_card_numbers and self._virtual_card_use_case is not None:
+            retry_screen = build_iiko_sync_retry_screen()
+            self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_IIKO_SYNC
+            return TelegramMenuActionResult(
+                status="iiko_sync_retry",
+                message=retry_screen.text,
+            )
+
+        self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+        self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
+        self._dialog_state_by_user_id.pop(telegram_user_id, None)
+        self._clear_moderator_state(telegram_user_id)
+        completion_message = self._build_registration_completion_message(
+            user_name=first_name,
+            has_cards=bool(registration_card_numbers),
+        )
+        return TelegramMenuActionResult(
+            status="menu",
+            message=completion_message,
+            virtual_card_numbers=registration_card_numbers,
+        )
+
+    def _build_registration_completion_message(self, *, user_name: str, has_cards: bool) -> str:
+        """Формирует итоговый текст после успешной синхронизации с iiko."""
+
+        completion_parts = ["✅ Регистрация успешно завершена."]
+        if has_cards:
+            completion_parts.append("🪪 Выше представлены QR-коды ваших карт.")
+        completion_parts.extend(
+            [
+                "ℹ️ Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».",
+                self.build_menu_overview_message(user_name=user_name),
+            ]
+        )
+        return "\n\n".join(completion_parts)
 
     def _sync_registration_with_loyalty(self, *, phone_e164: str) -> tuple[str, ...]:
         """Запускает синхронизацию с iiko и возвращает номера карт для отправки QR."""

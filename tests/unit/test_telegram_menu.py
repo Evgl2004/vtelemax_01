@@ -6,9 +6,10 @@ from vtelemax.adapters.telegram.menu import (
     DOCS_URL,
     RULES_ACCEPT_CALLBACK,
     build_contact_request_keyboard,
+    build_iiko_sync_retry_inline_keyboard,
     build_rules_consent_inline_keyboard,
 )
-from vtelemax.core import BUTTON_ACCEPT_RULES, BUTTON_DOCS_LINK
+from vtelemax.core import BUTTON_ACCEPT_RULES, BUTTON_DOCS_LINK, BUTTON_RETRY_IIKO_SYNC
 
 
 def test_build_rules_consent_keyboard_contains_docs_and_accept_buttons() -> None:
@@ -45,3 +46,15 @@ def test_build_contact_request_keyboard_contains_request_contact_button() -> Non
     button = keyboard.keyboard[0][0]
     assert button.text
     assert button.request_contact is True
+
+
+def test_build_iiko_sync_retry_keyboard_contains_retry_button() -> None:
+    """Проверяет inline-клавиатуру повтора синхронизации с iiko."""
+
+    keyboard = build_iiko_sync_retry_inline_keyboard()
+
+    assert len(keyboard.inline_keyboard) == 1
+    assert len(keyboard.inline_keyboard[0]) == 1
+    button = keyboard.inline_keyboard[0][0]
+    assert button.text == BUTTON_RETRY_IIKO_SYNC
+    assert button.callback_data == BUTTON_RETRY_IIKO_SYNC

@@ -32,6 +32,7 @@ from vtelemax.core import (
     BUTTON_PROFILE_EDIT_GENDER_FEMALE,
     BUTTON_PROFILE_EDIT_GENDER_MALE,
     BUTTON_PROFILE_EDIT_LAST_NAME,
+    BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT,
     BUTTON_SUPPORT_CONTACTS,
@@ -84,6 +85,16 @@ def build_notifications_consent_inline_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=BUTTON_NOTIFICATIONS_DOCS, url=NOTIFICATIONS_DOCS_URL)],
             [InlineKeyboardButton(text=BUTTON_NOTIFICATIONS_YES, callback_data=NOTIFY_YES_CALLBACK)],
             [InlineKeyboardButton(text=BUTTON_NOTIFICATIONS_NO, callback_data=NOTIFY_NO_CALLBACK)],
+        ]
+    )
+
+
+def build_iiko_sync_retry_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру повторной синхронизации с iiko."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTON_RETRY_IIKO_SYNC, callback_data=BUTTON_RETRY_IIKO_SYNC)],
         ]
     )
 

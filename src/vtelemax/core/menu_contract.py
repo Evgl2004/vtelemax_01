@@ -45,6 +45,7 @@ class GuestMenuAction(StrEnum):
     OPEN_DOCS = "open_docs"
     NOTIFY_YES = "notify_yes"
     NOTIFY_NO = "notify_no"
+    RETRY_IIKO_SYNC = "retry_iiko_sync"
 
 
 @dataclass(frozen=True, slots=True)

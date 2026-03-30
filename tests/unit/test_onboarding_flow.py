@@ -54,3 +54,9 @@ def test_onboarding_begin_legacy_requests_phone_confirmation() -> None:
     assert transition.status == "legacy_phone_confirmation_required"
     assert transition.requires_contact_keyboard is True
     assert "предыдущей версии" in transition.message
+
+
+def test_onboarding_state_declares_iiko_sync_waiting_step() -> None:
+    """Проверяет наличие отдельного состояния ожидания синхронизации с iiko."""
+
+    assert OnboardingState.WAITING_IIKO_SYNC.value == "waiting_iiko_sync"

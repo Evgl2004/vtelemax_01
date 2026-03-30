@@ -21,6 +21,7 @@ from vtelemax.core import (
     LoyaltyCard,
     LoyaltyCustomer,
     LoyaltyGateway,
+    LoyaltyGatewayError,
     LoyaltyIssueCardResult,
     LoyaltyRegisterCustomerResult,
     RegisterOrAttachAccountCommand,
@@ -69,6 +70,42 @@ class StubLoyaltyGateway(LoyaltyGateway):
 
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         return self._customer
+
+    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+        return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
+
+    def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
+        return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
+
+
+class AlwaysFailLoyaltyGateway(LoyaltyGateway):
+    """Тестовый шлюз, который всегда возвращает ошибку iiko."""
+
+    def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
+        raise LoyaltyGatewayError("temporary unavailable")
+
+    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+        raise LoyaltyGatewayError("temporary unavailable")
+
+    def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
+        raise LoyaltyGatewayError("temporary unavailable")
+
+
+class FlakyLoyaltyGateway(LoyaltyGateway):
+    """Тестовый шлюз: первая попытка падает, повторная — успешна."""
+
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
+        self._calls += 1
+        if self._calls == 1:
+            raise LoyaltyGatewayError("temporary unavailable")
+        return LoyaltyCustomer(
+            customer_id="cust-1",
+            balance=0.0,
+            cards=(LoyaltyCard(number="79123456789_20260325"),),
+        )
 
     def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
         return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
@@ -442,6 +479,68 @@ def test_telegram_start_interaction_for_registered_user_returns_menu() -> None:
     assert result.status == "menu"
     assert "главном меню" in result.message
     assert "Иван" in result.message
+
+
+def test_telegram_onboarding_iiko_failure_moves_to_retry_step() -> None:
+    """Проверяет отдельный шаг retry, если синхронизация с iiko не удалась."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        virtual_card_use_case=GetVirtualCardUseCase(AlwaysFailLoyaltyGateway()),
+    )
+
+    adapter.start_interaction(telegram_user_id=3003)
+    adapter.handle_menu_action(telegram_user_id=3003, action_text="✅ Согласен")
+    adapter.register_contact(telegram_user_id=3003, raw_phone="+79123456789")
+    adapter.handle_menu_action(telegram_user_id=3003, action_text="Иван")
+    failure_result = adapter.handle_menu_action(telegram_user_id=3003, action_text="Да")
+
+    assert failure_result.status == "iiko_sync_retry"
+    assert "синхронизац" in failure_result.message.lower()
+
+    pending_result = adapter.handle_menu_action(telegram_user_id=3003, action_text="/menu")
+    assert pending_result.status == "iiko_sync_retry_pending"
+    assert "Повторить синхронизацию" in pending_result.message
+
+
+def test_telegram_onboarding_iiko_retry_eventually_returns_menu() -> None:
+    """Проверяет успешный выход в меню после повторной синхронизации iiko."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        virtual_card_use_case=GetVirtualCardUseCase(FlakyLoyaltyGateway()),
+    )
+
+    adapter.start_interaction(telegram_user_id=3004)
+    adapter.handle_menu_action(telegram_user_id=3004, action_text="✅ Согласен")
+    adapter.register_contact(telegram_user_id=3004, raw_phone="+79123456789")
+    adapter.handle_menu_action(telegram_user_id=3004, action_text="Иван")
+
+    first_try = adapter.handle_menu_action(telegram_user_id=3004, action_text="Да")
+    second_try = adapter.handle_menu_action(
+        telegram_user_id=3004,
+        action_text="🔄 Повторить синхронизацию",
+    )
+
+    assert first_try.status == "iiko_sync_retry"
+    assert second_try.status == "menu"
+    assert second_try.virtual_card_numbers == ("79123456789_20260325",)
 
 
 def test_telegram_legacy_upgrade_flow_reuses_phone_confirmation() -> None:
