@@ -43,6 +43,7 @@ from .menu import (
     BUTTON_MY_TICKETS,
     build_back_to_main_inline_keyboard,
     build_back_to_support_inline_keyboard,
+    build_contact_request_keyboard,
     build_main_menu_inline_keyboard,
     build_notifications_consent_inline_keyboard,
     build_profile_edit_inline_keyboard,
@@ -187,6 +188,8 @@ def build_telegram_identity_router(
         """Выбирает клавиатуру для ответа на основе результата адаптера."""
         if result.status in {"rules_consent_required", "rules_consent_pending"}:
             return build_rules_consent_inline_keyboard()
+        if result.requires_contact_keyboard:
+            return build_contact_request_keyboard()
         if result.status in {"phone_required", "phone_validation_error"}:
             return None
         if result.status in {"notifications_consent_required", "notifications_consent_pending"}:

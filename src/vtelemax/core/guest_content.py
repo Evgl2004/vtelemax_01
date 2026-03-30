@@ -155,11 +155,15 @@ def build_start_contact_screen(platform: str = "telegram") -> MenuScreenContract
     """Экран запроса номера телефона (эталонный текст)."""
 
     text = CONTACT_SCREEN_TEXTS.get(platform, CONTACT_SCREEN_TEXTS["telegram"])
+    buttons: tuple[MenuButtonContract, ...]
+    if platform in {"telegram", "max"}:
+        buttons = (MenuButtonContract(action=GuestMenuAction.SHARE_CONTACT, label=BUTTON_SEND_PHONE),)
+    else:
+        buttons = ()
     return MenuScreenContract(
         screen_id="start_contact",
         text=text,
-        # Временное решение: телефон вводится текстом, без кнопки "Поделиться контактом".
-        buttons=(),
+        buttons=buttons,
     )
 
 

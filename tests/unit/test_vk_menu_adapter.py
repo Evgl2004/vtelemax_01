@@ -53,3 +53,12 @@ def test_vk_start_rules_screen_has_rules_and_consent_buttons() -> None:
     assert len(screen.rows) == 2
     assert screen.rows[0][0].url is not None
     assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
+
+
+def test_vk_start_contact_screen_has_no_buttons_for_manual_input() -> None:
+    """Проверяет, что VK-экран телефона не содержит кнопок и ждёт ручной ввод."""
+
+    adapter = VkGuestMenuAdapter()
+    screen = adapter.build_start_contact_screen()
+
+    assert screen.rows == ()

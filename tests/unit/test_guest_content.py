@@ -46,7 +46,18 @@ def test_resolve_guest_menu_action_detects_text_and_command() -> None:
 
 
 def test_start_contact_screen_contains_phone_prompt() -> None:
-    """Проверяет наличие текстового запроса ручного ввода телефона."""
+    """Проверяет платформенное поведение экрана запроса телефона."""
 
-    screen = build_start_contact_screen()
-    assert "+79991234567" in screen.text
+    telegram_screen = build_start_contact_screen(platform="telegram")
+    vk_screen = build_start_contact_screen(platform="vk")
+    max_screen = build_start_contact_screen(platform="max")
+
+    assert "+79991234567" in telegram_screen.text
+    assert "+79991234567" in vk_screen.text
+    assert "+79991234567" in max_screen.text
+
+    assert len(telegram_screen.buttons) == 1
+    assert telegram_screen.buttons[0].action == GuestMenuAction.SHARE_CONTACT
+    assert vk_screen.buttons == ()
+    assert len(max_screen.buttons) == 1
+    assert max_screen.buttons[0].action == GuestMenuAction.SHARE_CONTACT
