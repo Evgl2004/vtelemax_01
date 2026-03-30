@@ -44,10 +44,12 @@ def test_vk_support_menu_respects_my_tickets_flag() -> None:
     assert "📋 Мои обращения" in labels_with
 
 
-def test_vk_start_rules_screen_has_no_buttons_in_temporary_text_mode() -> None:
-    """Проверяет, что на экране правил временно отключены кнопки onboarding."""
+def test_vk_start_rules_screen_has_rules_and_consent_buttons() -> None:
+    """Проверяет, что на экране правил есть кнопка документов и кнопка согласия."""
 
     adapter = VkGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
 
-    assert screen.rows == ()
+    assert len(screen.rows) == 2
+    assert screen.rows[0][0].url is not None
+    assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value

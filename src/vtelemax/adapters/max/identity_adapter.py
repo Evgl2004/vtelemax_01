@@ -1272,6 +1272,14 @@ class MaxIdentityAdapter:
             )
 
         result = self._virtual_card_use_case.execute(phone_e164=person_phone_e164)
+        if result.status == "virtual_card" and result.card_numbers:
+            followup_screen = self._menu_adapter.build_virtual_card_result_screen()
+            return MaxAdapterResponse(
+                text=followup_screen.text,
+                screen=followup_screen,
+                parse_mode=followup_screen.parse_mode,
+                virtual_card_numbers=result.card_numbers,
+            )
         return MaxAdapterResponse(
             text=result.message,
             parse_mode="markdown" if result.parse_mode == "markdown" else None,

@@ -145,16 +145,24 @@ def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
     assert "Команда не распознана" in max_result.text
 
 
-def test_rules_screen_has_no_buttons_in_temporary_text_mode() -> None:
-    """Проверяет, что в onboarding-экране правил кнопки временно отключены."""
+def test_rules_screen_has_expected_inline_buttons() -> None:
+    """Проверяет, что экран правил содержит кнопку документов и кнопку согласия."""
     vk_adapter = VkGuestMenuAdapter()
     max_adapter = MaxGuestMenuAdapter()
 
     vk_screen = vk_adapter.build_start_rules_screen()
     max_screen = max_adapter.build_start_rules_screen()
 
-    assert vk_screen.rows == ()
-    assert max_screen.rows == ()
+    assert len(vk_screen.rows) == 2
+    assert len(max_screen.rows) == 2
+    assert isinstance(vk_screen.rows[0][0], VkButton)
+    assert isinstance(vk_screen.rows[1][0], VkButton)
+    assert isinstance(max_screen.rows[0][0], MaxButton)
+    assert isinstance(max_screen.rows[1][0], MaxButton)
+    assert vk_screen.rows[0][0].url is not None
+    assert max_screen.rows[0][0].url is not None
+    assert vk_screen.rows[1][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
+    assert max_screen.rows[1][0].payload == GuestMenuAction.ACCEPT_RULES.value
 
 
 def test_contact_screen_has_no_buttons_in_temporary_text_mode() -> None:

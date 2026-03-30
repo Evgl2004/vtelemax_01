@@ -44,9 +44,11 @@ from .menu import (
     build_back_to_main_inline_keyboard,
     build_back_to_support_inline_keyboard,
     build_main_menu_inline_keyboard,
+    build_notifications_consent_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
     build_profile_inline_keyboard,
+    build_rules_consent_inline_keyboard,
     build_support_menu_inline_keyboard,
     BUTTON_PROFILE,
     BUTTON_SUPPORT,
@@ -153,11 +155,11 @@ def build_telegram_identity_router(
     def _choose_reply_markup(result: TelegramMenuActionResult) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
         """Выбирает клавиатуру для ответа на основе результата адаптера."""
         if result.status in {"rules_consent_required", "rules_consent_pending"}:
-            return None
+            return build_rules_consent_inline_keyboard()
         if result.status in {"phone_required", "phone_validation_error"}:
             return None
         if result.status in {"notifications_consent_required", "notifications_consent_pending"}:
-            return None
+            return build_notifications_consent_inline_keyboard()
         if result.status in {"support", "tickets_list", "tickets_empty"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status in {"support_feedback", "support_question", "support_contacts", "support_question_empty"}:

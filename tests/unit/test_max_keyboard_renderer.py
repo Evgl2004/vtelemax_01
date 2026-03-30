@@ -27,12 +27,12 @@ def test_render_max_keyboard_returns_none_for_screen_without_buttons() -> None:
     assert keyboard is None
 
 
-def test_render_max_keyboard_returns_none_for_start_rules_in_temporary_text_mode() -> None:
-    """Проверяет, что для onboarding-экрана правил клавиатура временно не рендерится."""
+def test_render_max_keyboard_returns_markup_for_start_rules() -> None:
+    """Проверяет, что для onboarding-экрана правил рендерится клавиатура."""
 
     adapter = MaxGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
 
     keyboard = render_max_keyboard(screen)
 
-    assert keyboard is None
+    assert keyboard is not None

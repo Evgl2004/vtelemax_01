@@ -261,8 +261,8 @@ def test_telegram_adapter_returns_virtual_card_from_loyalty_use_case() -> None:
     result = adapter.handle_menu_action(telegram_user_id=1001, action_text="🪪 Виртуальная карта")
 
     assert result.status == "virtual_card"
-    assert "79123456789_20260325" in result.message
-    assert result.parse_mode == "Markdown"
+    assert "Назад в меню" in result.message
+    assert result.parse_mode is None
     assert result.virtual_card_numbers == ("79123456789_20260325",)
 
 

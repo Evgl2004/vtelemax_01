@@ -60,6 +60,7 @@ from vtelemax.core import (
     build_support_feedback_screen,
     build_support_menu_screen,
     build_support_question_screen,
+    build_virtual_card_result_screen,
     build_vacancies_screen,
     normalize_email,
     normalize_menu_text,
@@ -1413,6 +1414,15 @@ class TelegramIdentityAdapter:
             )
 
         result = self._virtual_card_use_case.execute(phone_e164=person.phone_e164)
+        if result.status == "virtual_card" and result.card_numbers:
+            followup_screen = build_virtual_card_result_screen()
+            return TelegramMenuActionResult(
+                status=result.status,
+                message=followup_screen.text,
+                parse_mode=None,
+                virtual_card_numbers=result.card_numbers,
+            )
+
         return TelegramMenuActionResult(
             status=result.status,
             message=result.message,

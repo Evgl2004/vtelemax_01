@@ -140,8 +140,14 @@ def build_start_rules_screen() -> MenuScreenContract:
             "👉 Ознакомься с документами по ссылке ниже и отправь сообщение «✅ Согласен».\n\n"
             "После ознакомления отправьте сообщение «✅ Согласен»."
         ),
-        # Временное решение: onboarding проходит без кнопок, только текстовыми ответами.
-        buttons=(),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_DOCS_LINK,
+                url="https://sagur.24vds.ru/agreement/#",
+            ),
+            MenuButtonContract(action=GuestMenuAction.ACCEPT_RULES, label=BUTTON_ACCEPT_RULES),
+        ),
     )
 
 
@@ -179,14 +185,34 @@ def build_notifications_consent_screen(profile_text: str | None = None) -> MenuS
 
     notification_text = (
         "📣 Мы хотим радовать вас персональными предложениями и акциями.\n"
-        "Ознакомьтесь с условиями получения уведомлений и отправьте сообщение «Да» или «Нет»."
+        "Ознакомьтесь с условиями получения уведомлений по ссылке ниже и сделайте выбор:"
     )
     full_text = notification_text if not profile_text else f"{profile_text}\n\n{notification_text}"
     return MenuScreenContract(
         screen_id="notifications_consent",
         text=full_text,
-        # Временное решение: выбор уведомлений текстом, без inline-кнопок.
-        buttons=(),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_NOTIFICATIONS_DOCS,
+                url="https://sagur.24vds.ru/notifications/#",
+            ),
+            MenuButtonContract(action=GuestMenuAction.NOTIFY_YES, label=BUTTON_NOTIFICATIONS_YES),
+            MenuButtonContract(action=GuestMenuAction.NOTIFY_NO, label=BUTTON_NOTIFICATIONS_NO),
+        ),
+    )
+
+
+def build_virtual_card_result_screen() -> MenuScreenContract:
+    """Экран-подтверждение после отправки QR-кодов виртуальной карты."""
+
+    return MenuScreenContract(
+        screen_id="virtual_card_result",
+        text=(
+            "🪪 Список виртуальных карт и QR-коды отправлены выше.\n\n"
+            "Нажмите «🔙 Назад в меню», чтобы вернуться к разделам."
+        ),
+        buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),),
     )
 
 

@@ -33,12 +33,15 @@ def test_render_vk_keyboard_returns_none_for_screen_without_buttons() -> None:
     assert keyboard_json is None
 
 
-def test_render_vk_start_rules_keyboard_is_absent_in_temporary_text_mode() -> None:
-    """Проверяет, что для onboarding-экрана правил клавиатура временно не рендерится."""
+def test_render_vk_start_rules_keyboard_contains_inline_buttons() -> None:
+    """Проверяет, что для onboarding-экрана правил рендерится inline-клавиатура."""
 
     adapter = VkGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
 
     keyboard_json = render_vk_keyboard(screen)
 
-    assert keyboard_json is None
+    assert keyboard_json is not None
+    parsed = json.loads(keyboard_json)
+    assert parsed["inline"] is True
+    assert len(parsed["buttons"]) == 2

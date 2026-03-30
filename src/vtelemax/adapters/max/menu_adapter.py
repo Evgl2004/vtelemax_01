@@ -17,6 +17,7 @@ from vtelemax.core import (
     build_profile_gender_screen,
     build_profile_not_found_screen,
     build_profile_screen,
+    build_virtual_card_result_screen,
     build_start_contact_screen,
     build_start_rules_screen,
     build_support_contacts_screen,
@@ -230,6 +231,13 @@ class MaxGuestMenuAdapter:
 
         screen = build_support_contacts_screen()
         rows = ((_to_max_button(screen.buttons[0]),),) if screen.buttons else ()
+        return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
+    def build_virtual_card_result_screen(self) -> MaxScreen:
+        """Экран после отправки QR-кодов виртуальной карты."""
+
+        screen = build_virtual_card_result_screen()
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def resolve_action_screen(
