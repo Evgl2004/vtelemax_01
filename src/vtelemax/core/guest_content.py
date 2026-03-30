@@ -129,7 +129,13 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_NOTIFICATIONS_NO.lower(): GuestMenuAction.NOTIFY_NO,
         BUTTON_RETRY_IIKO_SYNC.lower(): GuestMenuAction.RETRY_IIKO_SYNC,
     }
-    return mapping.get(normalized)
+    action = mapping.get(normalized)
+    if action is not None:
+        return action
+    try:
+        return GuestMenuAction(normalized)
+    except ValueError:
+        return None
 
 
 def build_start_rules_screen() -> MenuScreenContract:

@@ -7,9 +7,18 @@ from vtelemax.adapters.telegram.menu import (
     RULES_ACCEPT_CALLBACK,
     build_contact_request_keyboard,
     build_iiko_sync_retry_inline_keyboard,
+    build_main_menu_inline_keyboard,
+    build_profile_edit_inline_keyboard,
+    build_profile_gender_inline_keyboard,
     build_rules_consent_inline_keyboard,
+    build_support_menu_inline_keyboard,
 )
-from vtelemax.core import BUTTON_ACCEPT_RULES, BUTTON_DOCS_LINK, BUTTON_RETRY_IIKO_SYNC
+from vtelemax.core import (
+    BUTTON_ACCEPT_RULES,
+    BUTTON_DOCS_LINK,
+    BUTTON_RETRY_IIKO_SYNC,
+    GuestMenuAction,
+)
 
 
 def test_build_rules_consent_keyboard_contains_docs_and_accept_buttons() -> None:
@@ -57,4 +66,26 @@ def test_build_iiko_sync_retry_keyboard_contains_retry_button() -> None:
     assert len(keyboard.inline_keyboard[0]) == 1
     button = keyboard.inline_keyboard[0][0]
     assert button.text == BUTTON_RETRY_IIKO_SYNC
-    assert button.callback_data == BUTTON_RETRY_IIKO_SYNC
+    assert button.callback_data == GuestMenuAction.RETRY_IIKO_SYNC.value
+
+
+def test_all_telegram_callback_data_fit_telegram_limits() -> None:
+    """Проверяет, что callback_data не превышает лимит Telegram (64 байта)."""
+
+    keyboards = [
+        build_main_menu_inline_keyboard(),
+        build_support_menu_inline_keyboard(has_tickets=False),
+        build_support_menu_inline_keyboard(has_tickets=True),
+        build_profile_edit_inline_keyboard(can_edit_birth_date=True),
+        build_profile_edit_inline_keyboard(can_edit_birth_date=False),
+        build_profile_gender_inline_keyboard(),
+        build_iiko_sync_retry_inline_keyboard(),
+    ]
+
+    for keyboard in keyboards:
+        for row in keyboard.inline_keyboard:
+            for button in row:
+                callback_data = button.callback_data
+                if callback_data is None:
+                    continue
+                assert len(callback_data.encode("utf-8")) <= 64

@@ -18,7 +18,7 @@ from aiogram.types import (
 )
 from loguru import logger
 
-from vtelemax.core import BUTTON_ACCEPT_RULES
+from vtelemax.core import BUTTON_ACCEPT_RULES, GuestMenuAction
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
@@ -125,26 +125,6 @@ def build_telegram_identity_router(
                 caption=f"💳 Карта: {card_number}",
             )
 
-    async def _cleanup_legacy_reply_keyboard(*, bot: Bot, chat_id: int) -> None:
-        """Очищает reply-клавиатуру в чате перед inline-сценариями."""
-
-        cleanup_logger = router_logger.bind(stage="reply_keyboard_cleanup", user_id=str(chat_id))
-        try:
-            cleanup_message = await bot.send_message(
-                chat_id=chat_id,
-                text="\u2060",
-                reply_markup=ReplyKeyboardRemove(),
-            )
-        except Exception:  # noqa: BLE001
-            cleanup_logger.debug("Не удалось отправить служебную очистку reply-клавиатуры.")
-            return
-
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=cleanup_message.message_id)
-        except Exception:  # noqa: BLE001
-            # Не блокируем основной сценарий, если удалить служебное сообщение не удалось.
-            cleanup_logger.debug("Не удалось удалить служебное сообщение очистки reply-клавиатуры.")
-
     async def _answer_with_result(
         *,
         message: Message,
@@ -153,8 +133,6 @@ def build_telegram_identity_router(
     ) -> None:
         """Отправляет результат адаптера для message-handler, включая QR при необходимости."""
 
-        if isinstance(reply_markup, InlineKeyboardMarkup):
-            await _cleanup_legacy_reply_keyboard(bot=message.bot, chat_id=message.chat.id)
         await _send_virtual_card_qr(bot=message.bot, chat_id=message.chat.id, result=result)
         await message.answer(
             result.message,
@@ -171,8 +149,6 @@ def build_telegram_identity_router(
     ) -> None:
         """Отправляет результат адаптера напрямую в чат, включая QR при необходимости."""
 
-        if isinstance(reply_markup, InlineKeyboardMarkup):
-            await _cleanup_legacy_reply_keyboard(bot=bot, chat_id=chat_id)
         await _send_virtual_card_qr(bot=bot, chat_id=chat_id, result=result)
         await bot.send_message(
             chat_id=chat_id,
@@ -503,6 +479,28 @@ def build_telegram_identity_router(
     @router.callback_query(
         F.data.in_(
             [
+                GuestMenuAction.BALANCE.value,
+                GuestMenuAction.VIRTUAL_CARD.value,
+                GuestMenuAction.SUPPORT.value,
+                GuestMenuAction.VACANCIES.value,
+                GuestMenuAction.PROFILE.value,
+                GuestMenuAction.SUPPORT_FEEDBACK.value,
+                GuestMenuAction.SUPPORT_QUESTION.value,
+                GuestMenuAction.SUPPORT_CONTACTS.value,
+                GuestMenuAction.MY_TICKETS.value,
+                GuestMenuAction.BACK_TO_MAIN.value,
+                GuestMenuAction.BACK_TO_SUPPORT.value,
+                GuestMenuAction.PROFILE_EDIT.value,
+                GuestMenuAction.PROFILE_EDIT_FIRST_NAME.value,
+                GuestMenuAction.PROFILE_EDIT_LAST_NAME.value,
+                GuestMenuAction.PROFILE_EDIT_GENDER.value,
+                GuestMenuAction.PROFILE_EDIT_BIRTH_DATE.value,
+                GuestMenuAction.PROFILE_EDIT_EMAIL.value,
+                GuestMenuAction.PROFILE_EDIT_CANCEL.value,
+                GuestMenuAction.PROFILE_EDIT_GENDER_MALE.value,
+                GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE.value,
+                GuestMenuAction.RETRY_IIKO_SYNC.value,
+                # Поддерживаем старые callback_data, которые могли остаться в уже отправленных сообщениях.
                 BUTTON_BALANCE,
                 BUTTON_VIRTUAL_CARD,
                 BUTTON_SUPPORT,
