@@ -217,5 +217,46 @@ def test_migrate_prepared_legacy_records_applies_changes_for_create_and_attach()
     assert person_101.person_id == person_202.person_id
     assert person_101.is_legacy is True
     assert person_101.is_registered is False
-    assert person_101.rules_accepted is True
+    assert person_101.rules_accepted is False
     assert person_101.phone_verification_method == LEGACY_PHONE_VERIFICATION_METHOD
+
+
+def test_migrate_attach_does_not_degrade_registered_non_legacy_profile() -> None:
+    """Проверяет, что attach из legacy-источника не сбрасывает уже активный профиль."""
+
+    repository = InMemoryIdentityRepository()
+    register_use_case = RegisterOrAttachAccountUseCase(repository)
+    lookup = GetPersonByAccountUseCase(repository)
+
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-500",
+            raw_phone="+79128880001",
+            rules_accepted=True,
+            is_registered=True,
+            is_legacy=False,
+        )
+    )
+
+    report = migrate_prepared_legacy_records(
+        (
+            PreparedLegacyTelegramRecord(
+                telegram_user_id="tg-500",
+                raw_phone="+79128880001",
+                phone_e164="+79128880001",
+                source_created_at=None,
+            ),
+        ),
+        uow_factory=lambda: InMemoryIdentityUnitOfWork(repository),
+        dry_run=False,
+        progress_every=1,
+        log=lambda _: None,
+    )
+
+    assert report.attached_count == 1
+    person = lookup.execute(GetPersonByAccountCommand(platform="telegram", external_id="tg-500"))
+    assert person is not None
+    assert person.rules_accepted is True
+    assert person.is_registered is True
+    assert person.is_legacy is False

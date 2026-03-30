@@ -250,14 +250,33 @@ def migrate_prepared_legacy_records(
                         updated_count += 1
                 else:
                     fixed_at = record.source_created_at or datetime.now(timezone.utc)
+                    # Важное правило: согласие с новыми правилами НЕ переносится из legacy.
+                    # Для новых (create) записей принудительно сохраняем состояние "согласие не дано".
+                    # Для attach/update не трогаем признаки согласий и регистрации,
+                    # чтобы не деградировать уже активные профили из других каналов.
+                    rules_accepted_value: bool | None
+                    rules_accepted_at_value: datetime | None
+                    is_legacy_value: bool | None
+                    is_registered_value: bool | None
+                    if predicted_action == "create":
+                        rules_accepted_value = False
+                        rules_accepted_at_value = None
+                        is_legacy_value = True
+                        is_registered_value = False
+                    else:
+                        rules_accepted_value = None
+                        rules_accepted_at_value = None
+                        is_legacy_value = None
+                        is_registered_value = None
+
                     command = RegisterOrAttachAccountCommand(
                         platform="telegram",
                         external_id=record.telegram_user_id,
                         raw_phone=record.phone_e164,
-                        rules_accepted=True,
-                        rules_accepted_at=fixed_at,
-                        is_legacy=True,
-                        is_registered=False,
+                        rules_accepted=rules_accepted_value,
+                        rules_accepted_at=rules_accepted_at_value,
+                        is_legacy=is_legacy_value,
+                        is_registered=is_registered_value,
                         phone_verified_at=fixed_at,
                         phone_verification_method=LEGACY_PHONE_VERIFICATION_METHOD,
                     )

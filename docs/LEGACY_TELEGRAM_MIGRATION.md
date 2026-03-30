@@ -37,7 +37,7 @@
 3. `raw_phone = phone` из source c нормализацией в `+7XXXXXXXXXX`;
 4. `is_legacy = true`;
 5. `is_registered = false`;
-6. `rules_accepted = true` и `rules_accepted_at = created_at source (или now)`;
+6. `rules_accepted = false` и `rules_accepted_at = null` (новые правила подтверждаются заново в новом боте);
 7. `phone_verified_at = created_at source (или now)`;
 8. `phone_verification_method = legacy_import_sobalbot`.
 
