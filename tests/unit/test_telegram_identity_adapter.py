@@ -474,8 +474,8 @@ def test_telegram_legacy_upgrade_flow_reuses_phone_confirmation() -> None:
     assert "Регистрация успешно завершена." in finish.message
 
 
-def test_telegram_support_question_creates_ticket_when_support_use_case_connected() -> None:
-    """Проверяет создание тикета после шага `SUPPORT_QUESTION`."""
+def test_telegram_support_question_reports_feature_in_development() -> None:
+    """Проверяет, что пункт «Мне только спросить» помечен как неготовый для пользователей."""
 
     repository = InMemoryIdentityRepository()
     support_repository = InMemorySupportRepository()
@@ -494,18 +494,17 @@ def test_telegram_support_question_creates_ticket_when_support_use_case_connecte
     )
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
     result = adapter.handle_menu_action(
         telegram_user_id=1001,
-        action_text="Подскажите, как активировать карту?",
+        action_text="❓ Мне только спросить (В разработке)",
     )
 
-    assert result.status == "support_question_submitted"
-    assert "Создан тикет #" in result.message
+    assert result.status == "support_question_unavailable"
+    assert "в разработке" in result.message.lower()
 
 
 def test_telegram_support_question_flow_allows_back_to_support_menu() -> None:
-    """При вводе вопроса кнопка «Назад в отдел заботы» должна возвращать в меню заботы."""
+    """После открытия неготового пункта возврат в меню заботы должен работать штатно."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -517,10 +516,13 @@ def test_telegram_support_question_flow_allows_back_to_support_menu() -> None:
     adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    first = adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
+    first = adapter.handle_menu_action(
+        telegram_user_id=1001,
+        action_text="❓ Мне только спросить (В разработке)",
+    )
     back = adapter.handle_menu_action(telegram_user_id=1001, action_text="🔙 Назад в отдел заботы")
 
-    assert first.status == "support_question"
+    assert first.status == "support_question_unavailable"
     assert back.status == "support"
     assert "Отдел заботы" in back.message
 
@@ -549,8 +551,13 @@ def test_telegram_my_tickets_shows_created_tickets() -> None:
     )
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
-    adapter.handle_menu_action(telegram_user_id=1001, action_text="Нужна помощь")
+    create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="1001",
+            question_text="Нужна помощь",
+        )
+    )
     result = adapter.handle_menu_action(telegram_user_id=1001, action_text="📋 Мои обращения")
 
     assert result.status == "tickets_list"
@@ -596,9 +603,14 @@ def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> N
         )
     )
 
-    adapter.handle_menu_action(telegram_user_id=1001, action_text="❓ Мне только спросить")
-    ticket_result = adapter.handle_menu_action(telegram_user_id=1001, action_text="Нужна помощь")
-    ticket_id = ticket_result.message.split("#")[1].split("\n")[0].strip()
+    created_ticket = create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="1001",
+            question_text="Нужна помощь",
+        )
+    )
+    ticket_id = str(created_ticket.ticket_id)
 
     reply = adapter.handle_menu_action(
         telegram_user_id=9999,

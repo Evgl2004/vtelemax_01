@@ -196,7 +196,13 @@ def build_telegram_identity_router(
             return build_notifications_consent_inline_keyboard()
         if result.status in {"support", "tickets_list", "tickets_empty"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
-        if result.status in {"support_feedback", "support_question", "support_contacts", "support_question_empty"}:
+        if result.status in {
+            "support_feedback",
+            "support_question",
+            "support_contacts",
+            "support_question_empty",
+            "support_question_unavailable",
+        }:
             return back_to_support_keyboard
         if result.status in {
             "balance",

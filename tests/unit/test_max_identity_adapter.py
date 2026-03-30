@@ -6,6 +6,7 @@ from types import TracebackType
 
 from vtelemax.adapters.max import MaxIdentityAdapter
 from vtelemax.core import (
+    CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
     GetPersonByAccountTransactionalUseCase,
@@ -112,6 +113,7 @@ def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
 def _build_adapter_with_support_context() -> tuple[
     MaxIdentityAdapter,
     RegisterOrAttachAccountTransactionalUseCase,
+    CreateSupportTicketTransactionalUseCase,
 ]:
     repository = InMemoryIdentityRepository()
     support_repository = InMemorySupportRepository()
@@ -140,13 +142,18 @@ def _build_adapter_with_support_context() -> tuple[
         list_open_tickets_use_case=list_open_tickets_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
     )
-    return adapter, registration_use_case
+    return adapter, registration_use_case, create_ticket_use_case
 
 
 def _complete_max_registration(adapter: MaxIdentityAdapter, max_user_id: int = 1001) -> None:
     adapter.handle_start(max_user_id=max_user_id)
     adapter.handle_incoming(max_user_id=max_user_id, text="✅ Согласен", payload=None)
-    adapter.handle_incoming(max_user_id=max_user_id, text="+79123456789", payload=None)
+    adapter.handle_incoming(
+        max_user_id=max_user_id,
+        text="",
+        payload=None,
+        contact_phone="+79123456789",
+    )
     adapter.handle_incoming(max_user_id=max_user_id, text="Иван", payload=None)
     adapter.handle_incoming(max_user_id=max_user_id, text="Да", payload=None)
 
@@ -171,7 +178,7 @@ def test_max_onboarding_moves_from_rules_to_phone() -> None:
 
     response = adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
-    assert "+79991234567" in response.text
+    assert "Поделиться контактом" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
 
@@ -196,7 +203,12 @@ def test_max_registration_by_phone_after_rules_consent() -> None:
     adapter.handle_start(max_user_id=1001)
     adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
-    response = adapter.handle_incoming(max_user_id=1001, text="+7 (912) 345-67-89", payload=None)
+    response = adapter.handle_incoming(
+        max_user_id=1001,
+        text="",
+        payload=None,
+        contact_phone="+7 (912) 345-67-89",
+    )
 
     assert "имя" in response.text.lower()
     assert response.screen is None
@@ -294,39 +306,41 @@ def test_max_invalid_phone_returns_validation_error() -> None:
 
     response = adapter.handle_incoming(max_user_id=1001, text="abc", payload=None)
 
-    assert "Не удалось обработать номер телефона" in response.text
+    assert "только через кнопку" in response.text
 
 
 def test_max_support_question_flow_returns_to_main_menu() -> None:
-    """Проверяет сценарий вопроса в поддержку с возвратом в меню."""
+    """Проверяет, что пункт «Мне только спросить» помечен как неготовый для гостей."""
 
     adapter = _build_adapter()
     _complete_max_registration(adapter)
 
-    first = adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
-    second = adapter.handle_incoming(
+    result = adapter.handle_incoming(
         max_user_id=1001,
-        text="Когда начисляются бонусы?",
+        text="❓ Мне только спросить (В разработке)",
         payload=None,
     )
 
-    assert "Введите ваш вопрос" in first.text
-    assert "Ваш вопрос принят" in second.text
-    assert second.screen is not None
-    assert second.screen.screen_id == "main_menu"
+    assert "в разработке" in result.text.lower()
+    assert result.screen is not None
+    assert result.screen.screen_id == "support_menu"
 
 
 def test_max_support_question_flow_allows_back_to_support_by_callback() -> None:
-    """В состоянии ожидания вопроса кнопка «Назад в отдел заботы» должна возвращать в меню заботы."""
+    """После открытия неготового пункта callback «Назад в отдел заботы» оставляет в меню заботы."""
 
     adapter = _build_adapter(with_support=True)
     _complete_max_registration(adapter)
 
-    first = adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
+    first = adapter.handle_incoming(
+        max_user_id=1001,
+        text="❓ Мне только спросить (В разработке)",
+        payload=None,
+    )
     back = adapter.handle_incoming(max_user_id=1001, text="", payload="back_to_support")
 
     assert first.screen is not None
-    assert first.screen.screen_id == "support_question"
+    assert first.screen.screen_id == "support_menu"
     assert back.screen is not None
     assert back.screen.screen_id == "support_menu"
     assert "Отдел заботы" in back.text
@@ -335,11 +349,16 @@ def test_max_support_question_flow_allows_back_to_support_by_callback() -> None:
 def test_max_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения»: после создания тикета возвращается список."""
 
-    adapter = _build_adapter(with_support=True)
+    adapter, _, create_ticket_use_case = _build_adapter_with_support_context()
     _complete_max_registration(adapter)
 
-    adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
-    adapter.handle_incoming(max_user_id=1001, text="Нужна помощь", payload=None)
+    create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="max",
+            external_id="1001",
+            question_text="Нужна помощь",
+        )
+    )
     tickets_response = adapter.handle_incoming(max_user_id=1001, text="📋 Мои обращения", payload=None)
 
     assert "Ваши обращения" in tickets_response.text
@@ -353,7 +372,12 @@ def test_max_legacy_start_requests_phone_confirmation() -> None:
     _complete_max_registration(adapter)
 
     legacy_start = adapter.handle_legacy_start(max_user_id=1001)
-    confirm = adapter.handle_incoming(max_user_id=1001, text="+79123456789", payload=None)
+    confirm = adapter.handle_incoming(
+        max_user_id=1001,
+        text="",
+        payload=None,
+        contact_phone="+79123456789",
+    )
     finish = adapter.handle_incoming(max_user_id=1001, text="Да", payload=None)
 
     assert "предыдущей версии бота" in legacy_start.text
@@ -367,7 +391,7 @@ def test_max_legacy_start_requests_phone_confirmation() -> None:
 def test_max_moderator_reply_can_route_to_another_messenger() -> None:
     """Проверяет модерацию: ответ из MAX с доставкой в другой канал."""
 
-    adapter, register_use_case = _build_adapter_with_support_context()
+    adapter, register_use_case, create_ticket_use_case = _build_adapter_with_support_context()
     _complete_max_registration(adapter, max_user_id=1001)
 
     register_use_case.execute(
@@ -378,9 +402,14 @@ def test_max_moderator_reply_can_route_to_another_messenger() -> None:
         )
     )
 
-    adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
-    ticket_response = adapter.handle_incoming(max_user_id=1001, text="Нужна помощь", payload=None)
-    ticket_id = ticket_response.text.split("#")[1].split("\n")[0].strip()
+    created_ticket = create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="max",
+            external_id="1001",
+            question_text="Нужна помощь",
+        )
+    )
+    ticket_id = str(created_ticket.ticket_id)
 
     reply = adapter.handle_incoming(
         max_user_id=9999,
@@ -396,12 +425,17 @@ def test_max_moderator_reply_can_route_to_another_messenger() -> None:
 def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     """Проверяет `/mod`-меню: список тикетов, грязный UUID и успешный ответ."""
 
-    adapter, _ = _build_adapter_with_support_context()
+    adapter, _, create_ticket_use_case = _build_adapter_with_support_context()
     _complete_max_registration(adapter, max_user_id=1001)
 
-    adapter.handle_incoming(max_user_id=1001, text="❓ Мне только спросить", payload=None)
-    ticket_response = adapter.handle_incoming(max_user_id=1001, text="Нужна помощь", payload=None)
-    ticket_id = ticket_response.text.split("#")[1].split("\n")[0].strip()
+    created_ticket = create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="max",
+            external_id="1001",
+            question_text="Нужна помощь",
+        )
+    )
+    ticket_id = str(created_ticket.ticket_id)
 
     open_menu = adapter.handle_incoming(max_user_id=9999, text="/mod", payload=None)
     open_tickets = adapter.handle_incoming(max_user_id=9999, text="1", payload=None)

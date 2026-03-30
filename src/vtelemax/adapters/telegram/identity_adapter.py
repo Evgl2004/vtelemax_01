@@ -25,6 +25,7 @@ from vtelemax.core import (
     BUTTON_PROFILE_EDIT_GENDER_MALE,
     BUTTON_PROFILE_EDIT_LAST_NAME,
     BUTTON_SEND_PHONE,
+    BUTTON_SUPPORT_QUESTION,
     BUTTON_SUPPORT,
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
@@ -59,7 +60,6 @@ from vtelemax.core import (
     build_support_contacts_screen,
     build_support_feedback_screen,
     build_support_menu_screen,
-    build_support_question_screen,
     build_virtual_card_result_screen,
     build_vacancies_screen,
     normalize_email,
@@ -278,7 +278,7 @@ class TelegramIdentityAdapter:
             return TelegramRegistrationResult(
                 is_success=False,
                 status="validation_error",
-                message="Не удалось обработать телефон. Проверьте формат и отправьте контакт еще раз.",
+                message="Не удалось обработать контакт. Нажмите кнопку отправки контакта и попробуйте снова.",
             )
 
         draft.phone_e164 = person.phone_e164
@@ -490,13 +490,12 @@ class TelegramIdentityAdapter:
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
 
-            sync_message, registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
+            registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
             completion_parts = [
                 "✅ Регистрация успешно завершена.",
-                sync_message,
             ]
             if registration_card_numbers:
-                completion_parts.append("🪪 Сейчас отправлю QR-коды ваших карт.")
+                completion_parts.append("🪪 Выше представлены QR-коды ваших карт.")
             completion_parts.extend(
                 [
                     "ℹ️ Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».",
@@ -544,7 +543,21 @@ class TelegramIdentityAdapter:
             }:
                 self._dialog_state_by_user_id.pop(telegram_user_id, None)
                 return self.handle_menu_action(telegram_user_id=telegram_user_id, action_text=action_text)
-            return self._handle_support_question_input(telegram_user_id=telegram_user_id, question_text=action_text)
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            has_tickets = self._has_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
+            screen = build_support_menu_screen(has_tickets=has_tickets)
+            return TelegramMenuActionResult(
+                status="support_question_unavailable",
+                message=(
+                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
+                    "Выберите другой вариант в разделе «Отдел заботы»."
+                ),
+                parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+                has_support_tickets=has_tickets,
+            )
         if dialog_state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice_input(
                 telegram_user_id=telegram_user_id,
@@ -681,15 +694,17 @@ class TelegramIdentityAdapter:
             )
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
-            self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
-            screen = build_support_question_screen()
             has_tickets = self._has_user_tickets(
                 platform="telegram",
                 external_id=str(telegram_user_id),
             )
+            screen = build_support_menu_screen(has_tickets=has_tickets)
             return TelegramMenuActionResult(
-                status="support_question",
-                message=screen.text,
+                status="support_question_unavailable",
+                message=(
+                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
+                    "Выберите другой вариант в разделе «Отдел заботы»."
+                ),
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
                 has_support_tickets=has_tickets,
             )
@@ -723,7 +738,7 @@ class TelegramIdentityAdapter:
                     status="tickets_empty",
                     message=(
                         "📭 У вас пока нет обращений.\n\n"
-                        "Чтобы создать обращение, нажмите «❓ Мне только спросить» в меню отдела заботы."
+                        f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке."
                     ),
                     has_support_tickets=False,
                 )
@@ -930,7 +945,10 @@ class TelegramIdentityAdapter:
         if normalized_name is None:
             return TelegramMenuActionResult(
                 status="profile_edit_first_name_invalid",
-                message="Имя должно содержать только буквы, пробел и дефис (от 2 до 50 символов).",
+                message=(
+                    "⚠️ Не удалось сохранить имя.\n"
+                    "Используйте только буквы, пробел и дефис (от 2 до 50 символов)."
+                ),
             )
         return self._apply_profile_patch(
             telegram_user_id=telegram_user_id,
@@ -951,7 +969,10 @@ class TelegramIdentityAdapter:
         if normalized_last_name is None:
             return TelegramMenuActionResult(
                 status="profile_edit_last_name_invalid",
-                message="Фамилия должна содержать только буквы, пробел и дефис (от 2 до 50 символов).",
+                message=(
+                    "⚠️ Не удалось сохранить фамилию.\n"
+                    "Используйте только буквы, пробел и дефис (от 2 до 50 символов)."
+                ),
             )
         return self._apply_profile_patch(
             telegram_user_id=telegram_user_id,
@@ -983,7 +1004,7 @@ class TelegramIdentityAdapter:
         if gender is None:
             return TelegramMenuActionResult(
                 status="profile_edit_gender_invalid",
-                message="Выберите пол кнопками «👨 Мужской» или «👩 Женский».",
+                message="⚠️ Выберите пол кнопками «👨 Мужской» или «👩 Женский».",
             )
         return self._apply_profile_patch(
             telegram_user_id=telegram_user_id,
@@ -1010,14 +1031,20 @@ class TelegramIdentityAdapter:
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             return TelegramMenuActionResult(
                 status="profile_edit_birth_date_forbidden",
-                message="🎂 Дата рождения уже заполнена и не может быть изменена.",
+                message=(
+                    "🎂 Дата рождения уже заполнена и может быть указана только один раз.\n"
+                    "Если есть ошибка в данных, обратитесь к администратору."
+                ),
             )
 
         parsed_birth_date = parse_birth_date(action_text)
         if parsed_birth_date is None:
             return TelegramMenuActionResult(
                 status="profile_edit_birth_date_invalid",
-                message="Введите дату рождения в формате ДД.ММ.ГГГГ и не в будущем.",
+                message=(
+                    "⚠️ Некорректная дата рождения.\n"
+                    "Введите дату в формате ДД.ММ.ГГГГ и убедитесь, что она не в будущем."
+                ),
             )
         return self._apply_profile_patch(
             telegram_user_id=telegram_user_id,
@@ -1038,7 +1065,7 @@ class TelegramIdentityAdapter:
         if normalized is None:
             return TelegramMenuActionResult(
                 status="profile_edit_email_invalid",
-                message="Введите корректный email, например `name@example.com`.",
+                message="⚠️ Укажите корректный email, например `name@example.com`.",
                 parse_mode="Markdown",
             )
         return self._apply_profile_patch(
@@ -1086,7 +1113,10 @@ class TelegramIdentityAdapter:
         except (IdentityConflictError, ValueError):
             return TelegramMenuActionResult(
                 status="profile_edit_save_error",
-                message="Не удалось сохранить изменения профиля. Попробуйте еще раз позже.",
+                message=(
+                    "❌ Не удалось сохранить изменения профиля.\n"
+                    "Попробуйте ещё раз чуть позже."
+                ),
             )
 
         self._dialog_state_by_user_id.pop(telegram_user_id, None)
@@ -1413,8 +1443,9 @@ class TelegramIdentityAdapter:
             return TelegramMenuActionResult(
                 status="balance_unavailable",
                 message=(
-                    "❌ Информация о бонусах временно недоступна.\n"
-                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                    "❌ Сервис бонусов временно недоступен.\n"
+                    "Код ошибки: IIKO-BAL-000.\n"
+                    "Покажите это сообщение сотруднику и попробуйте позже."
                 ),
             )
 
@@ -1446,8 +1477,9 @@ class TelegramIdentityAdapter:
             return TelegramMenuActionResult(
                 status="virtual_card_unavailable",
                 message=(
-                    "❌ Раздел виртуальной карты временно недоступен.\n"
-                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                    "❌ Сервис виртуальной карты временно недоступен.\n"
+                    "Код ошибки: IIKO-CARD-000.\n"
+                    "Покажите это сообщение сотруднику и попробуйте позже."
                 ),
             )
 
@@ -1704,7 +1736,7 @@ class TelegramIdentityAdapter:
                     )
                 )
             )
-        lines.append("\nЧтобы добавить новое сообщение, выберите «❓ Мне только спросить».")
+        lines.append(f"\n🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.")
         return "\n\n".join(lines)
 
     @staticmethod
@@ -1713,16 +1745,27 @@ class TelegramIdentityAdapter:
 
         return normalize_person_name(raw_text)
 
-    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> tuple[str, tuple[str, ...]]:
-        """Запускает синхронизацию с iiko и возвращает текст + номера карт для отправки QR."""
+    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> tuple[str, ...]:
+        """Запускает синхронизацию с iiko и возвращает номера карт для отправки QR."""
 
+        method_logger = self._logger.bind(stage="sync_registration_with_loyalty")
         if self._virtual_card_use_case is None:
-            return ("ℹ️ Синхронизация с iiko временно недоступна.", ())
+            method_logger.info("Синхронизация с iiko пропущена: virtual_card_use_case не подключен.")
+            return ()
 
         result = self._virtual_card_use_case.execute(phone_e164=phone_e164)
         if result.status == "virtual_card":
-            return ("✅ Синхронизация с iiko выполнена успешно.", result.card_numbers)
-        return ("⚠️ Синхронизация с iiko выполнена с ограничениями.", ())
+            method_logger.info(
+                "Синхронизация с iiko завершена успешно. cards={cards_count}.",
+                cards_count=len(result.card_numbers),
+            )
+            return result.card_numbers
+
+        method_logger.warning(
+            "Синхронизация с iiko завершилась без карт. status={status}.",
+            status=result.status,
+        )
+        return ()
 
     @staticmethod
     def _parse_ticket_id(raw_ticket_id: str) -> UUID | None:

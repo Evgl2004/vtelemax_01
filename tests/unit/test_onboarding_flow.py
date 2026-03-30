@@ -28,7 +28,7 @@ def test_onboarding_rules_accept_moves_to_phone_step() -> None:
     assert transition.state == OnboardingState.WAITING_PHONE
     assert transition.status == "phone_required"
     assert transition.requires_contact_keyboard is True
-    assert "+79991234567" in transition.message
+    assert "Поделиться контактом" in transition.message
 
 
 def test_onboarding_rules_reject_keeps_waiting_state() -> None:

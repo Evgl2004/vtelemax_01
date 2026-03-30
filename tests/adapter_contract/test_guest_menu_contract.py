@@ -77,7 +77,7 @@ def _complete_cross_platform_registration(
 
     max_adapter.handle_start(max_user_id=3003)
     max_adapter.handle_incoming(max_user_id=3003, text="", payload=GuestMenuAction.ACCEPT_RULES.value)
-    max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
+    max_adapter.handle_incoming(max_user_id=3003, text="", payload=None, contact_phone="+79123456789")
     max_adapter.handle_incoming(max_user_id=3003, text="Ivan", payload=None)
     max_adapter.handle_incoming(max_user_id=3003, text="", payload=GuestMenuAction.NOTIFY_YES.value)
 
@@ -228,7 +228,7 @@ def test_onboarding_flow_transitions() -> None:
     vk_phone = vk.handle_incoming(vk_user_id=2002, text="+79123456789", payload=None)
     assert vk_phone.screen is None
     assert "имя" in vk_phone.text.lower()
-    max_phone = max_adapter.handle_incoming(max_user_id=3003, text="+79123456789", payload=None)
+    max_phone = max_adapter.handle_incoming(max_user_id=3003, text="", payload=None, contact_phone="+79123456789")
     assert max_phone.screen is None
     assert "имя" in max_phone.text.lower()
 
@@ -273,4 +273,4 @@ def test_invalid_phone_returns_error() -> None:
     assert max_response.screen is not None
     assert max_response.screen.screen_id == "start_contact"
     assert "+79991234567" in vk_response.text
-    assert "+79991234567" in max_response.text
+    assert "Поделиться контактом" in max_response.text

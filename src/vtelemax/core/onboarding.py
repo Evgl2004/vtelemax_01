@@ -71,12 +71,12 @@ class OnboardingFlowService:
     def begin_legacy_upgrade(self) -> OnboardingTransition:
         """Запускает onboarding для legacy-пользователя."""
 
-        screen = build_legacy_upgrade_screen()
+        screen = build_legacy_upgrade_screen(platform=self._platform)
         return OnboardingTransition(
             state=OnboardingState.WAITING_LEGACY_PHONE,
             status="legacy_phone_confirmation_required",
             message=screen.text,
-            requires_contact_keyboard=True,
+            requires_contact_keyboard=self._platform in {"telegram", "max"},
         )
 
     def begin_first_name_step(self) -> OnboardingTransition:

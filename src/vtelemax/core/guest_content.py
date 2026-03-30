@@ -19,7 +19,8 @@ BUTTON_SUPPORT = "🆘 Отдел заботы"
 BUTTON_VACANCIES = "💼 Вакансии"
 
 BUTTON_SUPPORT_FEEDBACK = "✍️ Оставить отзыв"
-BUTTON_SUPPORT_QUESTION = "❓ Мне только спросить"
+BUTTON_SUPPORT_QUESTION = "❓ Мне только спросить (В разработке)"
+BUTTON_SUPPORT_QUESTION_LEGACY = "❓ Мне только спросить"
 BUTTON_MY_TICKETS = "📋 Мои обращения"
 BUTTON_SUPPORT_CONTACTS = "📧 Контакты"
 BUTTON_BACK_TO_MAIN = "🔙 Назад в меню"
@@ -50,8 +51,7 @@ BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков�
 CONTACT_SCREEN_TEXTS = {
     "telegram": (
         "📱 Чтобы подключиться к программе лояльности, нажмите кнопку «📱 Поделиться контактом».\n"
-        "После отправки контакта мы продолжим регистрацию.\n\n"
-        "Если кнопка недоступна, отправьте номер телефона текстом в формате +79991234567."
+        "После отправки контакта мы продолжим регистрацию."
     ),
     "vk": (
         "📱 Чтобы подключиться к программе лояльности, отправьте номер телефона "
@@ -59,8 +59,7 @@ CONTACT_SCREEN_TEXTS = {
     ),
     "max": (
         "📱 Чтобы подключиться к программе лояльности, нажмите кнопку «📱 Поделиться контактом».\n"
-        "После отправки контакта мы продолжим регистрацию.\n\n"
-        "Если кнопка недоступна, отправьте номер телефона текстом в формате +79991234567."
+        "После отправки контакта мы продолжим регистрацию."
     ),
 }
 
@@ -113,6 +112,8 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_SUPPORT_FEEDBACK.lower(): GuestMenuAction.SUPPORT_FEEDBACK,
         "оставить отзыв": GuestMenuAction.SUPPORT_FEEDBACK,
         BUTTON_SUPPORT_QUESTION.lower(): GuestMenuAction.SUPPORT_QUESTION,
+        BUTTON_SUPPORT_QUESTION_LEGACY.lower(): GuestMenuAction.SUPPORT_QUESTION,
+        "❓ мне только спросить": GuestMenuAction.SUPPORT_QUESTION,
         "задать вопрос": GuestMenuAction.SUPPORT_QUESTION,
         "мне только спросить": GuestMenuAction.SUPPORT_QUESTION,
         BUTTON_MY_TICKETS.lower(): GuestMenuAction.MY_TICKETS,
@@ -222,13 +223,22 @@ def build_virtual_card_result_screen() -> MenuScreenContract:
     )
 
 
-def build_legacy_upgrade_screen() -> MenuScreenContract:
+def build_legacy_upgrade_screen(platform: str = "telegram") -> MenuScreenContract:
     """Экран запуска обновления для legacy-пользователя.
 
     Сценарий intentionally пересекается с обычной регистрации:
     на первом этапе мы также запрашиваем подтверждение номера телефона.
     """
-
+    if platform == "vk":
+        return MenuScreenContract(
+            screen_id="legacy_upgrade",
+            text=(
+                "🔄 Мы обнаружили профиль из предыдущей версии бота.\n\n"
+                "Чтобы обновить данные и продолжить работу, отправьте номер телефона "
+                "текстом в формате +79991234567."
+            ),
+            buttons=(),
+        )
     return MenuScreenContract(
         screen_id="legacy_upgrade",
         text=(
@@ -331,8 +341,8 @@ def build_support_feedback_screen() -> MenuScreenContract:
         screen_id="support_feedback",
         text=(
             "✍️ *Оставить отзыв*\n\n"
-            "Мы будем рады узнать ваше мнение! Перейдите по ссылке ниже:\n"
-            "👉 https://rdata.one/Nyyl"
+            "Мы будем рады узнать ваше мнение.\n"
+            "👉 [Оставить отзыв!](https://rdata.one/Nyyl)"
         ),
         buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_SUPPORT, label=BUTTON_BACK_TO_SUPPORT),),
         parse_mode="markdown",

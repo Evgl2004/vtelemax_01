@@ -54,9 +54,9 @@ def test_start_contact_screen_contains_phone_prompt() -> None:
     vk_screen = build_start_contact_screen(platform="vk")
     max_screen = build_start_contact_screen(platform="max")
 
-    assert "+79991234567" in telegram_screen.text
+    assert "+79991234567" not in telegram_screen.text
     assert "+79991234567" in vk_screen.text
-    assert "+79991234567" in max_screen.text
+    assert "+79991234567" not in max_screen.text
     assert "Поделиться контактом" in telegram_screen.text
     assert "Поделиться контактом" in max_screen.text
 

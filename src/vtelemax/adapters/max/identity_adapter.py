@@ -10,6 +10,8 @@ from loguru import logger
 
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
+    BUTTON_SEND_PHONE,
+    BUTTON_SUPPORT_QUESTION,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
@@ -224,10 +226,16 @@ class MaxIdentityAdapter:
             action = resolve_action_from_max_payload(payload)
             if action == GuestMenuAction.SHARE_CONTACT:
                 return MaxAdapterResponse(
-                    text="Отправьте контакт кнопкой или введите номер в формате +79991234567.",
+                    text=f"📱 Нажмите кнопку «{BUTTON_SEND_PHONE}» и отправьте свой контакт.",
                     screen=self._menu_adapter.build_start_contact_screen(),
                 )
-            return self._handle_phone_input(max_user_id=max_user_id, text=text, is_legacy=False)
+            return MaxAdapterResponse(
+                text=(
+                    f"📱 На этом шаге номер принимается только через кнопку «{BUTTON_SEND_PHONE}».\n"
+                    "Пожалуйста, отправьте свой контакт кнопкой."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
         if state == _STATE_WAITING_FIRST_NAME:
             return self._handle_first_name_input(max_user_id=max_user_id, text=text)
         if state == _STATE_WAITING_NOTIFICATIONS_CONSENT:
@@ -237,7 +245,13 @@ class MaxIdentityAdapter:
                 payload=payload,
             )
         if state == _STATE_WAITING_LEGACY_PHONE:
-            return self._handle_phone_input(max_user_id=max_user_id, text=text, is_legacy=True)
+            return MaxAdapterResponse(
+                text=(
+                    f"📱 Для обновления профиля отправьте контакт через кнопку «{BUTTON_SEND_PHONE}».\n"
+                    "Текстовый ввод номера на этом шаге отключен."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
         if state == _STATE_WAITING_SUPPORT_QUESTION:
             action = resolve_action_from_max_payload(payload)
             if action is None:
@@ -250,7 +264,17 @@ class MaxIdentityAdapter:
             }:
                 self._state_by_user_id.pop(max_user_id, None)
                 return self._handle_action(max_user_id=max_user_id, action=action)
-            return self._handle_support_question(max_user_id=max_user_id, text=text)
+            self._state_by_user_id.pop(max_user_id, None)
+            has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
+            support_screen = self._menu_adapter.build_support_menu_screen(has_tickets=has_tickets)
+            return MaxAdapterResponse(
+                text=(
+                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
+                    "Выберите другой вариант в разделе «Отдел заботы»."
+                ),
+                screen=support_screen,
+                parse_mode=support_screen.parse_mode,
+            )
         if state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice(max_user_id=max_user_id, text=text, payload=payload)
         if state == _STATE_PROFILE_EDIT_FIRST_NAME:
@@ -337,7 +361,7 @@ class MaxIdentityAdapter:
         if not phone_text:
             method_logger.warning("Пустой ввод телефона.")
             return MaxAdapterResponse(
-                text="Пожалуйста, введите номер телефона текстом в формате +79991234567.",
+                text=f"📱 Нажмите кнопку «{BUTTON_SEND_PHONE}» и отправьте свой контакт.",
                 screen=self._menu_adapter.build_start_contact_screen(),
             )
 
@@ -350,7 +374,7 @@ class MaxIdentityAdapter:
                     rules_accepted=True if draft.rules_accepted_at is not None else None,
                     rules_accepted_at=draft.rules_accepted_at,
                     phone_verified_at=phone_verified_at,
-                    phone_verification_method="max_contact_or_text",
+                    phone_verification_method="max_contact",
                 )
             )
         except IdentityConflictError:
@@ -364,16 +388,13 @@ class MaxIdentityAdapter:
         except ValueError:
             method_logger.warning("Ошибка валидации телефона.")
             return MaxAdapterResponse(
-                text=(
-                    "Не удалось обработать номер телефона. Введите номер в формате +79991234567 "
-                    "и попробуйте снова."
-                ),
+                text="Не удалось обработать контакт. Нажмите кнопку отправки контакта и попробуйте снова.",
                 screen=self._menu_adapter.build_start_contact_screen(),
             )
 
         draft.phone_e164 = person.phone_e164
         draft.phone_verified_at = phone_verified_at
-        draft.phone_verification_method = "max_contact_or_text"
+        draft.phone_verification_method = "max_contact"
 
         if is_legacy:
             person_first_name = (person.first_name_input or "").strip()
@@ -428,7 +449,7 @@ class MaxIdentityAdapter:
             return MaxAdapterResponse(
                 text=(
                     "Потерян шаг подтверждения телефона. "
-                    "Введите номер телефона в формате +79991234567."
+                    f"Нажмите кнопку «{BUTTON_SEND_PHONE}» и отправьте контакт снова."
                 ),
                 screen=self._menu_adapter.build_start_contact_screen(),
             )
@@ -476,7 +497,7 @@ class MaxIdentityAdapter:
             return MaxAdapterResponse(
                 text=(
                     "Потеряны промежуточные данные регистрации. "
-                    "Введите номер телефона в формате +79991234567."
+                    f"Нажмите кнопку «{BUTTON_SEND_PHONE}» и отправьте контакт снова."
                 ),
                 screen=self._menu_adapter.build_start_contact_screen(),
             )
@@ -496,7 +517,7 @@ class MaxIdentityAdapter:
                     is_legacy=False,
                     is_registered=True,
                     phone_verified_at=draft.phone_verified_at or notifications_fixed_at,
-                    phone_verification_method=draft.phone_verification_method or "max_contact_or_text",
+                    phone_verification_method=draft.phone_verification_method or "max_contact",
                 )
             )
         except IdentityConflictError:
@@ -515,14 +536,13 @@ class MaxIdentityAdapter:
         self._onboarding_draft_by_user_id.pop(max_user_id, None)
         self._clear_moderator_state(max_user_id)
 
-        sync_message, registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
+        registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
         main_screen = self._menu_adapter.build_main_menu_screen(user_name=person.first_name_input or "Гость")
         completion_parts = [
             "✅ Регистрация успешно завершена.",
-            sync_message,
         ]
         if registration_card_numbers:
-            completion_parts.append("🪪 Сейчас отправлю QR-коды ваших карт.")
+            completion_parts.append("🪪 Выше представлены QR-коды ваших карт.")
         completion_parts.extend(
             [
                 "ℹ️ Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».",
@@ -638,10 +658,10 @@ class MaxIdentityAdapter:
             return self._render_profile_screen(max_user_id=max_user_id)
         if action == GuestMenuAction.PROFILE_EDIT_FIRST_NAME:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_FIRST_NAME
-            return MaxAdapterResponse(text="👤 Введите новое имя.")
+            return MaxAdapterResponse(text="👤 Введите новое имя текстом (от 2 до 50 символов).")
         if action == GuestMenuAction.PROFILE_EDIT_LAST_NAME:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_LAST_NAME
-            return MaxAdapterResponse(text="👥 Введите новую фамилию.")
+            return MaxAdapterResponse(text="👥 Введите новую фамилию текстом (от 2 до 50 символов).")
         if action == GuestMenuAction.PROFILE_EDIT_GENDER:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_GENDER
             screen = self._menu_adapter.build_profile_gender_screen()
@@ -662,10 +682,12 @@ class MaxIdentityAdapter:
                     )
                 )
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_BIRTH_DATE
-            return MaxAdapterResponse(text="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ.")
+            return MaxAdapterResponse(
+                text="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ (дата не должна быть в будущем)."
+            )
         if action == GuestMenuAction.PROFILE_EDIT_EMAIL:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_EMAIL
-            return MaxAdapterResponse(text="📧 Введите новый email.")
+            return MaxAdapterResponse(text="📧 Введите новый email, например name@example.com.")
 
         return self._open_profile_edit_choice(max_user_id=max_user_id)
 
@@ -675,7 +697,10 @@ class MaxIdentityAdapter:
         normalized = normalize_person_name(text)
         if normalized is None:
             return MaxAdapterResponse(
-                text="Имя должно содержать только буквы, пробел и дефис (от 2 до 50 символов)."
+                text=(
+                    "⚠️ Не удалось сохранить имя.\n"
+                    "Используйте только буквы, пробел и дефис (от 2 до 50 символов)."
+                )
             )
         return self._apply_profile_patch(
             max_user_id=max_user_id,
@@ -689,7 +714,10 @@ class MaxIdentityAdapter:
         normalized = normalize_person_name(text)
         if normalized is None:
             return MaxAdapterResponse(
-                text="Фамилия должна содержать только буквы, пробел и дефис (от 2 до 50 символов)."
+                text=(
+                    "⚠️ Не удалось сохранить фамилию.\n"
+                    "Используйте только буквы, пробел и дефис (от 2 до 50 символов)."
+                )
             )
         return self._apply_profile_patch(
             max_user_id=max_user_id,
@@ -721,7 +749,7 @@ class MaxIdentityAdapter:
         if gender is None:
             screen = self._menu_adapter.build_profile_gender_screen()
             return MaxAdapterResponse(
-                text="Выберите пол кнопками «👨 Мужской» или «👩 Женский».",
+                text="⚠️ Выберите пол кнопками «👨 Мужской» или «👩 Женский».",
                 screen=screen,
             )
         return self._apply_profile_patch(
@@ -741,11 +769,21 @@ class MaxIdentityAdapter:
             return self._render_profile_screen(max_user_id=max_user_id)
         if person.birth_date is not None:
             self._state_by_user_id.pop(max_user_id, None)
-            return MaxAdapterResponse(text="🎂 Дата рождения уже заполнена и не может быть изменена.")
+            return MaxAdapterResponse(
+                text=(
+                    "🎂 Дата рождения уже заполнена и может быть указана только один раз.\n"
+                    "Если есть ошибка в данных, обратитесь к администратору."
+                )
+            )
 
         parsed = parse_birth_date(text)
         if parsed is None:
-            return MaxAdapterResponse(text="Введите дату рождения в формате ДД.ММ.ГГГГ и не в будущем.")
+            return MaxAdapterResponse(
+                text=(
+                    "⚠️ Некорректная дата рождения.\n"
+                    "Введите дату в формате ДД.ММ.ГГГГ и убедитесь, что она не в будущем."
+                )
+            )
         return self._apply_profile_patch(
             max_user_id=max_user_id,
             birth_date=parsed,
@@ -757,7 +795,7 @@ class MaxIdentityAdapter:
 
         normalized = normalize_email(text)
         if normalized is None:
-            return MaxAdapterResponse(text="Введите корректный email, например name@example.com.")
+            return MaxAdapterResponse(text="⚠️ Укажите корректный email, например name@example.com.")
         return self._apply_profile_patch(
             max_user_id=max_user_id,
             email=normalized,
@@ -798,7 +836,12 @@ class MaxIdentityAdapter:
                 )
             )
         except (IdentityConflictError, ValueError):
-            return MaxAdapterResponse(text="Не удалось сохранить изменения профиля. Попробуйте еще раз позже.")
+            return MaxAdapterResponse(
+                text=(
+                    "❌ Не удалось сохранить изменения профиля.\n"
+                    "Попробуйте ещё раз чуть позже."
+                )
+            )
 
         self._state_by_user_id.pop(max_user_id, None)
         profile = self._render_profile_screen(max_user_id=max_user_id)
@@ -1278,15 +1321,22 @@ class MaxIdentityAdapter:
                 return MaxAdapterResponse(
                     text=(
                         "📭 У вас пока нет обращений.\n\n"
-                        "Чтобы создать обращение, нажмите «❓ Мне только спросить» в меню отдела заботы."
+                        f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке."
                     )
                 )
             return MaxAdapterResponse(text=self._format_person_tickets_message(tickets))
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
-            self._state_by_user_id[max_user_id] = _STATE_WAITING_SUPPORT_QUESTION
-            screen = self._menu_adapter.resolve_action_screen(action)
-            return MaxAdapterResponse(text=screen.text, screen=screen)
+            has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
+            support_screen = self._menu_adapter.build_support_menu_screen(has_tickets=has_tickets)
+            return MaxAdapterResponse(
+                text=(
+                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
+                    "Выберите другой вариант в разделе «Отдел заботы»."
+                ),
+                screen=support_screen,
+                parse_mode=support_screen.parse_mode,
+            )
 
         if action == GuestMenuAction.MAIN_MENU:
             screen = self._menu_adapter.build_main_menu_screen(user_name=menu_user_name)
@@ -1307,8 +1357,9 @@ class MaxIdentityAdapter:
         if self._balance_use_case is None:
             return MaxAdapterResponse(
                 text=(
-                    "❌ Информация о бонусах временно недоступна.\n"
-                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                    "❌ Сервис бонусов временно недоступен.\n"
+                    "Код ошибки: IIKO-BAL-000.\n"
+                    "Покажите это сообщение сотруднику и попробуйте позже."
                 ),
                 screen=balance_screen,
             )
@@ -1326,8 +1377,9 @@ class MaxIdentityAdapter:
         if self._virtual_card_use_case is None:
             return MaxAdapterResponse(
                 text=(
-                    "❌ Раздел виртуальной карты временно недоступен.\n"
-                    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+                    "❌ Сервис виртуальной карты временно недоступен.\n"
+                    "Код ошибки: IIKO-CARD-000.\n"
+                    "Покажите это сообщение сотруднику и попробуйте позже."
                 )
             )
 
@@ -1390,7 +1442,7 @@ class MaxIdentityAdapter:
                     )
                 )
             )
-        lines.append("\nЧтобы добавить новое сообщение, выберите «❓ Мне только спросить».")
+        lines.append(f"\n🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.")
         return "\n\n".join(lines)
 
     def _build_profile_text_for_draft(self, max_user_id: int) -> str:
@@ -1457,14 +1509,25 @@ class MaxIdentityAdapter:
         }
         return tuple(sorted(platforms, key=lambda platform: sort_order.get(platform, 99)))
 
-    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> tuple[str, tuple[str, ...]]:
-        """Запускает синхронизацию с iiko и возвращает текст + номера карт для отправки QR."""
+    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> tuple[str, ...]:
+        """Запускает синхронизацию с iiko и возвращает номера карт для отправки QR."""
 
+        method_logger = self._logger.bind(stage="sync_registration_with_loyalty")
         if self._virtual_card_use_case is None:
-            return ("ℹ️ Синхронизация с iiko временно недоступна.", ())
+            method_logger.info("Синхронизация с iiko пропущена: virtual_card_use_case не подключен.")
+            return ()
 
         result = self._virtual_card_use_case.execute(phone_e164=phone_e164)
         if result.status == "virtual_card":
-            return ("✅ Синхронизация с iiko выполнена успешно.", result.card_numbers)
-        return ("⚠️ Синхронизация с iiko выполнена с ограничениями.", ())
+            method_logger.info(
+                "Синхронизация с iiko завершена успешно. cards={cards_count}.",
+                cards_count=len(result.card_numbers),
+            )
+            return result.card_numbers
+
+        method_logger.warning(
+            "Синхронизация с iiko завершилась без карт. status={status}.",
+            status=result.status,
+        )
+        return ()
 

@@ -12,13 +12,15 @@ from .guest_content import build_balance_screen
 from .loyalty_ports import LoyaltyCard, LoyaltyGateway, LoyaltyGatewayError
 
 _BALANCE_UNAVAILABLE_TEXT = (
-    "❌ Информация о бонусах временно недоступна.\n"
-    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+    "❌ Не удалось получить данные по бонусам.\n"
+    "Код ошибки: IIKO-BAL-001.\n"
+    "Покажите это сообщение сотруднику и попробуйте позже."
 )
 
 _VIRTUAL_CARD_UNAVAILABLE_TEXT = (
     "❌ Не удалось получить данные виртуальной карты.\n"
-    "Пожалуйста, попробуйте позже или обратитесь к администратору."
+    "Код ошибки: IIKO-CARD-001.\n"
+    "Покажите это сообщение сотруднику и попробуйте позже."
 )
 
 
@@ -87,8 +89,9 @@ class GetVirtualCardUseCase:
                     status="virtual_card_error",
                     message=(
                         "❌ Не удалось зарегистрировать вас в бонусной системе.\n"
+                        "Код ошибки: IIKO-CARD-002.\n"
                         f"Причина: {error}\n\n"
-                        "Попробуйте позже."
+                        "Покажите это сообщение сотруднику и попробуйте позже."
                     ),
                 )
             customer_id = registered.customer_id
@@ -108,8 +111,9 @@ class GetVirtualCardUseCase:
                     status="virtual_card_error",
                     message=(
                         "❌ Не удалось выпустить карту.\n"
+                        "Код ошибки: IIKO-CARD-003.\n"
                         f"Причина: {error}\n\n"
-                        "Попробуйте позже."
+                        "Покажите это сообщение сотруднику и попробуйте позже."
                     ),
                 )
 
