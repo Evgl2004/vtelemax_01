@@ -103,3 +103,18 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 ```
 
 Live-тесты создают временную схему в PostgreSQL и удаляют ее после завершения.
+
+## 8. Ручной сброс пользователя для повторной регистрации
+
+Для повторного прогона onboarding в Telegram/VK/MAX можно удалить тестового пользователя по телефону:
+
+```powershell
+# Предпросмотр изменений:
+.\.venv\Scripts\python.exe scripts/reset_test_user.py --phone +79991234567 --dry-run --clean-redis
+
+# Фактическое удаление:
+.\.venv\Scripts\python.exe scripts/reset_test_user.py --phone +79991234567 --yes --clean-redis
+```
+
+Примечание: текущее FSM-состояние адаптеров хранится в памяти процессов, поэтому после очистки БД/Redis
+рекомендуется перезапустить контейнеры ботов.

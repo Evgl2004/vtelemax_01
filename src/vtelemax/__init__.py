@@ -7,6 +7,7 @@
 3. `infrastructure` — инфраструктурные реализации репозиториев и сервисов.
 4. `apps` — точки входа приложений ботов.
 5. `settings` — централизованная модель конфигурации.
+6. `tools` — служебные утилиты для эксплуатации и тестирования.
 """
 
-__all__ = ["core", "adapters", "infrastructure", "apps", "settings"]
+__all__ = ["core", "adapters", "infrastructure", "apps", "settings", "tools"]

@@ -82,6 +82,16 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 .\.venv\Scripts\python.exe scripts/apply_sql_migrations.py
 ```
 
+Сброс тестового пользователя по телефону (для повторной проверки регистрации):
+
+```powershell
+# Предпросмотр (без изменений)
+.\.venv\Scripts\python.exe scripts/reset_test_user.py --phone +79991234567 --dry-run --clean-redis
+
+# Фактическое удаление из PostgreSQL + очистка Redis-ключей
+.\.venv\Scripts\python.exe scripts/reset_test_user.py --phone +79991234567 --yes --clean-redis
+```
+
 Запуск всего стека в Docker Compose:
 
 ```bash
