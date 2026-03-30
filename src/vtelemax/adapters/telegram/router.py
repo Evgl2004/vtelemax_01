@@ -380,6 +380,32 @@ def build_telegram_identity_router(
         reply_markup = _choose_reply_markup(result)
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
+    @router.message()
+    async def non_text_menu_handler(message: Message) -> None:
+        """Обрабатывает не-текстовые сообщения в рамках общего FSM-сценария."""
+
+        # Команда/текст и контакт обрабатываются специализированными хендлерами выше.
+        if message.text is not None or message.contact is not None:
+            return
+
+        event_logger = router_logger.bind(
+            stage="non_text_input",
+            user_id=str(message.from_user.id) if message.from_user else "-",
+        )
+        await _try_process_pending_deliveries(message.bot)
+        if message.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram для нетекстового ввода.")
+            await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
+            return
+
+        result = identity_adapter.handle_menu_action(
+            telegram_user_id=message.from_user.id,
+            action_text="",
+        )
+        event_logger.info("Нетекстовый ввод обработан. status={status}.", status=result.status)
+        reply_markup = _choose_reply_markup(result)
+        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
+
     @router.callback_query(F.data == RULES_ACCEPT_CALLBACK)
     async def rules_accept_callback_handler(callback: CallbackQuery) -> None:
         """Обработчик inline-кнопки согласия с правилами."""

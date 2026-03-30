@@ -49,7 +49,7 @@ def parse_birth_date(raw_text: str) -> date | None:
     Ограничения:
     1. дата должна быть реальной;
     2. дата не должна быть в будущем;
-    3. год не должен быть раньше 1900.
+    3. возраст должен быть в диапазоне 18..100 лет включительно.
     """
 
     raw = str(raw_text or "").strip()
@@ -63,7 +63,10 @@ def parse_birth_date(raw_text: str) -> date | None:
     today = date.today()
     if parsed > today:
         return None
-    if parsed.year < 1900:
+
+    age = today.year - parsed.year - ((today.month, today.day) < (parsed.month, parsed.day))
+    if age < 18:
+        return None
+    if age > 100:
         return None
     return parsed
-
