@@ -16,6 +16,8 @@ from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
+    LoyaltyGateway,
+    LoyaltyGatewayError,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
@@ -97,6 +99,7 @@ class MaxIdentityAdapter:
         list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
         balance_use_case: GetLoyaltyBalanceUseCase | None = None,
         virtual_card_use_case: GetVirtualCardUseCase | None = None,
+        loyalty_gateway: LoyaltyGateway | None = None,
     ) -> None:
         self._logger = logger.bind(platform="max", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -114,6 +117,7 @@ class MaxIdentityAdapter:
         self._list_person_tickets_use_case = list_person_tickets_use_case
         self._balance_use_case = balance_use_case
         self._virtual_card_use_case = virtual_card_use_case
+        self._loyalty_gateway = loyalty_gateway
 
     def handle_start(self, max_user_id: int) -> MaxAdapterResponse:
         """Обрабатывает стартовый вход пользователя в MAX-бот."""
@@ -412,6 +416,10 @@ class MaxIdentityAdapter:
         draft.phone_verification_method = "max_contact"
 
         if is_legacy:
+            person = self._prefill_profile_from_loyalty(
+                max_user_id=max_user_id,
+                person=person,
+            )
             person_first_name = (person.first_name_input or "").strip()
             if person_first_name:
                 draft.first_name_input = person_first_name
@@ -1569,6 +1577,60 @@ class MaxIdentityAdapter:
         """Проверяет и нормализует имя пользователя для шага сокращённой регистрации."""
 
         return normalize_person_name(raw_text)
+
+    def _prefill_profile_from_loyalty(self, *, max_user_id: int, person):
+        """Дозаполняет пустые поля профиля данными iiko в legacy-ветке, не перезаписывая локальные значения."""
+
+        if self._loyalty_gateway is None:
+            return person
+
+        method_logger = self._logger.bind(stage="legacy_loyalty_prefill", user_id=str(max_user_id))
+        try:
+            customer = self._loyalty_gateway.get_customer_info(person.phone_e164)
+        except LoyaltyGatewayError as error:
+            method_logger.warning("Не удалось получить профиль из iiko: {error}.", error=error)
+            return person
+
+        if customer is None:
+            method_logger.info("Профиль в iiko не найден, legacy-префилл пропущен.")
+            return person
+
+        update_kwargs: dict[str, object] = {}
+        if not (person.first_name_input or "").strip() and (customer.first_name or "").strip():
+            update_kwargs["first_name_input"] = customer.first_name.strip()
+        if not (person.last_name_input or "").strip() and (customer.last_name or "").strip():
+            update_kwargs["last_name_input"] = customer.last_name.strip()
+        if not person.gender and customer.gender in {"male", "female"}:
+            update_kwargs["gender"] = customer.gender
+        if person.birth_date is None and customer.birth_date is not None:
+            update_kwargs["birth_date"] = customer.birth_date
+        if not (person.email or "").strip():
+            normalized_email = normalize_email(customer.email or "")
+            if normalized_email is not None:
+                update_kwargs["email"] = normalized_email
+
+        if not update_kwargs:
+            method_logger.info("Пустых полей для префилла из iiko не найдено.")
+            return person
+
+        try:
+            updated_person = self._registration_use_case.execute(
+                RegisterOrAttachAccountCommand(
+                    platform="max",
+                    external_id=str(max_user_id),
+                    raw_phone=person.phone_e164,
+                    **update_kwargs,
+                )
+            )
+        except (IdentityConflictError, ValueError) as error:
+            method_logger.warning("Префилл из iiko пропущен из-за ошибки обновления профиля: {error}.", error=error)
+            return person
+
+        method_logger.info(
+            "Legacy-профиль дополнен из iiko. updated_fields={fields}.",
+            fields=",".join(sorted(update_kwargs.keys())),
+        )
+        return updated_person
 
     @staticmethod
     def _collect_account_platforms(accounts: set[object]) -> tuple[str, ...]:

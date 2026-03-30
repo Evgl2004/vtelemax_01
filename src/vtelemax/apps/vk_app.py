@@ -183,6 +183,7 @@ def build_bot(settings: AppSettings) -> Bot:
         list_person_tickets_use_case=list_person_tickets_use_case,
         balance_use_case=balance_use_case,
         virtual_card_use_case=virtual_card_use_case,
+        loyalty_gateway=iiko_gateway,
     )
     delivery_processor = PendingModeratorDeliveryProcessor(
         target_platform="vk",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from types import TracebackType
 
 from vtelemax.adapters.max import MaxIdentityAdapter
@@ -9,6 +10,7 @@ from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
+    GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     GetVirtualCardUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
@@ -109,6 +111,28 @@ class FlakyLoyaltyGateway(LoyaltyGateway):
 
     def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
         return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
+
+    def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
+        return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
+
+
+class LegacyPrefillLoyaltyGateway(LoyaltyGateway):
+    """Тестовый шлюз, который возвращает профиль iiko для legacy-дозаполнения."""
+
+    def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
+        return LoyaltyCustomer(
+            customer_id="legacy-cust",
+            balance=0.0,
+            cards=(),
+            first_name="Андрей",
+            last_name="Соболев",
+            gender="male",
+            birth_date=date(1990, 5, 17),
+            email="legacy@example.com",
+        )
+
+    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+        return LoyaltyRegisterCustomerResult(customer_id="legacy-cust", message="registered")
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
         return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
@@ -251,6 +275,56 @@ def test_max_migrated_legacy_user_goes_to_legacy_phone_after_rules_consent() -> 
     assert "предыдущей версии бота" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
+
+
+def test_max_legacy_phone_step_prefills_profile_from_iiko() -> None:
+    """Проверяет, что legacy-ветка после подтверждения телефона подтягивает пустые поля из iiko."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = MaxIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        loyalty_gateway=LegacyPrefillLoyaltyGateway(),
+    )
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="max",
+            external_id="3010",
+            raw_phone="+79123456789",
+            rules_accepted=False,
+            is_legacy=True,
+            is_registered=False,
+        )
+    )
+
+    adapter.handle_start(max_user_id=3010)
+    adapter.handle_incoming(max_user_id=3010, text="✅ Согласен", payload=None)
+    phone_result = adapter.handle_incoming(
+        max_user_id=3010,
+        text="",
+        payload=None,
+        contact_phone="+79123456789",
+    )
+
+    resolved_person = lookup_use_case.execute(
+        command=GetPersonByAccountCommand(platform="max", external_id="3010")
+    )
+
+    assert phone_result.screen is not None
+    assert phone_result.screen.screen_id == "notifications_consent"
+    assert resolved_person is not None
+    assert resolved_person.first_name_input == "Андрей"
+    assert resolved_person.last_name_input == "Соболев"
+    assert resolved_person.gender == "male"
+    assert resolved_person.birth_date == date(1990, 5, 17)
+    assert resolved_person.email == "legacy@example.com"
 
 
 def test_max_dirty_input_on_rules_step_keeps_consent_pending() -> None:

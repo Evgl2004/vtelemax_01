@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import socket
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -338,6 +338,93 @@ class IikoLoyaltyGateway(LoyaltyGateway):
         program_id = str(target.get("id") or "").strip()
         return program_id or None
 
+    @staticmethod
+    def _extract_first_name(data: dict[str, Any]) -> str | None:
+        """Извлекает имя клиента из разных вариантов ключей ответа iiko."""
+
+        for key in ("name", "firstName", "first_name"):
+            raw_value = data.get(key)
+            normalized = str(raw_value or "").strip()
+            if normalized:
+                return normalized
+        return None
+
+    @staticmethod
+    def _extract_last_name(data: dict[str, Any]) -> str | None:
+        """Извлекает фамилию клиента из разных вариантов ключей ответа iiko."""
+
+        for key in ("surname", "surName", "lastName", "last_name"):
+            raw_value = data.get(key)
+            normalized = str(raw_value or "").strip()
+            if normalized:
+                return normalized
+        return None
+
+    @staticmethod
+    def _extract_email(data: dict[str, Any]) -> str | None:
+        """Извлекает email клиента из разных вариантов ключей ответа iiko."""
+
+        for key in ("email", "eMail", "mail"):
+            raw_value = data.get(key)
+            normalized = str(raw_value or "").strip()
+            if normalized:
+                return normalized
+        return None
+
+    @staticmethod
+    def _parse_gender(raw_value: Any) -> str | None:
+        """Преобразует значение пола из iiko в доменный формат (`male` / `female`)."""
+
+        if raw_value is None:
+            return None
+
+        if isinstance(raw_value, bool):
+            return None
+
+        if isinstance(raw_value, int | float):
+            numeric = int(raw_value)
+            if numeric == 1:
+                return "male"
+            if numeric == 2:
+                return "female"
+            return None
+
+        normalized = str(raw_value).strip().lower()
+        if not normalized:
+            return None
+
+        male_aliases = {"1", "male", "m", "man", "м", "муж", "мужской"}
+        female_aliases = {"2", "female", "f", "woman", "ж", "жен", "женский"}
+        if normalized in male_aliases:
+            return "male"
+        if normalized in female_aliases:
+            return "female"
+        return None
+
+    @staticmethod
+    def _parse_birth_date(raw_value: Any) -> date | None:
+        """Преобразует дату рождения из iiko в объект `date`."""
+
+        if raw_value is None:
+            return None
+
+        raw = str(raw_value).strip()
+        if not raw:
+            return None
+
+        # Наиболее частые форматы даты в iiko.
+        for date_format in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(raw, date_format).date()
+            except ValueError:
+                continue
+
+        # Fallback на ISO 8601.
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+
     def _extract_customer(self, data: dict[str, Any]) -> LoyaltyCustomer:
         """Преобразует raw-ответ iiko в доменную модель клиента лояльности."""
 
@@ -402,4 +489,9 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             balance=balance,
             cards=tuple(cards),
             program_name=program_name,
+            first_name=self._extract_first_name(data),
+            last_name=self._extract_last_name(data),
+            gender=self._parse_gender(data.get("sex") or data.get("gender")),
+            birth_date=self._parse_birth_date(data.get("birthday") or data.get("birthDate")),
+            email=self._extract_email(data),
         )

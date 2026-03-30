@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
 
 
@@ -26,6 +27,11 @@ class LoyaltyCustomer:
     balance: float
     cards: tuple[LoyaltyCard, ...]
     program_name: str = ""
+    first_name: str | None = None
+    last_name: str | None = None
+    gender: str | None = None
+    birth_date: date | None = None
+    email: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

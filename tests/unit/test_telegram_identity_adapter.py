@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from types import TracebackType
 
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
@@ -10,6 +11,7 @@ from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
+    GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     GetVirtualCardUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
@@ -110,6 +112,28 @@ class FlakyLoyaltyGateway(LoyaltyGateway):
 
     def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
         return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
+
+    def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
+        return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
+
+
+class LegacyPrefillLoyaltyGateway(LoyaltyGateway):
+    """Тестовый шлюз, который возвращает профиль iiko для legacy-дозаполнения."""
+
+    def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
+        return LoyaltyCustomer(
+            customer_id="legacy-cust",
+            balance=0.0,
+            cards=(),
+            first_name="Андрей",
+            last_name="Соболев",
+            gender="male",
+            birth_date=date(1990, 5, 17),
+            email="legacy@example.com",
+        )
+
+    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+        return LoyaltyRegisterCustomerResult(customer_id="legacy-cust", message="registered")
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
         return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
@@ -617,6 +641,49 @@ def test_telegram_legacy_upgrade_flow_reuses_phone_confirmation() -> None:
     assert confirm.status == "notifications_consent_required"
     assert finish.status == "menu"
     assert "Регистрация успешно завершена." in finish.message
+
+
+def test_telegram_legacy_phone_step_prefills_profile_from_iiko() -> None:
+    """Проверяет, что legacy-ветка после подтверждения телефона подтягивает пустые поля из iiko."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        loyalty_gateway=LegacyPrefillLoyaltyGateway(),
+    )
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="3010",
+            raw_phone="+79123456789",
+            rules_accepted=False,
+            is_legacy=True,
+            is_registered=False,
+        )
+    )
+
+    adapter.start_interaction(telegram_user_id=3010)
+    adapter.handle_menu_action(telegram_user_id=3010, action_text="✅ Согласен")
+    contact_result = adapter.register_contact(telegram_user_id=3010, raw_phone="+79123456789")
+    resolved_person = lookup_use_case.execute(
+        command=GetPersonByAccountCommand(platform="telegram", external_id="3010")
+    )
+
+    assert contact_result.status == "notifications_consent_required"
+    assert resolved_person is not None
+    assert resolved_person.first_name_input == "Андрей"
+    assert resolved_person.last_name_input == "Соболев"
+    assert resolved_person.gender == "male"
+    assert resolved_person.birth_date == date(1990, 5, 17)
+    assert resolved_person.email == "legacy@example.com"
 
 
 def test_telegram_support_question_reports_feature_in_development() -> None:
