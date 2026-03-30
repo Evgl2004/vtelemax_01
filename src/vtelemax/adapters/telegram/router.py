@@ -81,6 +81,7 @@ def build_telegram_identity_router(
     back_to_support_keyboard = build_back_to_support_inline_keyboard()
     profile_keyboard = build_profile_inline_keyboard()
     delivery_lock = asyncio.Lock()
+    legacy_reply_keyboard_cleaned_chats: set[int] = set()
 
     def _with_reply_keyboard_cleanup(
         reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None,
@@ -120,6 +121,32 @@ def build_telegram_identity_router(
                 caption=f"💳 Карта: {card_number}",
             )
 
+    async def _cleanup_legacy_reply_keyboard_once(*, bot: Bot, chat_id: int) -> None:
+        """Один раз очищает legacy reply-клавиатуру в чате перед inline-сценариями."""
+
+        if chat_id in legacy_reply_keyboard_cleaned_chats:
+            return
+
+        cleanup_logger = router_logger.bind(stage="reply_keyboard_cleanup", user_id=str(chat_id))
+        try:
+            cleanup_message = await bot.send_message(
+                chat_id=chat_id,
+                text="\u2060",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+        except Exception:  # noqa: BLE001
+            cleanup_logger.debug("Не удалось отправить служебную очистку reply-клавиатуры.")
+            legacy_reply_keyboard_cleaned_chats.add(chat_id)
+            return
+
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=cleanup_message.message_id)
+        except Exception:  # noqa: BLE001
+            # Не блокируем основной сценарий, если удалить служебное сообщение не удалось.
+            cleanup_logger.debug("Не удалось удалить служебное сообщение очистки reply-клавиатуры.")
+        finally:
+            legacy_reply_keyboard_cleaned_chats.add(chat_id)
+
     async def _answer_with_result(
         *,
         message: Message,
@@ -128,6 +155,8 @@ def build_telegram_identity_router(
     ) -> None:
         """Отправляет результат адаптера для message-handler, включая QR при необходимости."""
 
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            await _cleanup_legacy_reply_keyboard_once(bot=message.bot, chat_id=message.chat.id)
         await _send_virtual_card_qr(bot=message.bot, chat_id=message.chat.id, result=result)
         await message.answer(
             result.message,
@@ -144,6 +173,8 @@ def build_telegram_identity_router(
     ) -> None:
         """Отправляет результат адаптера напрямую в чат, включая QR при необходимости."""
 
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            await _cleanup_legacy_reply_keyboard_once(bot=bot, chat_id=chat_id)
         await _send_virtual_card_qr(bot=bot, chat_id=chat_id, result=result)
         await bot.send_message(
             chat_id=chat_id,
