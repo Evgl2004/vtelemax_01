@@ -18,6 +18,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 import sqlite3
 
 from vtelemax.core import (
@@ -30,7 +31,15 @@ from vtelemax.core.ports import IdentityUnitOfWork
 
 # Путь по умолчанию соответствует локальной структуре, согласованной в проекте.
 DEFAULT_SOURCE_SQLITE_PATH = Path(r"C:\Users\admin_eas\PycharmProjects\sobalbot\data\bot_requests.db")
-LEGACY_PHONE_VERIFICATION_METHOD = "legacy_import_sobalbot"
+PHONE_VERIFICATION_METHOD_MAX_LEN = 20
+LEGACY_PHONE_VERIFICATION_METHOD = "legacy_sobalbot"
+
+# Защита от регрессий: служебный маркер должен умещаться в persons.phone_verification_method (VARCHAR(20)).
+if len(LEGACY_PHONE_VERIFICATION_METHOD) > PHONE_VERIFICATION_METHOD_MAX_LEN:
+    raise ValueError(
+        "LEGACY_PHONE_VERIFICATION_METHOD превышает допустимую длину "
+        f"{PHONE_VERIFICATION_METHOD_MAX_LEN}: {LEGACY_PHONE_VERIFICATION_METHOD!r}"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +223,7 @@ def migrate_prepared_legacy_records(
         )
 
     log(f"[legacy-migrate] Старт обработки: записей={total}, dry_run={dry_run}.")
+    started_at = perf_counter()
 
     for index, record in enumerate(prepared_records, start=1):
         processed_rows += 1
@@ -329,11 +339,22 @@ def migrate_prepared_legacy_records(
         should_log_progress = index == 1 or index == total or index % normalized_progress_every == 0
         if should_log_progress:
             percent = (index / total) * 100
+            elapsed_seconds = max(perf_counter() - started_at, 1e-6)
+            speed_rps = index / elapsed_seconds
+            remaining_rows = max(total - index, 0)
+            eta_seconds = 0.0 if remaining_rows == 0 else remaining_rows / speed_rps
+            success_count = created_count + attached_count + updated_count
+            errors_count = conflict_count + failed_count
             log(
                 "[legacy-migrate] Прогресс: "
                 f"{index}/{total} ({percent:.1f}%). "
                 f"create={created_count}, attach={attached_count}, update={updated_count}, "
                 f"conflict={conflict_count}, failed={failed_count}."
+            )
+            log(
+                "[legacy-migrate] Детали прогресса: "
+                f"success={success_count}, errors={errors_count}, "
+                f"speed={speed_rps:.2f} rows/s, elapsed={elapsed_seconds:.1f}s, eta={eta_seconds:.1f}s."
             )
 
         if verbose:
@@ -374,6 +395,29 @@ def build_report_lines(report: LegacyMigrationReport) -> tuple[str, ...]:
         f"[legacy-migrate]   update={report.updated_count}",
         f"[legacy-migrate]   conflict={report.conflict_count}",
         f"[legacy-migrate]   failed={report.failed_count}",
+    ]
+    return tuple(lines)
+
+
+def build_extended_report_lines(report: LegacyMigrationReport) -> tuple[str, ...]:
+    """Формирует расширенную сводку с процентами и агрегированными метриками."""
+
+    source_rows = max(report.total_source_rows, 1)
+    selected_rows = max(report.selected_rows, 1)
+    success_count = report.created_count + report.attached_count + report.updated_count
+    errors_count = report.conflict_count + report.failed_count
+
+    lines = [
+        "[legacy-migrate] Расширенный итог:",
+        f"[legacy-migrate]   success_total={success_count} "
+        f"({(success_count / selected_rows) * 100:.1f}% от selected_rows)",
+        f"[legacy-migrate]   errors_total={errors_count} "
+        f"({(errors_count / selected_rows) * 100:.1f}% от selected_rows)",
+        f"[legacy-migrate]   invalid_share_in_source={(report.invalid_rows / source_rows) * 100:.2f}%",
+        f"[legacy-migrate]   filtered_share_in_source={(report.skipped_by_phone_filter / source_rows) * 100:.2f}%",
+        f"[legacy-migrate]   create_share={(report.created_count / selected_rows) * 100:.1f}%, "
+        f"attach_share={(report.attached_count / selected_rows) * 100:.1f}%, "
+        f"update_share={(report.updated_count / selected_rows) * 100:.1f}%",
     ]
     return tuple(lines)
 

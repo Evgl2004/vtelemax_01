@@ -21,6 +21,8 @@ from vtelemax.tools.legacy_telegram_migration import (
     LEGACY_PHONE_VERIFICATION_METHOD,
     LegacyTelegramSourceRecord,
     PreparedLegacyTelegramRecord,
+    build_extended_report_lines,
+    LegacyMigrationReport,
     migrate_prepared_legacy_records,
     prepare_legacy_source_records,
     read_legacy_source_records,
@@ -90,6 +92,37 @@ def test_read_legacy_source_records_respects_limit_and_offset() -> None:
     assert len(rows) == 2
     assert rows[0].telegram_user_id == "1002"
     assert rows[1].telegram_user_id == "1003"
+
+
+def test_legacy_phone_verification_method_fits_storage_limit() -> None:
+    """Проверяет, что маркер legacy-верификации помещается в VARCHAR(20)."""
+
+    assert len(LEGACY_PHONE_VERIFICATION_METHOD) <= 20
+
+
+def test_build_extended_report_lines_contains_percentage_metrics() -> None:
+    """Проверяет формирование расширенной сводки миграции с процентными метриками."""
+
+    report = LegacyMigrationReport(
+        dry_run=True,
+        total_source_rows=100,
+        selected_rows=10,
+        invalid_rows=5,
+        skipped_by_phone_filter=80,
+        processed_rows=10,
+        created_count=4,
+        attached_count=3,
+        updated_count=1,
+        conflict_count=1,
+        failed_count=1,
+        issues=(),
+    )
+
+    lines = build_extended_report_lines(report)
+
+    assert any("Расширенный итог" in line for line in lines)
+    assert any("success_total=8" in line for line in lines)
+    assert any("errors_total=2" in line for line in lines)
 
 
 def test_prepare_legacy_source_records_filters_phone_and_marks_invalid() -> None:

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import os
 import sys
 from pathlib import Path
@@ -32,6 +33,7 @@ from vtelemax.tools.legacy_telegram_migration import (
     LegacyMigrationReport,
     LegacyMigrationIssue,
     build_report_lines,
+    build_extended_report_lines,
     migrate_prepared_legacy_records,
     prepare_legacy_source_records,
     read_legacy_source_records,
@@ -139,18 +141,50 @@ def _print_header(
     print(f"[legacy-migrate] LIMIT={limit}, OFFSET={offset}")
 
 
-def _print_issues(issues: tuple[LegacyMigrationIssue, ...]) -> None:
-    """Печатает проблемные примеры строк из отчета."""
+def _print_issues(
+    issues: tuple[LegacyMigrationIssue, ...],
+    *,
+    title: str,
+    max_samples: int,
+) -> None:
+    """Печатает ограниченную выборку проблемных примеров строк из отчета."""
 
     if not issues:
         return
-    print(f"[legacy-migrate] Примеры проблемных строк ({len(issues)}):")
-    for issue in issues:
+    shown = issues[: max(1, max_samples)]
+    print(
+        "[legacy-migrate] "
+        f"{title}: всего={len(issues)}, показано={len(shown)}."
+    )
+    for issue in shown:
         print(
             "[legacy-migrate]   "
             f"telegram_id={issue.telegram_user_id}, "
             f"phone={issue.raw_phone}, reason={issue.reason}"
         )
+    if len(issues) > len(shown):
+        hidden_count = len(issues) - len(shown)
+        print(
+            "[legacy-migrate]   "
+            f"... еще {hidden_count} строк(и) скрыто. Используйте больше --max-issues при необходимости."
+        )
+
+
+def _print_issue_reasons_summary(
+    issues: tuple[LegacyMigrationIssue, ...],
+    *,
+    title: str,
+    max_reasons: int = 5,
+) -> None:
+    """Печатает агрегированную сводку по причинам проблемных строк."""
+
+    if not issues:
+        return
+
+    reasons_counter = Counter(issue.reason for issue in issues)
+    print(f"[legacy-migrate] {title}:")
+    for reason, count in reasons_counter.most_common(max(1, max_reasons)):
+        print(f"[legacy-migrate]   count={count} | reason={reason}")
 
 
 def _print_combined_report(
@@ -159,8 +193,9 @@ def _print_combined_report(
     invalid_issues: tuple[LegacyMigrationIssue, ...],
     skipped_by_phone_filter: int,
     source_rows_count: int,
+    max_issue_samples: int,
 ) -> None:
-    """Печатает объединенный отчет подготовки + миграции."""
+    """Печатает объединенный краткий и расширенный отчет подготовки + миграции."""
 
     normalized_report = LegacyMigrationReport(
         dry_run=migration_report.dry_run,
@@ -178,6 +213,8 @@ def _print_combined_report(
     )
     for line in build_report_lines(normalized_report):
         print(line)
+    for line in build_extended_report_lines(normalized_report):
+        print(line)
 
     if invalid_issues:
         print(
@@ -185,8 +222,25 @@ def _print_combined_report(
             "Они были пропущены."
         )
 
-    _print_issues(invalid_issues)
-    _print_issues(migration_report.issues)
+    _print_issue_reasons_summary(
+        invalid_issues,
+        title="Сводка причин невалидных source-строк",
+    )
+    _print_issue_reasons_summary(
+        migration_report.issues,
+        title="Сводка причин ошибок/конфликтов миграции",
+    )
+
+    _print_issues(
+        invalid_issues,
+        title="Примеры невалидных source-строк",
+        max_samples=max_issue_samples,
+    )
+    _print_issues(
+        migration_report.issues,
+        title="Примеры ошибок/конфликтов миграции",
+        max_samples=max_issue_samples,
+    )
 
 
 def main() -> int:
@@ -253,7 +307,15 @@ def main() -> int:
 
     if not preparation_result.prepared_records:
         print("[legacy-migrate] Нет данных для переноса. Завершено.")
-        _print_issues(preparation_result.invalid_issues[: min(20, len(preparation_result.invalid_issues))])
+        _print_issue_reasons_summary(
+            preparation_result.invalid_issues,
+            title="Сводка причин невалидных source-строк",
+        )
+        _print_issues(
+            preparation_result.invalid_issues,
+            title="Примеры невалидных source-строк",
+            max_samples=max(1, int(args.max_issues)),
+        )
         return 0
 
     settings = AppSettings()
@@ -283,6 +345,7 @@ def main() -> int:
         invalid_issues=preparation_result.invalid_issues,
         skipped_by_phone_filter=preparation_result.skipped_by_phone_filter,
         source_rows_count=len(source_records),
+        max_issue_samples=max(1, int(args.max_issues)),
     )
 
     if migration_report.failed_count > 0:
