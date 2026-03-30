@@ -101,7 +101,7 @@ def build_telegram_identity_router(
     ) -> None:
         """Отправляет QR-коды виртуальных карт отдельными сообщениями перед итоговым текстом."""
 
-        if result.status != "virtual_card" or not result.virtual_card_numbers:
+        if not result.virtual_card_numbers:
             return
 
         qr_logger = router_logger.bind(stage="virtual_card_qr", user_id=str(chat_id))

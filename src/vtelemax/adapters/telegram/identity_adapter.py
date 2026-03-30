@@ -458,16 +458,23 @@ class TelegramIdentityAdapter:
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
 
-            loyalty_sync_text = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
-            sync_summary = self._build_registration_sync_summary(loyalty_sync_text)
+            sync_message, registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=person.phone_e164)
+            completion_parts = [
+                "✅ Регистрация успешно завершена.",
+                sync_message,
+            ]
+            if registration_card_numbers:
+                completion_parts.append("🪪 Сейчас отправлю QR-коды ваших карт.")
+            completion_parts.extend(
+                [
+                    "ℹ️ Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».",
+                    self.build_menu_overview_message(),
+                ]
+            )
             return TelegramMenuActionResult(
                 status="menu",
-                message=(
-                    f"{sync_summary}\n\n"
-                    "✅ Регистрация завершена.\n\n"
-                    "Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».\n\n"
-                    f"{self.build_menu_overview_message()}"
-                ),
+                message="\n\n".join(completion_parts),
+                virtual_card_numbers=registration_card_numbers,
             )
 
         if onboarding_state == OnboardingState.WAITING_LEGACY_PHONE:
@@ -1442,19 +1449,6 @@ class TelegramIdentityAdapter:
         )
 
     @staticmethod
-    def _build_registration_sync_summary(sync_result_text: str) -> str:
-        """Преобразует технический результат синхронизации в короткое сообщение для гостя."""
-
-        normalized = (sync_result_text or "").strip()
-        if normalized.startswith("✅"):
-            return "✅ Синхронизация с iiko выполнена."
-        if normalized.startswith("⚠️"):
-            return "⚠️ Синхронизация с iiko выполнена с ограничениями. Мы завершим обработку автоматически."
-        if normalized.startswith("ℹ️"):
-            return "ℹ️ Синхронизация с iiko сейчас недоступна. Можно продолжать работу с ботом."
-        return "ℹ️ Синхронизация с iiko запущена."
-
-    @staticmethod
     def _collect_account_platforms(accounts: set[object]) -> tuple[str, ...]:
         """Возвращает отсортированный список платформ привязанных аккаунтов пользователя."""
 
@@ -1670,24 +1664,16 @@ class TelegramIdentityAdapter:
 
         return normalize_person_name(raw_text)
 
-    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> str:
-        """Запускает синхронизацию с iiko через use-case виртуальной карты.
-
-        Логика:
-        1. Если интеграция не настроена — возвращаем нейтральное информационное сообщение.
-        2. Если настроена — выполняем сценарий выдачи/получения виртуальной карты.
-        """
+    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> tuple[str, tuple[str, ...]]:
+        """Запускает синхронизацию с iiko и возвращает текст + номера карт для отправки QR."""
 
         if self._virtual_card_use_case is None:
-            return "ℹ️ Интеграция с iiko отключена. Синхронизация профиля будет выполнена позже."
+            return ("ℹ️ Синхронизация с iiko временно недоступна.", ())
 
         result = self._virtual_card_use_case.execute(phone_e164=phone_e164)
         if result.status == "virtual_card":
-            return "✅ Синхронизация с iiko выполнена.\n" + result.message
-        return (
-            "⚠️ Регистрация завершена, но синхронизация с iiko выполнилась с ограничениями.\n"
-            f"{result.message}"
-        )
+            return ("✅ Синхронизация с iiko выполнена успешно.", result.card_numbers)
+        return ("⚠️ Синхронизация с iiko выполнена с ограничениями.", ())
 
     @staticmethod
     def _parse_ticket_id(raw_ticket_id: str) -> UUID | None:
