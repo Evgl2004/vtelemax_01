@@ -446,6 +446,38 @@ def test_telegram_onboarding_moves_from_rules_to_phone() -> None:
     assert result.requires_contact_keyboard is True
 
 
+def test_telegram_migrated_legacy_user_goes_to_legacy_phone_after_rules_consent() -> None:
+    """Проверяет, что migrated legacy-пользователь после новых правил идет в legacy-подтверждение телефона."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="3005",
+            raw_phone="+79123456789",
+            rules_accepted=False,
+            is_legacy=True,
+            is_registered=False,
+        )
+    )
+
+    start_result = adapter.start_interaction(telegram_user_id=3005)
+    accept_result = adapter.handle_menu_action(telegram_user_id=3005, action_text="✅ Согласен")
+
+    assert start_result.status == "rules_consent_required"
+    assert accept_result.status == "legacy_phone_confirmation_required"
+    assert accept_result.requires_contact_keyboard is True
+    assert "предыдущей версии бота" in accept_result.message
+
+
 def test_telegram_onboarding_phone_waiting_returns_reminder_for_dirty_input() -> None:
     """Проверяет грязный сценарий: текст вместо отправки контакта на шаге телефона."""
 

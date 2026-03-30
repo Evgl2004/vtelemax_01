@@ -119,6 +119,7 @@ class _OnboardingDraft:
     phone_verified_at: datetime | None = None
     phone_verification_method: str | None = None
     first_name_input: str | None = None
+    is_legacy_upgrade: bool = False
 
 
 class TelegramIdentityAdapter:
@@ -199,7 +200,7 @@ class TelegramIdentityAdapter:
             method_logger.info("Запрошен legacy-flow обновления профиля.")
             transition = self._onboarding_flow.begin_legacy_upgrade()
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
-            self._onboarding_draft_by_user_id[telegram_user_id] = _OnboardingDraft()
+            self._onboarding_draft_by_user_id[telegram_user_id] = _OnboardingDraft(is_legacy_upgrade=True)
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
             return TelegramMenuActionResult(
@@ -216,6 +217,7 @@ class TelegramIdentityAdapter:
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
                 first_name_input=person.first_name_input,
+                is_legacy_upgrade=person.is_legacy,
             )
             self._onboarding_draft_by_user_id[telegram_user_id] = draft
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
@@ -392,18 +394,21 @@ class TelegramIdentityAdapter:
         onboarding_state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
         if onboarding_state == OnboardingState.WAITING_RULES_CONSENT:
             transition = self._onboarding_flow.handle_rules_input(action_text)
-            self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            next_transition = transition
             if transition.state == OnboardingState.WAITING_PHONE:
                 draft = self._onboarding_draft_by_user_id.setdefault(telegram_user_id, _OnboardingDraft())
                 draft.rules_accepted_at = datetime.now(timezone.utc)
+                if draft.is_legacy_upgrade:
+                    next_transition = self._onboarding_flow.begin_legacy_upgrade()
+            self._onboarding_state_by_user_id[telegram_user_id] = next_transition.state
             method_logger.info(
                 "Обработано подтверждение правил. status={status}.",
-                status=transition.status,
+                status=next_transition.status,
             )
             return TelegramMenuActionResult(
-                status=transition.status,
-                message=transition.message,
-                requires_contact_keyboard=transition.requires_contact_keyboard,
+                status=next_transition.status,
+                message=next_transition.message,
+                requires_contact_keyboard=next_transition.requires_contact_keyboard,
             )
 
         if onboarding_state == OnboardingState.WAITING_PHONE:

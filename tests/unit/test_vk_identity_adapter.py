@@ -215,6 +215,39 @@ def test_vk_onboarding_moves_from_rules_to_phone() -> None:
     assert response.screen.screen_id == "start_contact"
 
 
+def test_vk_migrated_legacy_user_goes_to_legacy_phone_after_rules_consent() -> None:
+    """Проверяет, что migrated legacy-пользователь после новых правил переходит в legacy-шаг телефона."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="3005",
+            raw_phone="+79123456789",
+            rules_accepted=False,
+            is_legacy=True,
+            is_registered=False,
+        )
+    )
+
+    start_response = adapter.handle_start(vk_user_id=3005)
+    response = adapter.handle_incoming(vk_user_id=3005, text="✅ Согласен", payload=None)
+
+    assert start_response.screen is not None
+    assert start_response.screen.screen_id == "start_rules"
+    assert "предыдущей версии бота" in response.text
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_contact"
+
+
 def test_vk_dirty_input_on_rules_step_keeps_consent_pending() -> None:
     """Проверяет грязный сценарий: случайный текст вместо согласия."""
 

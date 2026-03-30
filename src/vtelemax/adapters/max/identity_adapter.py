@@ -79,6 +79,7 @@ class _OnboardingDraft:
     phone_verified_at: datetime | None = None
     phone_verification_method: str | None = None
     first_name_input: str | None = None
+    is_legacy_upgrade: bool = False
 
 
 class MaxIdentityAdapter:
@@ -144,6 +145,7 @@ class MaxIdentityAdapter:
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
                 first_name_input=person.first_name_input,
+                is_legacy_upgrade=person.is_legacy,
             )
             self._onboarding_draft_by_user_id[max_user_id] = draft
             self._clear_moderator_state(max_user_id)
@@ -194,7 +196,7 @@ class MaxIdentityAdapter:
         transition = self._onboarding_flow.begin_legacy_upgrade()
         method_logger.info("Legacy-flow запущен.")
         self._state_by_user_id[max_user_id] = transition.state.value
-        self._onboarding_draft_by_user_id[max_user_id] = _OnboardingDraft()
+        self._onboarding_draft_by_user_id[max_user_id] = _OnboardingDraft(is_legacy_upgrade=True)
         self._clear_moderator_state(max_user_id)
         contact_screen = self._menu_adapter.build_start_contact_screen()
         return MaxAdapterResponse(text=transition.message, screen=contact_screen)
@@ -351,14 +353,18 @@ class MaxIdentityAdapter:
             consent_input = BUTTON_ACCEPT_RULES
 
         transition = self._onboarding_flow.handle_rules_input(consent_input)
-        self._state_by_user_id[max_user_id] = transition.state.value
+        next_transition = transition
         if transition.state == OnboardingState.WAITING_PHONE:
             draft = self._onboarding_draft_by_user_id.setdefault(max_user_id, _OnboardingDraft())
             draft.rules_accepted_at = datetime.now(timezone.utc)
+            if draft.is_legacy_upgrade:
+                next_transition = self._onboarding_flow.begin_legacy_upgrade()
+            self._state_by_user_id[max_user_id] = next_transition.state.value
             screen = self._menu_adapter.build_start_contact_screen()
         else:
+            self._state_by_user_id[max_user_id] = next_transition.state.value
             screen = self._menu_adapter.build_start_rules_screen()
-        return MaxAdapterResponse(text=transition.message, screen=screen)
+        return MaxAdapterResponse(text=next_transition.message, screen=screen)
 
     def _handle_phone_input(self, max_user_id: int, text: str, *, is_legacy: bool) -> MaxAdapterResponse:
         """Обрабатывает ввод телефона для регистрации/legacy-обновления."""
