@@ -214,6 +214,18 @@ def test_vk_profile_available_after_registration() -> None:
     assert "+79123456789" in response.text
 
 
+def test_vk_start_for_registered_user_uses_first_name_in_menu() -> None:
+    """Проверяет, что главное меню для зарегистрированного пользователя показывает имя."""
+
+    adapter = _build_adapter()
+    _complete_vk_registration(adapter)
+
+    response = adapter.handle_start(vk_user_id=1001)
+
+    assert "Иван" in response.text
+    assert "главном меню" in response.text
+
+
 def test_vk_balance_uses_loyalty_use_case() -> None:
     """Проверяет, что пункт «Мой баланс» возвращает данные из loyalty use-case."""
 
@@ -237,6 +249,8 @@ def test_vk_balance_uses_loyalty_use_case() -> None:
     response = adapter.handle_incoming(vk_user_id=1001, text="💰 Мой баланс", payload=None)
 
     assert "44.50" in response.text
+    assert response.screen is not None
+    assert response.screen.screen_id == "balance"
 
 
 def test_vk_virtual_card_uses_loyalty_use_case() -> None:

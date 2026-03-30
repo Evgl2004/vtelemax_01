@@ -441,6 +441,7 @@ def test_telegram_start_interaction_for_registered_user_returns_menu() -> None:
 
     assert result.status == "menu"
     assert "главном меню" in result.message
+    assert "Иван" in result.message
 
 
 def test_telegram_legacy_upgrade_flow_reuses_phone_confirmation() -> None:

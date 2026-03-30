@@ -165,7 +165,9 @@ class MaxIdentityAdapter:
         self._onboarding_draft_by_user_id.pop(max_user_id, None)
         self._clear_moderator_state(max_user_id)
         method_logger.info("Пользователь найден, открываем главное меню.")
-        main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+        main_screen = self._menu_adapter.build_main_menu_screen(
+            user_name=self._resolve_menu_user_name(max_user_id=max_user_id, person=person)
+        )
         return MaxAdapterResponse(text=main_screen.text, screen=main_screen)
 
     def handle_legacy_start(self, max_user_id: int) -> MaxAdapterResponse:
@@ -289,7 +291,9 @@ class MaxIdentityAdapter:
                     ),
                     screen=rules_screen,
                 )
-            main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+            main_screen = self._menu_adapter.build_main_menu_screen(
+                user_name=self._resolve_menu_user_name(max_user_id=max_user_id, person=person)
+            )
             return MaxAdapterResponse(
                 text=(
                     "Команда не распознана. Используйте кнопки меню.\n\n"
@@ -374,7 +378,9 @@ class MaxIdentityAdapter:
             self._onboarding_draft_by_user_id.pop(max_user_id, None)
             self._clear_moderator_state(max_user_id)
             method_logger.info("Телефон legacy подтвержден. person_id={person_id}.", person_id=person.person_id)
-            main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+            main_screen = self._menu_adapter.build_main_menu_screen(
+                user_name=self._resolve_menu_user_name(max_user_id=max_user_id, person=person)
+            )
             return MaxAdapterResponse(
                 text=(
                     "Профиль legacy успешно обновлен. Номер подтвержден в единой базе.\n\n"
@@ -530,7 +536,9 @@ class MaxIdentityAdapter:
             )
 
         self._state_by_user_id.pop(max_user_id, None)
-        main_screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+        main_screen = self._menu_adapter.build_main_menu_screen(
+            user_name=self._resolve_menu_user_name(max_user_id=max_user_id)
+        )
         if self._create_support_ticket_use_case is None:
             ticket_message = (
                 "📨 Ваш вопрос принят!\n"
@@ -1169,12 +1177,28 @@ class MaxIdentityAdapter:
         self._moderator_state_by_user_id.pop(max_user_id, None)
         self._moderator_context_by_user_id.pop(max_user_id, None)
 
+    def _resolve_menu_user_name(self, *, max_user_id: int, person: object | None = None) -> str:
+        """Возвращает имя для приветствия в главном меню."""
+
+        resolved_person = person
+        if resolved_person is None:
+            resolved_person = self._person_lookup_use_case.execute(
+                GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
+            )
+        first_name = getattr(resolved_person, "first_name_input", None)
+        if isinstance(first_name, str):
+            normalized = first_name.strip()
+            if normalized:
+                return normalized
+        return "Гость"
+
     def _handle_action(self, max_user_id: int, action: GuestMenuAction) -> MaxAdapterResponse:
         """Обрабатывает пункт меню для зарегистрированного пользователя."""
 
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
         )
+        menu_user_name = self._resolve_menu_user_name(max_user_id=max_user_id, person=person)
 
         if person is None and action not in {
             GuestMenuAction.MAIN_MENU,
@@ -1256,27 +1280,34 @@ class MaxIdentityAdapter:
             return MaxAdapterResponse(text=screen.text, screen=screen)
 
         if action == GuestMenuAction.MAIN_MENU:
-            screen = self._menu_adapter.build_main_menu_screen(user_name="Гость")
+            screen = self._menu_adapter.build_main_menu_screen(user_name=menu_user_name)
             return MaxAdapterResponse(text=screen.text, screen=screen)
 
         has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
-        screen = self._menu_adapter.resolve_action_screen(action, user_name="Гость", has_tickets=has_tickets)
+        screen = self._menu_adapter.resolve_action_screen(
+            action,
+            user_name=menu_user_name,
+            has_tickets=has_tickets,
+        )
         return MaxAdapterResponse(text=screen.text, screen=screen)
 
     def _handle_balance_action(self, *, person_phone_e164: str) -> MaxAdapterResponse:
         """Обрабатывает пункт меню «Мой баланс» через общий use-case лояльности."""
 
+        balance_screen = self._menu_adapter.build_balance_screen(balance=0.0)
         if self._balance_use_case is None:
             return MaxAdapterResponse(
                 text=(
                     "❌ Информация о бонусах временно недоступна.\n"
                     "Пожалуйста, попробуйте позже или обратитесь к администратору."
-                )
+                ),
+                screen=balance_screen,
             )
 
         result = self._balance_use_case.execute(phone_e164=person_phone_e164)
         return MaxAdapterResponse(
             text=result.message,
+            screen=balance_screen,
             parse_mode="markdown" if result.parse_mode == "markdown" else None,
         )
 

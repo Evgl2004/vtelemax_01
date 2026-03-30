@@ -332,7 +332,7 @@ def build_support_feedback_screen() -> MenuScreenContract:
         text=(
             "✍️ *Оставить отзыв*\n\n"
             "Мы будем рады узнать ваше мнение! Перейдите по ссылке ниже:\n"
-            "👉 https://example.com/feedback"
+            "👉 https://rdata.one/Nyyl"
         ),
         buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_SUPPORT, label=BUTTON_BACK_TO_SUPPORT),),
         parse_mode="markdown",

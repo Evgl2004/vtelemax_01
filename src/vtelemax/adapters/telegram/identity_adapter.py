@@ -237,7 +237,9 @@ class TelegramIdentityAdapter:
         method_logger.info("Пользователь найден, открываем главное меню.")
         return TelegramMenuActionResult(
             status="menu",
-            message=self.build_menu_overview_message(),
+            message=self.build_menu_overview_message(
+                user_name=self._resolve_menu_user_name(telegram_user_id=telegram_user_id, person=person)
+            ),
         )
 
     def register_contact(self, telegram_user_id: int, raw_phone: str) -> TelegramRegistrationResult:
@@ -327,10 +329,10 @@ class TelegramIdentityAdapter:
 
         return build_start_rules_screen().text
 
-    def build_menu_overview_message(self) -> str:
+    def build_menu_overview_message(self, *, user_name: str = "Гость") -> str:
         """Возвращает текст обзора главного меню."""
 
-        return build_main_menu_screen().text
+        return build_main_menu_screen(user_name=user_name).text
 
     def handle_menu_action(self, telegram_user_id: int, action_text: str) -> TelegramMenuActionResult:
         """Обрабатывает текстовые действия главного меню Telegram."""
@@ -468,7 +470,7 @@ class TelegramIdentityAdapter:
             completion_parts.extend(
                 [
                     "ℹ️ Подробности анкеты и информацию профиля можно посмотреть и изменить в разделе «👤 Профиль».",
-                    self.build_menu_overview_message(),
+                    self.build_menu_overview_message(user_name=person.first_name_input or "Гость"),
                 ]
             )
             return TelegramMenuActionResult(
@@ -565,7 +567,9 @@ class TelegramIdentityAdapter:
         if action in {GuestMenuAction.MAIN_MENU, GuestMenuAction.BACK_TO_MAIN}:
             return TelegramMenuActionResult(
                 status="menu",
-                message=self.build_menu_overview_message(),
+                message=self.build_menu_overview_message(
+                    user_name=self._resolve_menu_user_name(telegram_user_id=telegram_user_id)
+                ),
             )
 
         if action == GuestMenuAction.HELP:
@@ -1459,6 +1463,21 @@ class TelegramIdentityAdapter:
             if getattr(account, "platform", None)
         }
         return tuple(sorted(platforms, key=lambda platform: sort_order.get(platform, 99)))
+
+    def _resolve_menu_user_name(self, *, telegram_user_id: int, person: object | None = None) -> str:
+        """Возвращает имя для приветствия в главном меню."""
+
+        resolved_person = person
+        if resolved_person is None:
+            resolved_person = self._person_lookup_use_case.execute(
+                GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+            )
+        first_name = getattr(resolved_person, "first_name_input", None)
+        if isinstance(first_name, str):
+            normalized = first_name.strip()
+            if normalized:
+                return normalized
+        return "Гость"
 
     @staticmethod
     def _build_moderation_menu_text() -> str:

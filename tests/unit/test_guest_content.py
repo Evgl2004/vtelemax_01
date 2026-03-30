@@ -7,6 +7,7 @@ from vtelemax.core import (
     build_main_menu_screen,
     build_profile_review_text,
     build_start_contact_screen,
+    build_support_feedback_screen,
     build_support_menu_screen,
     resolve_guest_menu_action,
 )
@@ -82,3 +83,11 @@ def test_profile_review_text_hides_consents_and_shows_platforms() -> None:
     assert "Привязанных аккаунтов" in profile_text
     assert "* 3" in profile_text
     assert "Telegram, VK, MAX" in profile_text
+
+
+def test_support_feedback_screen_uses_actual_review_link() -> None:
+    """Проверяет, что в разделе отзыва указана актуальная ссылка."""
+
+    screen = build_support_feedback_screen()
+
+    assert "https://rdata.one/Nyyl" in screen.text
