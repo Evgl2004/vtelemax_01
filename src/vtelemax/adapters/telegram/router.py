@@ -325,6 +325,8 @@ def build_telegram_identity_router(
         event_logger.info("Обработка контакта завершена. status={status}.", status=result.status)
         if result.status == "first_name_required":
             reply_markup = None
+        elif result.status in {"notifications_consent_required", "notifications_consent_pending"}:
+            reply_markup = build_notifications_consent_inline_keyboard()
         elif result.is_success:
             reply_markup = main_menu_inline_keyboard
         else:

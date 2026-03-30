@@ -261,8 +261,6 @@ class TelegramIdentityAdapter:
                     rules_accepted_at=draft.rules_accepted_at,
                     phone_verified_at=phone_verified_at,
                     phone_verification_method="telegram_contact",
-                    is_legacy=False if previous_state == OnboardingState.WAITING_LEGACY_PHONE else None,
-                    is_registered=True if previous_state == OnboardingState.WAITING_LEGACY_PHONE else None,
                 )
             )
         except IdentityConflictError:
@@ -283,10 +281,11 @@ class TelegramIdentityAdapter:
                 message="Не удалось обработать телефон. Проверьте формат и отправьте контакт еще раз.",
             )
 
+        draft.phone_e164 = person.phone_e164
+        draft.phone_verified_at = phone_verified_at
+        draft.phone_verification_method = "telegram_contact"
+
         if previous_state == OnboardingState.WAITING_PHONE:
-            draft.phone_e164 = person.phone_e164
-            draft.phone_verified_at = phone_verified_at
-            draft.phone_verification_method = "telegram_contact"
             self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_FIRST_NAME
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
@@ -301,21 +300,52 @@ class TelegramIdentityAdapter:
                 person_id=person.person_id,
             )
 
+        if previous_state == OnboardingState.WAITING_LEGACY_PHONE:
+            person_first_name = (person.first_name_input or "").strip()
+            if person_first_name:
+                draft.first_name_input = person_first_name
+                transition = self._onboarding_flow.begin_notifications_consent_step(
+                    phone_e164=draft.phone_e164,
+                    accounts_count=len(person.accounts),
+                    first_name_input=person_first_name,
+                )
+                self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                self._clear_moderator_state(telegram_user_id)
+                method_logger.info(
+                    "Legacy: телефон подтвержден, переходим к шагу согласия на рассылку. person_id={person_id}.",
+                    person_id=person.person_id,
+                )
+                return TelegramRegistrationResult(
+                    is_success=False,
+                    status=transition.status,
+                    message=transition.message,
+                    person_id=person.person_id,
+                )
+
+            self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_FIRST_NAME
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            self._clear_moderator_state(telegram_user_id)
+            method_logger.info(
+                "Legacy: телефон подтвержден, переходим к шагу ввода имени. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return TelegramRegistrationResult(
+                is_success=False,
+                status="first_name_required",
+                message=build_first_name_input_screen().text,
+                person_id=person.person_id,
+            )
+
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
         self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
         self._dialog_state_by_user_id.pop(telegram_user_id, None)
         self._clear_moderator_state(telegram_user_id)
         method_logger.info("Контакт успешно зарегистрирован. person_id={person_id}.", person_id=person.person_id)
-        if previous_state == OnboardingState.WAITING_LEGACY_PHONE:
-            success_message = (
-                "Профиль legacy успешно обновлен. Ваш номер подтвержден в единой базе.\n"
-                "Откройте Главное меню и выберите нужный раздел."
-            )
-        else:
-            success_message = (
-                "Регистрация успешно подтверждена. Ваш номер сохранен в единой базе.\n"
-                "Откройте Главное меню и выберите нужный раздел."
-            )
+        success_message = (
+            "Регистрация успешно подтверждена. Ваш номер сохранен в единой базе.\n"
+            "Откройте Главное меню и выберите нужный раздел."
+        )
 
         return TelegramRegistrationResult(
             is_success=True,

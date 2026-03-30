@@ -354,11 +354,14 @@ def test_vk_legacy_start_requests_phone_confirmation() -> None:
 
     legacy_start = adapter.handle_legacy_start(vk_user_id=1001)
     confirm = adapter.handle_incoming(vk_user_id=1001, text="+79123456789", payload=None)
+    finish = adapter.handle_incoming(vk_user_id=1001, text="Да", payload=None)
 
     assert "предыдущей версии бота" in legacy_start.text
     assert legacy_start.screen is not None
     assert legacy_start.screen.screen_id == "start_contact"
-    assert "legacy успешно обновлен" in confirm.text
+    assert confirm.screen is not None
+    assert confirm.screen.screen_id == "notifications_consent"
+    assert "Регистрация успешно завершена." in finish.text
 
 
 def test_vk_moderator_reply_can_route_to_another_messenger() -> None:

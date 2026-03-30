@@ -351,8 +351,6 @@ class MaxIdentityAdapter:
                     rules_accepted_at=draft.rules_accepted_at,
                     phone_verified_at=phone_verified_at,
                     phone_verification_method="max_contact_or_text",
-                    is_legacy=False if is_legacy else None,
-                    is_registered=True if is_legacy else None,
                 )
             )
         except IdentityConflictError:
@@ -373,26 +371,37 @@ class MaxIdentityAdapter:
                 screen=self._menu_adapter.build_start_contact_screen(),
             )
 
-        if is_legacy:
-            self._state_by_user_id.pop(max_user_id, None)
-            self._onboarding_draft_by_user_id.pop(max_user_id, None)
-            self._clear_moderator_state(max_user_id)
-            method_logger.info("Телефон legacy подтвержден. person_id={person_id}.", person_id=person.person_id)
-            main_screen = self._menu_adapter.build_main_menu_screen(
-                user_name=self._resolve_menu_user_name(max_user_id=max_user_id, person=person)
-            )
-            return MaxAdapterResponse(
-                text=(
-                    "Профиль legacy успешно обновлен. Номер подтвержден в единой базе.\n\n"
-                    f"{main_screen.text}\n\n"
-                    f"Ваш телефон: {person.phone_e164}"
-                ),
-                screen=main_screen,
-            )
-
         draft.phone_e164 = person.phone_e164
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "max_contact_or_text"
+
+        if is_legacy:
+            person_first_name = (person.first_name_input or "").strip()
+            if person_first_name:
+                draft.first_name_input = person_first_name
+                transition = self._onboarding_flow.begin_notifications_consent_step(
+                    phone_e164=draft.phone_e164,
+                    accounts_count=len(person.accounts),
+                    first_name_input=person_first_name,
+                )
+                self._state_by_user_id[max_user_id] = transition.state.value
+                method_logger.info(
+                    "Legacy: телефон подтвержден, переходим к шагу согласия на рассылку. person_id={person_id}.",
+                    person_id=person.person_id,
+                )
+                return MaxAdapterResponse(
+                    text=transition.message,
+                    screen=self._menu_adapter.build_notifications_consent_screen(),
+                )
+
+            transition = self._onboarding_flow.begin_first_name_step()
+            self._state_by_user_id[max_user_id] = transition.state.value
+            method_logger.info(
+                "Legacy: телефон подтвержден, переходим к шагу ввода имени. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return MaxAdapterResponse(text=transition.message, screen=None)
+
         transition = self._onboarding_flow.begin_first_name_step()
         self._state_by_user_id[max_user_id] = transition.state.value
         method_logger.info(

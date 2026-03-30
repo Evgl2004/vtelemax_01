@@ -456,14 +456,22 @@ def test_telegram_legacy_upgrade_flow_reuses_phone_confirmation() -> None:
     )
     adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
 
+    adapter.start_interaction(telegram_user_id=1001)
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="✅ Согласен")
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="Иван")
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="Да")
+
     legacy_start = adapter.start_interaction(telegram_user_id=1001, force_legacy_upgrade=True)
     confirm = adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    finish = adapter.handle_menu_action(telegram_user_id=1001, action_text="Да")
 
     assert legacy_start.status == "legacy_phone_confirmation_required"
     assert legacy_start.requires_contact_keyboard is True
-    assert confirm.is_success is True
-    assert "legacy успешно обновлен" in confirm.message
+    assert confirm.is_success is False
+    assert confirm.status == "notifications_consent_required"
+    assert finish.status == "menu"
+    assert "Регистрация успешно завершена." in finish.message
 
 
 def test_telegram_support_question_creates_ticket_when_support_use_case_connected() -> None:
