@@ -72,6 +72,15 @@ def _is_message_not_modified_error(error: Exception) -> bool:
     return "message is not modified" in text or "message_not_modified" in text
 
 
+def _is_button_data_invalid_error(error: Exception) -> bool:
+    """Проверяет, что ошибка связана с невалидным callback_data в inline-кнопке."""
+
+    if isinstance(error, TelegramBadRequest):
+        text = str(error).lower()
+        return "button_data_invalid" in text
+    return "button_data_invalid" in str(error).lower()
+
+
 def build_telegram_identity_router(
     identity_adapter: TelegramIdentityAdapter,
     delivery_processor: PendingModeratorDeliveryProcessor | None = None,
@@ -134,11 +143,23 @@ def build_telegram_identity_router(
         """Отправляет результат адаптера для message-handler, включая QR при необходимости."""
 
         await _send_virtual_card_qr(bot=message.bot, chat_id=message.chat.id, result=result)
-        await message.answer(
-            result.message,
-            parse_mode=getattr(result, "parse_mode", None),
-            reply_markup=_with_reply_keyboard_cleanup(reply_markup),
-        )
+        try:
+            await message.answer(
+                result.message,
+                parse_mode=getattr(result, "parse_mode", None),
+                reply_markup=_with_reply_keyboard_cleanup(reply_markup),
+            )
+        except TelegramBadRequest as error:
+            if not _is_button_data_invalid_error(error):
+                raise
+            router_logger.warning(
+                "Невалидная callback-кнопка в reply_markup. Повторяем отправку без клавиатуры."
+            )
+            await message.answer(
+                result.message,
+                parse_mode=getattr(result, "parse_mode", None),
+                reply_markup=ReplyKeyboardRemove(),
+            )
 
     async def _send_to_chat_with_result(
         *,
@@ -150,12 +171,25 @@ def build_telegram_identity_router(
         """Отправляет результат адаптера напрямую в чат, включая QR при необходимости."""
 
         await _send_virtual_card_qr(bot=bot, chat_id=chat_id, result=result)
-        await bot.send_message(
-            chat_id=chat_id,
-            text=result.message,
-            parse_mode=getattr(result, "parse_mode", None),
-            reply_markup=_with_reply_keyboard_cleanup(reply_markup),
-        )
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=result.message,
+                parse_mode=getattr(result, "parse_mode", None),
+                reply_markup=_with_reply_keyboard_cleanup(reply_markup),
+            )
+        except TelegramBadRequest as error:
+            if not _is_button_data_invalid_error(error):
+                raise
+            router_logger.warning(
+                "Невалидная callback-кнопка в reply_markup. Повторяем отправку без клавиатуры."
+            )
+            await bot.send_message(
+                chat_id=chat_id,
+                text=result.message,
+                parse_mode=getattr(result, "parse_mode", None),
+                reply_markup=ReplyKeyboardRemove(),
+            )
 
     def _choose_reply_markup(result: TelegramMenuActionResult) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
         """Выбирает клавиатуру для ответа на основе результата адаптера."""
