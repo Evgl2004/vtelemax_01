@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import aiohttp
 from loguru import logger
 from vkbottle.bot import MessageEvent
 from vkbottle_types.events import GroupEventType
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import VkAdapterResponse, VkIdentityAdapter
 from .keyboard_renderer import render_vk_keyboard
@@ -41,6 +43,104 @@ def _is_message_not_modified_error(error: Exception) -> bool:
 
     text = str(error).lower()
     return "not modified" in text or "message is same" in text
+
+
+def _extract_field(source: Any, field: str) -> Any:
+    """Безопасно извлекает поле из dict/объекта VK API."""
+
+    if isinstance(source, dict):
+        return source.get(field)
+    return getattr(source, field, None)
+
+
+def _build_vk_photo_attachment(photo: Any) -> str | None:
+    """Собирает attachment-строку `photo<owner_id>_<id>[_access_key]`."""
+
+    owner_id = _extract_field(photo, "owner_id")
+    photo_id = _extract_field(photo, "id")
+    access_key = _extract_field(photo, "access_key")
+    if owner_id is None or photo_id is None:
+        return None
+
+    attachment = f"photo{owner_id}_{photo_id}"
+    if access_key:
+        attachment = f"{attachment}_{access_key}"
+    return attachment
+
+
+async def _upload_vk_png_for_messages(*, ctx_api: Any, peer_id: int, image_bytes: bytes) -> str | None:
+    """Загружает PNG в VK и возвращает attachment для отправки в личные сообщения."""
+
+    upload_info = await ctx_api.photos.get_messages_upload_server(peer_id=peer_id)
+    upload_url = _extract_field(upload_info, "upload_url")
+    if not upload_url:
+        return None
+
+    form = aiohttp.FormData()
+    form.add_field(
+        "photo",
+        image_bytes,
+        filename="virtual_card_qr.png",
+        content_type="image/png",
+    )
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            upload_url,
+            data=form,
+            timeout=aiohttp.ClientTimeout(total=20),
+        ) as response:
+            if response.status != 200:
+                return None
+            upload_result = await response.json(content_type=None)
+
+    photo_value = upload_result.get("photo")
+    server_value = upload_result.get("server")
+    hash_value = upload_result.get("hash")
+    if not photo_value or server_value is None or not hash_value:
+        return None
+
+    saved_photos = await ctx_api.photos.save_messages_photo(
+        photo=photo_value,
+        server=server_value,
+        hash=hash_value,
+    )
+    if not saved_photos:
+        return None
+    return _build_vk_photo_attachment(saved_photos[0])
+
+
+async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_numbers: tuple[str, ...]) -> None:
+    """Отправляет QR-коды карт в VK перед итоговым текстовым ответом."""
+
+    if not card_numbers:
+        return
+
+    qr_logger = logger.bind(platform="vk", component="router", stage="virtual_card_qr", user_id=str(peer_id))
+    for index, card_number in enumerate(card_numbers, start=1):
+        try:
+            qr_png = generate_qr_png_bytes(card_number)
+            attachment = await _upload_vk_png_for_messages(
+                ctx_api=ctx_api,
+                peer_id=peer_id,
+                image_bytes=qr_png,
+            )
+        except (QrGenerationError, ValueError):
+            qr_logger.warning("Не удалось сгенерировать QR для карты #{index}.", index=index)
+            continue
+        except Exception:  # noqa: BLE001
+            qr_logger.exception("Ошибка отправки QR в VK для карты #{index}.", index=index)
+            continue
+
+        if attachment is None:
+            qr_logger.warning("Не удалось загрузить QR в VK для карты #{index}.", index=index)
+            continue
+
+        await ctx_api.messages.send(
+            peer_id=peer_id,
+            random_id=0,
+            message=f"💳 Карта: {card_number}",
+            attachment=attachment,
+        )
 
 
 def register_vk_guest_handlers(
@@ -173,6 +273,16 @@ def register_vk_guest_handlers(
 async def _send_response(message: Any, response: VkAdapterResponse) -> None:
     """Отправляет ответ адаптера в чат VK."""
 
+    if response.virtual_card_numbers:
+        ctx_api = getattr(message, "ctx_api", None)
+        peer_id = getattr(message, "peer_id", None)
+        if ctx_api is not None and peer_id is not None:
+            await _send_virtual_card_qr_messages(
+                ctx_api=ctx_api,
+                peer_id=int(peer_id),
+                card_numbers=response.virtual_card_numbers,
+            )
+
     keyboard_json = render_vk_keyboard(response.screen)
     parse_mode = response.parse_mode
     if parse_mode is None and response.screen is not None:
@@ -189,6 +299,18 @@ async def _send_response(message: Any, response: VkAdapterResponse) -> None:
 
 async def _send_event_response(event: MessageEvent, response: VkAdapterResponse) -> None:
     """Пытается обновить исходное callback-сообщение, иначе отправляет новое."""
+
+    if response.virtual_card_numbers:
+        ctx_api = getattr(event, "ctx_api", None)
+        peer_id = getattr(event, "peer_id", None)
+        if peer_id is None:
+            peer_id = getattr(event, "user_id", None)
+        if ctx_api is not None and peer_id is not None:
+            await _send_virtual_card_qr_messages(
+                ctx_api=ctx_api,
+                peer_id=int(peer_id),
+                card_numbers=response.virtual_card_numbers,
+            )
 
     keyboard_json = render_vk_keyboard(response.screen)
     parse_mode = response.parse_mode

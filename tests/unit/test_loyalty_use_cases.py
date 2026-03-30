@@ -133,6 +133,7 @@ def test_virtual_card_use_case_returns_existing_cards_without_issue() -> None:
 
     assert result.status == "virtual_card"
     assert "79123456789_20260325" in result.message
+    assert result.card_numbers == ("79123456789_20260325",)
     assert gateway.register_calls == 0
     assert gateway.issue_calls == 0
 
@@ -166,6 +167,7 @@ def test_virtual_card_use_case_registers_and_issues_card_for_new_customer() -> N
 
     assert result.status == "virtual_card"
     assert "79123456789_20260325" in result.message
+    assert result.card_numbers == ("79123456789_20260325",)
     assert gateway.register_calls == 1
     assert gateway.issue_calls == 1
 
@@ -185,6 +187,7 @@ def test_virtual_card_use_case_returns_error_when_registration_failed() -> None:
 
     assert result.status == "virtual_card_error"
     assert "зарегистрировать" in result.message.lower()
+    assert result.card_numbers == ()
 
 
 def test_virtual_card_use_case_returns_error_when_issue_failed() -> None:
@@ -208,6 +211,7 @@ def test_virtual_card_use_case_returns_error_when_issue_failed() -> None:
 
     assert result.status == "virtual_card_error"
     assert "выпустить карту" in result.message.lower()
+    assert result.card_numbers == ()
 
 
 def test_loyalty_use_cases_raise_for_empty_phone_dirty_input() -> None:

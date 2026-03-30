@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from vtelemax.adapters.max.router import (
+    _extract_max_upload_token,
     _extract_contact_attachment,
     _extract_phone_from_vcf,
     _is_message_not_modified_error,
@@ -86,3 +87,19 @@ def test_is_message_not_modified_error_returns_false_for_other_errors() -> None:
     """Проверяет, что посторонние ошибки не считаются «not modified»."""
 
     assert not _is_message_not_modified_error(RuntimeError("forbidden"))
+
+
+def test_extract_max_upload_token_reads_token_from_photos_payload() -> None:
+    """Проверяет извлечение токена из формата `photos` ответа upload API."""
+
+    token = _extract_max_upload_token({"photos": {"photo_1": {"token": "token-1"}}})
+
+    assert token == "token-1"
+
+
+def test_extract_max_upload_token_returns_none_for_dirty_payload() -> None:
+    """Проверяет dirty-сценарий: без токена функция возвращает None."""
+
+    token = _extract_max_upload_token({"photos": {"photo_1": {}}})
+
+    assert token is None

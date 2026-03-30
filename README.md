@@ -180,3 +180,4 @@ vtelemax/
 5. Тестирование: `docs/TESTING.md`.
 6. Контейнерный запуск: `docs/DEPLOYMENT_DOCKER.md`.
 7. Матрица UI-паритета с прототипами: `docs/PARITY_SPEC_V1.md`.
+8. Сценарий QR для виртуальной карты: `docs/VIRTUAL_CARD_QR.md`.

@@ -6,9 +6,11 @@ import asyncio
 import re
 from typing import Any
 
+import aiohttp
 from loguru import logger
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
@@ -26,6 +28,116 @@ def _is_message_not_modified_error(error: Exception) -> bool:
 
     text = str(error).lower()
     return "not modified" in text or "message is same" in text
+
+
+def _resolve_max_upload_type_image() -> Any | None:
+    """Возвращает enum `UploadType.IMAGE`, если maxapi доступен в текущем окружении."""
+
+    try:
+        from maxapi.enums.upload_type import UploadType
+    except Exception:
+        return None
+    return UploadType.IMAGE
+
+
+def _build_max_upload_attachment(*, token: str, upload_type: Any) -> Any | None:
+    """Собирает attachment maxapi по токену загруженного изображения."""
+
+    try:
+        from maxapi.types.attachments.upload import AttachmentPayload, AttachmentUpload
+    except Exception:
+        return None
+    return AttachmentUpload(type=upload_type, payload=AttachmentPayload(token=token))
+
+
+def _extract_max_upload_token(upload_response: dict[str, Any]) -> str | None:
+    """Извлекает токен изображения из ответа upload API MAX."""
+
+    photos = upload_response.get("photos")
+    if isinstance(photos, dict) and photos:
+        first_key = next(iter(photos))
+        first_item = photos.get(first_key)
+        if isinstance(first_item, dict):
+            token = first_item.get("token")
+            if isinstance(token, str) and token:
+                return token
+
+    token = upload_response.get("token")
+    if isinstance(token, str) and token:
+        return token
+    return None
+
+
+async def _send_virtual_card_qr_messages(*, bot: Any, chat_id: int, card_numbers: tuple[str, ...]) -> None:
+    """Отправляет QR-коды карт в MAX перед итоговым текстовым ответом."""
+
+    if not card_numbers:
+        return
+
+    qr_logger = logger.bind(platform="max", component="router", stage="virtual_card_qr", user_id=str(chat_id))
+    upload_type = _resolve_max_upload_type_image()
+    if upload_type is None:
+        qr_logger.warning("MAX UploadType недоступен, отправка QR пропущена.")
+        return
+
+    for index, card_number in enumerate(card_numbers, start=1):
+        try:
+            qr_png = generate_qr_png_bytes(card_number)
+        except (QrGenerationError, ValueError):
+            qr_logger.warning("Не удалось сгенерировать QR для карты #{index}.", index=index)
+            continue
+
+        try:
+            upload_data = await bot.get_upload_url(upload_type)
+            upload_url = getattr(upload_data, "url", None)
+            if not upload_url:
+                qr_logger.warning("MAX не вернул upload_url для карты #{index}.", index=index)
+                continue
+
+            normalized_url = str(upload_url)
+            if normalized_url.startswith("/"):
+                normalized_url = f"https://botapi.max.ru{normalized_url}"
+
+            form_data = aiohttp.FormData()
+            form_data.add_field(
+                "data",
+                qr_png,
+                filename=f"virtual_card_qr_{index}.png",
+                content_type="image/png",
+            )
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    normalized_url,
+                    data=form_data,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as response:
+                    if response.status != 200:
+                        qr_logger.warning(
+                            "Ошибка upload QR в MAX: status={status}, карта #{index}.",
+                            status=response.status,
+                            index=index,
+                        )
+                        continue
+                    upload_response = await response.json(content_type=None)
+
+            token = _extract_max_upload_token(upload_response)
+            if token is None:
+                qr_logger.warning("MAX upload не вернул token для карты #{index}.", index=index)
+                continue
+
+            attachment = _build_max_upload_attachment(token=token, upload_type=upload_type)
+            if attachment is None:
+                qr_logger.warning("Не удалось собрать attachment MAX для карты #{index}.", index=index)
+                return
+
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"💳 Карта: {card_number}",
+                attachments=[attachment],
+            )
+        except Exception:  # noqa: BLE001
+            qr_logger.exception("Ошибка отправки QR в MAX для карты #{index}.", index=index)
+            continue
 
 
 def register_max_guest_handlers(
@@ -135,6 +247,13 @@ async def _send_response(event: Any, response: MaxAdapterResponse) -> None:
     chat_id = _extract_chat_id(event)
     if bot is None or chat_id is None:
         return
+
+    if response.virtual_card_numbers:
+        await _send_virtual_card_qr_messages(
+            bot=bot,
+            chat_id=chat_id,
+            card_numbers=response.virtual_card_numbers,
+        )
 
     kwargs: dict[str, object] = {}
     keyboard = render_max_keyboard(response.screen)

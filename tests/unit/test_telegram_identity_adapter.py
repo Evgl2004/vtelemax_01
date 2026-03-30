@@ -263,6 +263,7 @@ def test_telegram_adapter_returns_virtual_card_from_loyalty_use_case() -> None:
     assert result.status == "virtual_card"
     assert "79123456789_20260325" in result.message
     assert result.parse_mode == "Markdown"
+    assert result.virtual_card_numbers == ("79123456789_20260325",)
 
 
 def test_telegram_adapter_returns_unknown_for_unexpected_action() -> None:

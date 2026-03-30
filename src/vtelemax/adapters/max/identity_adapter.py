@@ -63,6 +63,7 @@ class MaxAdapterResponse:
     text: str
     screen: MaxScreen | None = None
     parse_mode: str | None = None
+    virtual_card_numbers: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -1274,6 +1275,7 @@ class MaxIdentityAdapter:
         return MaxAdapterResponse(
             text=result.message,
             parse_mode="markdown" if result.parse_mode == "markdown" else None,
+            virtual_card_numbers=result.card_numbers,
         )
 
     def _has_user_tickets(self, *, platform: str, external_id: str) -> bool:

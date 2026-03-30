@@ -266,6 +266,7 @@ def test_max_virtual_card_uses_loyalty_use_case() -> None:
     response = adapter.handle_incoming(max_user_id=1001, text="🪪 Виртуальная карта", payload=None)
 
     assert "79123456789_20260325" in response.text
+    assert response.virtual_card_numbers == ("79123456789_20260325",)
 
 
 def test_max_invalid_phone_returns_validation_error() -> None:

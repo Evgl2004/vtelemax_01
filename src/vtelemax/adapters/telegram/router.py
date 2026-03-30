@@ -7,11 +7,18 @@ import asyncio
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyKeyboardMarkup,
+)
 from loguru import logger
 
 from vtelemax.core import BUTTON_ACCEPT_RULES
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import TelegramIdentityAdapter, TelegramMenuActionResult
 from .menu import (
@@ -77,6 +84,67 @@ def build_telegram_identity_router(
     notifications_consent_keyboard = build_notifications_consent_inline_keyboard()
     profile_keyboard = build_profile_inline_keyboard()
     delivery_lock = asyncio.Lock()
+
+    async def _send_virtual_card_qr(
+        *,
+        bot: Bot,
+        chat_id: int,
+        result: TelegramMenuActionResult,
+    ) -> None:
+        """Отправляет QR-коды виртуальных карт отдельными сообщениями перед итоговым текстом."""
+
+        if result.status != "virtual_card" or not result.virtual_card_numbers:
+            return
+
+        qr_logger = router_logger.bind(stage="virtual_card_qr", user_id=str(chat_id))
+        for index, card_number in enumerate(result.virtual_card_numbers, start=1):
+            try:
+                qr_png = generate_qr_png_bytes(card_number)
+            except (ValueError, QrGenerationError) as error:
+                qr_logger.warning(
+                    "Не удалось сгенерировать QR-код для карты #{index}. Причина: {error}.",
+                    index=index,
+                    error=error,
+                )
+                return
+
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=BufferedInputFile(qr_png, filename=f"virtual_card_qr_{index}.png"),
+                caption=f"💳 Карта: {card_number}",
+            )
+
+    async def _answer_with_result(
+        *,
+        message: Message,
+        result: TelegramMenuActionResult,
+        reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None,
+    ) -> None:
+        """Отправляет результат адаптера для message-handler, включая QR при необходимости."""
+
+        await _send_virtual_card_qr(bot=message.bot, chat_id=message.chat.id, result=result)
+        await message.answer(
+            result.message,
+            parse_mode=result.parse_mode,
+            reply_markup=reply_markup,
+        )
+
+    async def _send_to_chat_with_result(
+        *,
+        bot: Bot,
+        chat_id: int,
+        result: TelegramMenuActionResult,
+        reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None,
+    ) -> None:
+        """Отправляет результат адаптера напрямую в чат, включая QR при необходимости."""
+
+        await _send_virtual_card_qr(bot=bot, chat_id=chat_id, result=result)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=result.message,
+            parse_mode=result.parse_mode,
+            reply_markup=reply_markup,
+        )
 
     def _choose_reply_markup(result: TelegramMenuActionResult) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
         """Выбирает клавиатуру для ответа на основе результата адаптера."""
@@ -159,11 +227,7 @@ def build_telegram_identity_router(
         result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
         event_logger.info("Ответ /start сформирован. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
-
-        await message.answer(
-            result.message,
-            reply_markup=reply_markup,
-        )
+        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
     @router.message(Command("legacy"))
     async def legacy_start_handler(message: Message) -> None:
@@ -186,7 +250,7 @@ def build_telegram_identity_router(
         )
         event_logger.info("Legacy-flow запущен. status={status}.", status=result.status)
         reply_markup = request_contact_keyboard if result.requires_contact_keyboard else None
-        await message.answer(result.message, reply_markup=reply_markup)
+        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
     @router.message(F.contact)
     async def contact_handler(message: Message) -> None:
@@ -249,11 +313,7 @@ def build_telegram_identity_router(
         )
         event_logger.info("Ответ /menu сформирован. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
-        await message.answer(
-            result.message,
-            parse_mode=result.parse_mode,
-            reply_markup=reply_markup,
-        )
+        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
     @router.message(F.text)
     async def text_menu_handler(message: Message) -> None:
@@ -279,11 +339,7 @@ def build_telegram_identity_router(
         )
         event_logger.info("Текстовый ввод обработан. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
-        await message.answer(
-            result.message,
-            parse_mode=result.parse_mode,
-            reply_markup=reply_markup,
-        )
+        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
     @router.callback_query(F.data == RULES_ACCEPT_CALLBACK)
     async def rules_accept_callback_handler(callback: CallbackQuery) -> None:
@@ -318,17 +374,13 @@ def build_telegram_identity_router(
                 else:
                     # Не блокируем сценарий, если исходную клавиатуру уже нельзя изменить.
                     event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback.")
-            await callback.message.answer(
-                result.message,
-                parse_mode=result.parse_mode,
-                reply_markup=reply_markup,
-            )
+            await _answer_with_result(message=callback.message, result=result, reply_markup=reply_markup)
             return
 
-        await callback.bot.send_message(
+        await _send_to_chat_with_result(
+            bot=callback.bot,
             chat_id=callback.from_user.id,
-            text=result.message,
-            parse_mode=result.parse_mode,
+            result=result,
             reply_markup=reply_markup,
         )
 
@@ -364,17 +416,13 @@ def build_telegram_identity_router(
                     event_logger.debug("Inline-клавиатура уже очищена после callback уведомлений.")
                 else:
                     event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback уведомлений.")
-            await callback.message.answer(
-                result.message,
-                parse_mode=result.parse_mode,
-                reply_markup=reply_markup,
-            )
+            await _answer_with_result(message=callback.message, result=result, reply_markup=reply_markup)
             return
 
-        await callback.bot.send_message(
+        await _send_to_chat_with_result(
+            bot=callback.bot,
             chat_id=callback.from_user.id,
-            text=result.message,
-            parse_mode=result.parse_mode,
+            result=result,
             reply_markup=reply_markup,
         )
 
@@ -427,6 +475,23 @@ def build_telegram_identity_router(
         reply_markup = _choose_reply_markup(result)
 
         await callback.answer()
+        if result.status == "virtual_card" and result.virtual_card_numbers:
+            if callback.message is not None:
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+                except Exception as error:  # noqa: BLE001
+                    if _is_message_not_modified_error(error):
+                        event_logger.debug("Inline-клавиатура уже очищена перед отправкой QR-кодов.")
+                    else:
+                        event_logger.debug("Не удалось убрать inline-клавиатуру перед отправкой QR-кодов.")
+            await _send_to_chat_with_result(
+                bot=callback.bot,
+                chat_id=callback.from_user.id,
+                result=result,
+                reply_markup=reply_markup,
+            )
+            return
+
         if callback.message is not None:
             if isinstance(reply_markup, ReplyKeyboardMarkup):
                 try:
@@ -436,11 +501,7 @@ def build_telegram_identity_router(
                         event_logger.debug("Inline-клавиатура уже очищена перед reply-клавиатурой.")
                     else:
                         event_logger.debug("Не удалось убрать inline-клавиатуру перед показом reply-клавиатуры.")
-                await callback.message.answer(
-                    result.message,
-                    parse_mode=result.parse_mode,
-                    reply_markup=reply_markup,
-                )
+                await _answer_with_result(message=callback.message, result=result, reply_markup=reply_markup)
                 return
             try:
                 await callback.message.edit_text(
@@ -456,10 +517,10 @@ def build_telegram_identity_router(
                 # Не блокируем сценарий, если исходную клавиатуру уже нельзя изменить.
                 event_logger.debug("Не удалось перерисовать сообщение по callback, отправляем новое.")
 
-        await callback.bot.send_message(
+        await _send_to_chat_with_result(
+            bot=callback.bot,
             chat_id=callback.from_user.id,
-            text=result.message,
-            parse_mode=result.parse_mode,
+            result=result,
             reply_markup=reply_markup,
         )
     return router

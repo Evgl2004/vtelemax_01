@@ -89,6 +89,7 @@ class TelegramMenuActionResult:
     parse_mode: str | None = None
     has_support_tickets: bool = False
     can_edit_birth_date: bool | None = None
+    virtual_card_numbers: tuple[str, ...] = ()
 
 
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
@@ -1416,6 +1417,7 @@ class TelegramIdentityAdapter:
             status=result.status,
             message=result.message,
             parse_mode="Markdown" if result.parse_mode == "markdown" else None,
+            virtual_card_numbers=result.card_numbers,
         )
 
     @staticmethod

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from vtelemax.adapters.vk.router import _is_message_not_modified_error, _normalize_vk_message
+from vtelemax.adapters.vk.router import (
+    _build_vk_photo_attachment,
+    _is_message_not_modified_error,
+    _normalize_vk_message,
+)
 
 
 def test_is_message_not_modified_error_detects_known_patterns() -> None:
@@ -26,3 +30,18 @@ def test_normalize_vk_message_strips_markdown_when_needed() -> None:
     assert text == "Жирный код"
     assert parse_mode is None
 
+
+def test_build_vk_photo_attachment_with_access_key() -> None:
+    """Проверяет формирование attachment с access_key."""
+
+    attachment = _build_vk_photo_attachment({"owner_id": 10, "id": 20, "access_key": "abc"})
+
+    assert attachment == "photo10_20_abc"
+
+
+def test_build_vk_photo_attachment_returns_none_for_dirty_photo() -> None:
+    """Проверяет dirty-сценарий: без обязательных полей attachment не формируется."""
+
+    attachment = _build_vk_photo_attachment({"owner_id": 10})
+
+    assert attachment is None

@@ -29,6 +29,7 @@ class LoyaltyMenuResult:
     status: str
     message: str
     parse_mode: str | None = None
+    card_numbers: tuple[str, ...] = ()
 
 
 class GetLoyaltyBalanceUseCase:
@@ -127,6 +128,7 @@ class GetVirtualCardUseCase:
             status="virtual_card",
             message=self._format_virtual_cards_message(cards),
             parse_mode="markdown",
+            card_numbers=tuple(card.number for card in cards if card.number),
         )
 
     @staticmethod
