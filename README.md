@@ -92,6 +92,17 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/integratio
 .\.venv\Scripts\python.exe scripts/reset_test_user.py --phone +79991234567 --yes --clean-redis
 ```
 
+Миграция legacy-пользователей из старого Telegram-бота (`sobalbot`) в strict identity:
+
+```powershell
+# Предпросмотр общего переноса
+.\.venv\Scripts\python.exe scripts/migrate_legacy_telegram_users.py --dry-run
+
+# Предпросмотр/перенос одного номера
+.\.venv\Scripts\python.exe scripts/migrate_legacy_telegram_users.py --phone +79129923438 --dry-run
+.\.venv\Scripts\python.exe scripts/migrate_legacy_telegram_users.py --phone +79129923438 --yes
+```
+
 Запуск всего стека в Docker Compose:
 
 ```bash
@@ -191,3 +202,4 @@ vtelemax/
 6. Контейнерный запуск: `docs/DEPLOYMENT_DOCKER.md`.
 7. Матрица UI-паритета с прототипами: `docs/PARITY_SPEC_V1.md`.
 8. Сценарий QR для виртуальной карты: `docs/VIRTUAL_CARD_QR.md`.
+9. Перенос legacy-пользователей Telegram: `docs/LEGACY_TELEGRAM_MIGRATION.md`.

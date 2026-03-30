@@ -87,6 +87,10 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 24. Сценарии лояльности `Мой баланс` и `Виртуальная карта`:
    1. unit-тесты core use-case (happy path + грязные ветки ошибок шлюза, пустых данных, ошибок регистрации/выпуска карты);
    2. unit-тесты Telegram/VK/MAX адаптеров на использование общего loyalty use-case вместо заглушек.
+25. Сценарий legacy-миграции Telegram (`sobalbot -> vtelemax`):
+   1. чтение source-таблицы SQLite с limit/offset;
+   2. фильтрация по номеру и отбраковка невалидных телефонов;
+   3. dry-run и apply ветки переноса (`create/attach/update/conflict`) для strict identity.
 
 ## 7. Живые тесты на локальном PostgreSQL
 
