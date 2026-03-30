@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import TracebackType
 
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
+from vtelemax.adapters.telegram.identity_adapter import TelegramRegistrationResult
 from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
@@ -131,6 +132,19 @@ def test_telegram_adapter_registers_contact_successfully() -> None:
     assert result.is_success is True
     assert result.status == "success"
     assert result.person_id is not None
+
+
+def test_telegram_registration_result_is_router_compatible() -> None:
+    """Проверяет наличие полей, которые ожидает Telegram-роутер."""
+
+    result = TelegramRegistrationResult(
+        is_success=False,
+        status="first_name_required",
+        message="Введите имя",
+    )
+
+    assert result.parse_mode is None
+    assert result.virtual_card_numbers == ()
 
 
 def test_telegram_adapter_is_idempotent_for_repeated_registration() -> None:

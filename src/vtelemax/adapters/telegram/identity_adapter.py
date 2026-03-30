@@ -80,6 +80,8 @@ class TelegramRegistrationResult:
     status: str
     message: str
     person_id: UUID | None = None
+    parse_mode: str | None = None
+    virtual_card_numbers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
