@@ -71,6 +71,7 @@ from .in_memory_support_repository import InMemorySupportRepository
 from .loyalty_ports import (
     LoyaltyCard,
     LoyaltyCustomer,
+    LoyaltyCustomerUpsertData,
     LoyaltyGateway,
     LoyaltyGatewayError,
     LoyaltyIssueCardResult,
@@ -133,6 +134,7 @@ __all__ = [
     "LoyaltyGatewayError",
     "LoyaltyCard",
     "LoyaltyCustomer",
+    "LoyaltyCustomerUpsertData",
     "LoyaltyRegisterCustomerResult",
     "LoyaltyIssueCardResult",
     "GetLoyaltyBalanceUseCase",

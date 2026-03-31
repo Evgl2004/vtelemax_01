@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 
@@ -43,6 +43,26 @@ class LoyaltyRegisterCustomerResult:
 
 
 @dataclass(frozen=True, slots=True)
+class LoyaltyCustomerUpsertData:
+    """Данные профиля, которые отправляются в iiko при create_or_update.
+
+    Примечание:
+        Даты согласий сохраняются для трассировки и бизнес-контекста.
+        Фактическая поддержка этих полей зависит от API iiko.
+    """
+
+    first_name: str | None = None
+    last_name: str | None = None
+    gender: str | None = None
+    birth_date: date | None = None
+    email: str | None = None
+    rules_accepted: bool | None = None
+    notifications_allowed: bool | None = None
+    rules_accepted_at: datetime | None = None
+    notifications_allowed_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class LoyaltyIssueCardResult:
     """Результат выпуска виртуальной карты."""
 
@@ -60,8 +80,14 @@ class LoyaltyGateway(Protocol):
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         """Возвращает клиента по телефону или `None`, если клиент не найден."""
 
-    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
-        """Регистрирует клиента в бонусной системе."""
+    def register_customer(
+        self,
+        phone_e164: str,
+        *,
+        profile: LoyaltyCustomerUpsertData | None = None,
+        customer_id: str | None = None,
+    ) -> LoyaltyRegisterCustomerResult:
+        """Создает или обновляет клиента в бонусной системе."""
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
         """Выпускает карту для клиента с указанным `customer_id`."""

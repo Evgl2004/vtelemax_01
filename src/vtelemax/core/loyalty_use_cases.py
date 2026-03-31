@@ -9,7 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .guest_content import build_balance_screen
-from .loyalty_ports import LoyaltyCard, LoyaltyGateway, LoyaltyGatewayError
+from .loyalty_ports import (
+    LoyaltyCard,
+    LoyaltyCustomerUpsertData,
+    LoyaltyGateway,
+    LoyaltyGatewayError,
+)
 
 _BALANCE_UNAVAILABLE_TEXT = (
     "❌ Не удалось получить данные по бонусам.\n"
@@ -69,8 +74,13 @@ class GetVirtualCardUseCase:
     def __init__(self, loyalty_gateway: LoyaltyGateway) -> None:
         self._loyalty_gateway = loyalty_gateway
 
-    def execute(self, *, phone_e164: str) -> LoyaltyMenuResult:
-        """Возвращает список карт, при необходимости регистрирует клиента и выпускает карту."""
+    def execute(
+        self,
+        *,
+        phone_e164: str,
+        profile: LoyaltyCustomerUpsertData | None = None,
+    ) -> LoyaltyMenuResult:
+        """Возвращает список карт, при необходимости создает/обновляет клиента и выпускает карту."""
 
         normalized_phone = str(phone_e164).strip()
         if not normalized_phone:
@@ -83,7 +93,10 @@ class GetVirtualCardUseCase:
 
         if customer is None:
             try:
-                registered = self._loyalty_gateway.register_customer(normalized_phone)
+                registered = self._loyalty_gateway.register_customer(
+                    normalized_phone,
+                    profile=profile,
+                )
             except LoyaltyGatewayError as error:
                 return LoyaltyMenuResult(
                     status="virtual_card_error",
@@ -99,6 +112,23 @@ class GetVirtualCardUseCase:
         else:
             customer_id = customer.customer_id
             cards = customer.cards
+            if profile is not None:
+                try:
+                    self._loyalty_gateway.register_customer(
+                        normalized_phone,
+                        profile=profile,
+                        customer_id=customer_id,
+                    )
+                except LoyaltyGatewayError as error:
+                    return LoyaltyMenuResult(
+                        status="virtual_card_error",
+                        message=(
+                            "❌ Не удалось обновить данные профиля в бонусной системе.\n"
+                            "Код ошибки: IIKO-CARD-004.\n"
+                            f"Причина: {error}\n\n"
+                            "Покажите это сообщение сотруднику и попробуйте позже."
+                        ),
+                    )
 
         if not cards:
             try:

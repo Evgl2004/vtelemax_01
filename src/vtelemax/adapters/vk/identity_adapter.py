@@ -15,6 +15,7 @@ from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
+    LoyaltyCustomerUpsertData,
     LoyaltyGateway,
     LoyaltyGatewayError,
     GetPersonByAccountCommand,
@@ -575,7 +576,10 @@ class VkIdentityAdapter:
     ) -> VkAdapterResponse:
         """Выполняет синхронизацию с iiko и завершает onboarding только при успехе."""
 
-        registration_card_numbers = self._sync_registration_with_loyalty(phone_e164=phone_e164)
+        registration_card_numbers = self._sync_registration_with_loyalty(
+            phone_e164=phone_e164,
+            profile=self._build_loyalty_upsert_profile(vk_user_id=vk_user_id),
+        )
         if not registration_card_numbers and self._virtual_card_use_case is not None:
             self._state_by_user_id[vk_user_id] = _STATE_WAITING_IIKO_SYNC
             retry_screen = self._menu_adapter.build_iiko_sync_retry_screen()
@@ -1610,7 +1614,12 @@ class VkIdentityAdapter:
         }
         return tuple(sorted(platforms, key=lambda platform: sort_order.get(platform, 99)))
 
-    def _sync_registration_with_loyalty(self, *, phone_e164: str) -> tuple[str, ...]:
+    def _sync_registration_with_loyalty(
+        self,
+        *,
+        phone_e164: str,
+        profile: LoyaltyCustomerUpsertData | None = None,
+    ) -> tuple[str, ...]:
         """Запускает синхронизацию с iiko и возвращает номера карт для отправки QR."""
 
         method_logger = self._logger.bind(stage="sync_registration_with_loyalty")
@@ -1618,7 +1627,7 @@ class VkIdentityAdapter:
             method_logger.info("Синхронизация с iiko пропущена: virtual_card_use_case не подключен.")
             return ()
 
-        result = self._virtual_card_use_case.execute(phone_e164=phone_e164)
+        result = self._virtual_card_use_case.execute(phone_e164=phone_e164, profile=profile)
         if result.status == "virtual_card":
             method_logger.info(
                 "Синхронизация с iiko завершена успешно. cards={cards_count}.",
@@ -1631,3 +1640,24 @@ class VkIdentityAdapter:
             status=result.status,
         )
         return ()
+
+    def _build_loyalty_upsert_profile(self, *, vk_user_id: int) -> LoyaltyCustomerUpsertData | None:
+        """Готовит профиль для create_or_update в iiko на шаге завершения регистрации."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            return None
+
+        return LoyaltyCustomerUpsertData(
+            first_name=person.first_name_input,
+            last_name=person.last_name_input,
+            gender=person.gender,
+            birth_date=person.birth_date,
+            email=person.email,
+            rules_accepted=person.rules_accepted,
+            notifications_allowed=person.notifications_allowed,
+            rules_accepted_at=person.rules_accepted_at,
+            notifications_allowed_at=person.notifications_allowed_at,
+        )

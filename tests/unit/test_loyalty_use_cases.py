@@ -11,6 +11,7 @@ from vtelemax.core import (
     GetVirtualCardUseCase,
     LoyaltyCard,
     LoyaltyCustomer,
+    LoyaltyCustomerUpsertData,
     LoyaltyGateway,
     LoyaltyGatewayError,
     LoyaltyIssueCardResult,
@@ -36,6 +37,8 @@ class FakeLoyaltyGateway(LoyaltyGateway):
         self.info_calls = 0
         self.register_calls = 0
         self.issue_calls = 0
+        self.last_register_profile: LoyaltyCustomerUpsertData | None = None
+        self.last_register_customer_id: str | None = None
 
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         self.info_calls += 1
@@ -45,8 +48,16 @@ class FakeLoyaltyGateway(LoyaltyGateway):
             return self._behavior.customer_sequence.pop(0)
         return None
 
-    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+    def register_customer(
+        self,
+        phone_e164: str,
+        *,
+        profile: LoyaltyCustomerUpsertData | None = None,
+        customer_id: str | None = None,
+    ) -> LoyaltyRegisterCustomerResult:
         self.register_calls += 1
+        self.last_register_profile = profile
+        self.last_register_customer_id = customer_id
         if self._behavior.register_error is not None:
             raise self._behavior.register_error
         if self._behavior.register_result is None:
@@ -94,7 +105,7 @@ def test_balance_use_case_returns_unavailable_when_customer_missing() -> None:
     result = use_case.execute(phone_e164="+79123456789")
 
     assert result.status == "balance_unavailable"
-    assert "недоступна" in result.message.lower()
+    assert "не удалось" in result.message.lower()
 
 
 def test_balance_use_case_returns_unavailable_when_gateway_failed() -> None:
@@ -170,6 +181,69 @@ def test_virtual_card_use_case_registers_and_issues_card_for_new_customer() -> N
     assert result.card_numbers == ("79123456789_20260325",)
     assert gateway.register_calls == 1
     assert gateway.issue_calls == 1
+
+
+def test_virtual_card_use_case_passes_profile_to_register_on_create() -> None:
+    """Проверяет, что при создании клиента use-case передает профиль в create_or_update."""
+
+    gateway = FakeLoyaltyGateway(
+        _GatewayBehavior(
+            customer_sequence=[
+                None,
+                LoyaltyCustomer(customer_id="cust-2", balance=0.0, cards=()),
+            ],
+            register_result=LoyaltyRegisterCustomerResult(
+                customer_id="cust-2",
+                message="registered",
+            ),
+            issue_result=LoyaltyIssueCardResult(
+                card_number="79123456789_20260325",
+                message="issued",
+            ),
+        )
+    )
+    use_case = GetVirtualCardUseCase(gateway)
+    profile = LoyaltyCustomerUpsertData(
+        first_name="Андрей",
+        rules_accepted=True,
+        notifications_allowed=False,
+    )
+
+    use_case.execute(phone_e164="+79123456789", profile=profile)
+
+    assert gateway.register_calls == 1
+    assert gateway.last_register_profile is profile
+    assert gateway.last_register_customer_id is None
+
+
+def test_virtual_card_use_case_updates_existing_customer_when_profile_passed() -> None:
+    """Проверяет, что для существующего клиента use-case вызывает update в iiko с customer_id."""
+
+    gateway = FakeLoyaltyGateway(
+        _GatewayBehavior(
+            customer_sequence=[
+                LoyaltyCustomer(
+                    customer_id="cust-existing",
+                    balance=0.0,
+                    cards=(LoyaltyCard(number="79123456789_20260325"),),
+                )
+            ],
+            register_result=LoyaltyRegisterCustomerResult(
+                customer_id="cust-existing",
+                message="updated",
+            ),
+        )
+    )
+    use_case = GetVirtualCardUseCase(gateway)
+    profile = LoyaltyCustomerUpsertData(first_name="Андрей", rules_accepted=True)
+
+    result = use_case.execute(phone_e164="+79123456789", profile=profile)
+
+    assert result.status == "virtual_card"
+    assert gateway.register_calls == 1
+    assert gateway.last_register_profile is profile
+    assert gateway.last_register_customer_id == "cust-existing"
+    assert gateway.issue_calls == 0
 
 
 def test_virtual_card_use_case_returns_error_when_registration_failed() -> None:

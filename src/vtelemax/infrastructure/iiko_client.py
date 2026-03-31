@@ -19,6 +19,7 @@ from loguru import logger
 from vtelemax.core.loyalty_ports import (
     LoyaltyCard,
     LoyaltyCustomer,
+    LoyaltyCustomerUpsertData,
     LoyaltyGateway,
     LoyaltyGatewayError,
     LoyaltyIssueCardResult,
@@ -86,18 +87,63 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             f"Ошибка получения данных клиента iiko (HTTP {status_code}): {raw_text or 'empty response'}"
         )
 
-    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
-        """Регистрирует клиента в iiko и возвращает его `customer_id`."""
+    def register_customer(
+        self,
+        phone_e164: str,
+        *,
+        profile: LoyaltyCustomerUpsertData | None = None,
+        customer_id: str | None = None,
+    ) -> LoyaltyRegisterCustomerResult:
+        """Создает или обновляет клиента в iiko и возвращает его `customer_id`."""
 
         token = self._get_access_token()
+        safe_customer_id = str(customer_id or "").strip() or None
+        safe_profile = profile or LoyaltyCustomerUpsertData()
+        consent_status = self._resolve_consent_status(safe_profile.rules_accepted)
+        notifications_allowed = (
+            bool(safe_profile.notifications_allowed)
+            if safe_profile.notifications_allowed is not None
+            else True
+        )
         payload = {
             "phone": self._normalize_phone(phone_e164),
-            "name": "",
-            "shouldReceivePromoActionsInfo": True,
-            "shouldReceiveLoyaltyInfo": True,
-            "consentStatus": 1,
+            "name": str(safe_profile.first_name or "").strip(),
+            "shouldReceivePromoActionsInfo": notifications_allowed,
+            "shouldReceiveLoyaltyInfo": notifications_allowed,
+            "consentStatus": consent_status,
             "organizationId": self._organization_id,
         }
+        last_name = str(safe_profile.last_name or "").strip()
+        if last_name:
+            payload["surName"] = last_name
+        birthday = self._format_birth_date_for_iiko(safe_profile.birth_date)
+        if birthday:
+            payload["birthday"] = birthday
+        sex = self._format_gender_for_iiko(safe_profile.gender)
+        if sex is not None:
+            payload["sex"] = sex
+        email = str(safe_profile.email or "").strip()
+        if email:
+            payload["email"] = email
+        if safe_customer_id is not None:
+            payload["id"] = safe_customer_id
+        self._logger.info(
+            "Отправка create_or_update в iiko. phone={phone}, has_name={has_name}, "
+            "rules_accepted={rules_accepted}, rules_accepted_at={rules_accepted_at}, "
+            "notifications_allowed={notifications_allowed}, notifications_allowed_at={notifications_allowed_at}, "
+            "is_update={is_update}.",
+            phone=payload["phone"],
+            has_name=bool(payload["name"]),
+            rules_accepted=safe_profile.rules_accepted,
+            rules_accepted_at=safe_profile.rules_accepted_at.isoformat()
+            if safe_profile.rules_accepted_at is not None
+            else None,
+            notifications_allowed=safe_profile.notifications_allowed,
+            notifications_allowed_at=safe_profile.notifications_allowed_at.isoformat()
+            if safe_profile.notifications_allowed_at is not None
+            else None,
+            is_update=safe_customer_id is not None,
+        )
         status_code, body, raw_text = self._post_json(
             path="/loyalty/iiko/customer/create_or_update",
             payload=payload,
@@ -114,7 +160,11 @@ class IikoLoyaltyGateway(LoyaltyGateway):
 
         return LoyaltyRegisterCustomerResult(
             customer_id=customer_id,
-            message="Клиент успешно зарегистрирован в бонусной системе.",
+            message=(
+                "Клиент успешно обновлен в бонусной системе."
+                if safe_customer_id is not None
+                else "Клиент успешно зарегистрирован в бонусной системе."
+            ),
         )
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
@@ -296,6 +346,31 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             raise LoyaltyGatewayError("Невалидный телефон: не удалось сгенерировать номер карты.")
         date_part = datetime.now(tz=timezone.utc).strftime("%Y%m%d")
         return f"{digits}_{date_part}"
+
+    @staticmethod
+    def _format_birth_date_for_iiko(raw_birth_date: date | None) -> str | None:
+        """Преобразует `date` в формат iiko `YYYY-MM-DD 00:00:00.000`."""
+
+        if raw_birth_date is None:
+            return None
+        return raw_birth_date.strftime("%Y-%m-%d 00:00:00.000")
+
+    @staticmethod
+    def _format_gender_for_iiko(raw_gender: str | None) -> int | None:
+        """Преобразует доменное значение пола в код iiko (1/2)."""
+
+        normalized = str(raw_gender or "").strip().lower()
+        if normalized == "male":
+            return 1
+        if normalized == "female":
+            return 2
+        return None
+
+    @staticmethod
+    def _resolve_consent_status(rules_accepted: bool | None) -> int:
+        """Возвращает код согласия для iiko (1 - согласен, 0 - не согласен/неизвестно)."""
+
+        return 1 if rules_accepted else 0
 
     @staticmethod
     def _parse_valid_to(raw_value: str | None) -> str | None:

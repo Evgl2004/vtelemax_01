@@ -74,7 +74,13 @@ class StubLoyaltyGateway(LoyaltyGateway):
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         return self._customer
 
-    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+    def register_customer(
+        self,
+        phone_e164: str,
+        *,
+        profile=None,
+        customer_id: str | None = None,
+    ) -> LoyaltyRegisterCustomerResult:
         return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
@@ -87,7 +93,13 @@ class AlwaysFailLoyaltyGateway(LoyaltyGateway):
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         raise LoyaltyGatewayError("temporary unavailable")
 
-    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+    def register_customer(
+        self,
+        phone_e164: str,
+        *,
+        profile=None,
+        customer_id: str | None = None,
+    ) -> LoyaltyRegisterCustomerResult:
         raise LoyaltyGatewayError("temporary unavailable")
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
@@ -110,7 +122,13 @@ class FlakyLoyaltyGateway(LoyaltyGateway):
             cards=(LoyaltyCard(number="79123456789_20260325"),),
         )
 
-    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+    def register_customer(
+        self,
+        phone_e164: str,
+        *,
+        profile=None,
+        customer_id: str | None = None,
+    ) -> LoyaltyRegisterCustomerResult:
         return LoyaltyRegisterCustomerResult(customer_id="cust-1", message="registered")
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
@@ -132,7 +150,13 @@ class LegacyPrefillLoyaltyGateway(LoyaltyGateway):
             email="legacy@example.com",
         )
 
-    def register_customer(self, phone_e164: str) -> LoyaltyRegisterCustomerResult:
+    def register_customer(
+        self,
+        phone_e164: str,
+        *,
+        profile=None,
+        customer_id: str | None = None,
+    ) -> LoyaltyRegisterCustomerResult:
         return LoyaltyRegisterCustomerResult(customer_id="legacy-cust", message="registered")
 
     def issue_card_for_customer(self, phone_e164: str, customer_id: str) -> LoyaltyIssueCardResult:
