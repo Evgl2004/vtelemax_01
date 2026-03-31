@@ -383,8 +383,16 @@ class VkIdentityAdapter:
         draft.phone_e164 = person.phone_e164
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "vk_text_input"
+        legacy_flow_active = is_legacy or bool(person.is_legacy)
+        if legacy_flow_active and not draft.is_legacy_upgrade:
+            draft.is_legacy_upgrade = True
+        if not is_legacy and person.is_legacy:
+            method_logger.info(
+                "Обнаружен legacy-профиль по номеру телефона, переключаем пользователя в legacy-ветку. person_id={person_id}.",
+                person_id=person.person_id,
+            )
 
-        if is_legacy:
+        if legacy_flow_active:
             person = self._prefill_profile_from_loyalty(
                 vk_user_id=vk_user_id,
                 person=person,

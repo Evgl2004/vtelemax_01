@@ -351,6 +351,43 @@ def test_max_legacy_phone_step_prefills_profile_from_iiko() -> None:
     assert resolved_person.email == "legacy@example.com"
 
 
+def test_max_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
+    """Проверяет авто-переход в legacy-ветку в MAX, если телефон найден у legacy-профиля Telegram."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = MaxIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="legacy-tg-2",
+            raw_phone="+79123334455",
+            first_name_input="Андрей",
+            rules_accepted=False,
+            is_legacy=True,
+            is_registered=False,
+        )
+    )
+
+    adapter.handle_start(max_user_id=4502)
+    adapter.handle_incoming(max_user_id=4502, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(
+        max_user_id=4502,
+        text="",
+        payload=None,
+        contact_phone="+79123334455",
+    )
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "notifications_consent"
+
+
 def test_max_dirty_input_on_rules_step_keeps_consent_pending() -> None:
     """Проверяет грязный сценарий: случайный текст вместо согласия."""
 

@@ -144,6 +144,23 @@ def build_telegram_identity_router(
         """Отправляет результат адаптера для message-handler, включая QR при необходимости."""
 
         await _send_virtual_card_qr(bot=message.bot, chat_id=message.chat.id, result=result)
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            # Telegram не умеет одновременно поставить inline-клавиатуру и снять reply-клавиатуру.
+            # Поэтому сначала принудительно убираем reply-кнопки, затем добавляем inline на то же сообщение.
+            sent_message = await message.answer(
+                result.message,
+                parse_mode=getattr(result, "parse_mode", None),
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            try:
+                await sent_message.edit_reply_markup(reply_markup=reply_markup)
+            except TelegramBadRequest as error:
+                if not _is_button_data_invalid_error(error):
+                    raise
+                router_logger.warning(
+                    "Невалидная callback-кнопка в reply_markup. Оставляем сообщение без inline-клавиатуры."
+                )
+            return
         try:
             await message.answer(
                 result.message,
@@ -172,6 +189,28 @@ def build_telegram_identity_router(
         """Отправляет результат адаптера напрямую в чат, включая QR при необходимости."""
 
         await _send_virtual_card_qr(bot=bot, chat_id=chat_id, result=result)
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            # Аналогично _answer_with_result: снимаем reply-клавиатуру отдельным сообщением,
+            # после чего добавляем inline-кнопки на отправленный текст.
+            sent_message = await bot.send_message(
+                chat_id=chat_id,
+                text=result.message,
+                parse_mode=getattr(result, "parse_mode", None),
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=sent_message.message_id,
+                    reply_markup=reply_markup,
+                )
+            except TelegramBadRequest as error:
+                if not _is_button_data_invalid_error(error):
+                    raise
+                router_logger.warning(
+                    "Невалидная callback-кнопка в reply_markup. Оставляем сообщение без inline-клавиатуры."
+                )
+            return
         try:
             await bot.send_message(
                 chat_id=chat_id,
