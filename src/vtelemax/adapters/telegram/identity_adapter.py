@@ -12,6 +12,7 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
     BUTTON_BALANCE,
+    BUTTON_DELIVERY,
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
     BUTTON_PROFILE,
@@ -53,6 +54,7 @@ from vtelemax.core import (
     RouteModeratorReplyTransactionalUseCase,
     SUPPORTED_PLATFORMS,
     build_about_screen,
+    build_delivery_screen,
     build_first_name_input_screen,
     build_help_screen,
     build_iiko_sync_retry_screen,
@@ -651,7 +653,7 @@ class TelegramIdentityAdapter:
                 status="unknown_action",
                 message=(
                     "Команда не распознана. Используйте кнопки меню: "
-                    f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
+                    f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_DELIVERY}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
                     f"'{BUTTON_PROFILE}', '{BUTTON_HELP}', '{BUTTON_ABOUT}', '{BUTTON_MAIN_MENU}', "
                     f"'{BUTTON_SEND_PHONE}', '{BUTTON_ACCEPT_RULES}'."
                 ),
@@ -730,6 +732,14 @@ class TelegramIdentityAdapter:
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
             )
 
+        if action == GuestMenuAction.DELIVERY:
+            screen = build_delivery_screen()
+            return TelegramMenuActionResult(
+                status="delivery",
+                message=screen.text,
+                parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+            )
+
         if action == GuestMenuAction.SUPPORT_FEEDBACK:
             screen = build_support_feedback_screen()
             has_tickets = self._has_user_tickets(
@@ -802,7 +812,7 @@ class TelegramIdentityAdapter:
             status="unknown_action",
             message=(
                 "Команда не распознана. Используйте кнопки меню: "
-                f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
+                f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_DELIVERY}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
                 f"'{BUTTON_PROFILE}', '{BUTTON_HELP}', '{BUTTON_ABOUT}', '{BUTTON_MAIN_MENU}', "
                 f"'{BUTTON_SEND_PHONE}', '{BUTTON_ACCEPT_RULES}'."
             ),

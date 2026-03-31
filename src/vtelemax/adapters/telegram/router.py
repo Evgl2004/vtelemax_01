@@ -29,6 +29,7 @@ from .menu import (
     RULES_ACCEPT_CALLBACK,
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
+    BUTTON_DELIVERY,
     BUTTON_PROFILE_EDIT,
     BUTTON_PROFILE_EDIT_BIRTH_DATE,
     BUTTON_PROFILE_EDIT_CANCEL,
@@ -45,6 +46,7 @@ from .menu import (
     build_back_to_main_inline_keyboard,
     build_back_to_support_inline_keyboard,
     build_contact_request_keyboard,
+    build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_notifications_consent_inline_keyboard,
@@ -249,6 +251,8 @@ def build_telegram_identity_router(
             return build_support_feedback_inline_keyboard()
         if result.status in {"support_question", "support_contacts", "support_question_empty", "support_question_unavailable"}:
             return back_to_support_keyboard
+        if result.status == "delivery":
+            return build_delivery_inline_keyboard()
         if result.status in {
             "balance",
             "balance_unavailable",
@@ -551,6 +555,7 @@ def build_telegram_identity_router(
             [
                 GuestMenuAction.BALANCE.value,
                 GuestMenuAction.VIRTUAL_CARD.value,
+                GuestMenuAction.DELIVERY.value,
                 GuestMenuAction.SUPPORT.value,
                 GuestMenuAction.VACANCIES.value,
                 GuestMenuAction.PROFILE.value,
@@ -573,6 +578,7 @@ def build_telegram_identity_router(
                 # Поддерживаем старые callback_data, которые могли остаться в уже отправленных сообщениях.
                 BUTTON_BALANCE,
                 BUTTON_VIRTUAL_CARD,
+                BUTTON_DELIVERY,
                 BUTTON_SUPPORT,
                 BUTTON_VACANCIES,
                 BUTTON_PROFILE,

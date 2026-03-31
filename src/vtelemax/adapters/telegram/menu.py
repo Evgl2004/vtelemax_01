@@ -15,6 +15,7 @@ from vtelemax.core import (
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_BALANCE,
+    BUTTON_DELIVERY,
     BUTTON_DOCS_LINK,
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
@@ -41,6 +42,7 @@ from vtelemax.core import (
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
     GuestMenuAction,
+    build_delivery_screen,
 )
 
 RULES_ACCEPT_CALLBACK = "rules_accept"
@@ -114,17 +116,38 @@ def build_iiko_sync_retry_inline_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
-    """Создает inline-клавиатуру главного меню (пять разделов, вертикальный список)."""
+    """Создает inline-клавиатуру главного меню (вертикальный список разделов)."""
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=BUTTON_BALANCE, callback_data=_action_callback(GuestMenuAction.BALANCE))],
             [InlineKeyboardButton(text=BUTTON_VIRTUAL_CARD, callback_data=_action_callback(GuestMenuAction.VIRTUAL_CARD))],
+            [InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY))],
             [InlineKeyboardButton(text=BUTTON_SUPPORT, callback_data=_action_callback(GuestMenuAction.SUPPORT))],
             [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
         ]
     )
+
+
+def build_delivery_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру подменю «Доставка» с URL-кнопками заведений."""
+
+    screen = build_delivery_screen()
+    rows: list[list[InlineKeyboardButton]] = []
+    for button in screen.buttons:
+        if button.url is not None:
+            rows.append([InlineKeyboardButton(text=button.label, url=button.url)])
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button.label,
+                        callback_data=_action_callback(button.action),
+                    )
+                ]
+            )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeyboardMarkup:
@@ -252,6 +275,7 @@ def build_main_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=BUTTON_BALANCE)],
             [KeyboardButton(text=BUTTON_VIRTUAL_CARD)],
+            [KeyboardButton(text=BUTTON_DELIVERY)],
             [KeyboardButton(text=BUTTON_SUPPORT)],
             [KeyboardButton(text=BUTTON_VACANCIES)],
             [KeyboardButton(text=BUTTON_PROFILE)],

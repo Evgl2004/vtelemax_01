@@ -10,6 +10,7 @@ from vtelemax.core import (
     MenuButtonContract,
     build_about_screen,
     build_balance_screen,
+    build_delivery_screen,
     build_notifications_consent_screen,
     build_iiko_sync_retry_screen,
     build_help_screen,
@@ -205,6 +206,18 @@ class MaxGuestMenuAdapter:
             parse_mode="markdown" if screen.parse_mode == "markdown" else None,
         )
 
+    def build_delivery_screen(self) -> MaxScreen:
+        """Экран подменю «Доставка» со ссылками на заведения."""
+
+        screen = build_delivery_screen()
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
+        return MaxScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
+
     def build_support_feedback_screen(self) -> MaxScreen:
         """Экран обратной связи."""
 
@@ -269,6 +282,8 @@ class MaxGuestMenuAdapter:
             return self.build_about_screen()
         if action == GuestMenuAction.VACANCIES:
             return self.build_vacancies_screen()
+        if action == GuestMenuAction.DELIVERY:
+            return self.build_delivery_screen()
         if action == GuestMenuAction.SUPPORT_FEEDBACK:
             return self.build_support_feedback_screen()
         if action == GuestMenuAction.SUPPORT_QUESTION:

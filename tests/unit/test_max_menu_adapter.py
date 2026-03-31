@@ -25,13 +25,14 @@ def test_max_main_menu_contains_expected_first_buttons() -> None:
     adapter = MaxGuestMenuAdapter()
     screen = adapter.build_main_menu_screen(user_name="Гость")
 
-    # Проверяем, что пять строк, каждая с одной кнопкой
-    assert len(screen.rows) == 5
+    # Проверяем, что шесть строк, каждая с одной кнопкой
+    assert len(screen.rows) == 6
     assert screen.rows[0][0].label == "💰 Мой баланс"
     assert screen.rows[1][0].label == "🪪 Виртуальная карта"
-    assert screen.rows[2][0].label == "🆘 Отдел заботы"
-    assert screen.rows[3][0].label == "💼 Вакансии"
-    assert screen.rows[4][0].label == "👤 Профиль"
+    assert screen.rows[2][0].label == "🚚 Доставка"
+    assert screen.rows[3][0].label == "🆘 Отдел заботы"
+    assert screen.rows[4][0].label == "💼 Вакансии"
+    assert screen.rows[5][0].label == "👤 Профиль"
 
 
 def test_max_support_menu_respects_my_tickets_flag() -> None:

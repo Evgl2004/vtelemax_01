@@ -6,6 +6,7 @@ from vtelemax.adapters.telegram.menu import (
     DOCS_URL,
     RULES_ACCEPT_CALLBACK,
     build_contact_request_keyboard,
+    build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_profile_edit_inline_keyboard,
@@ -83,11 +84,32 @@ def test_build_support_feedback_keyboard_contains_link_and_back_button() -> None
     assert back_button.callback_data == GuestMenuAction.BACK_TO_SUPPORT.value
 
 
+def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
+    """Проверяет, что в подменю «Доставка» есть URL-кнопки и возврат в меню."""
+
+    keyboard = build_delivery_inline_keyboard()
+
+    assert len(keyboard.inline_keyboard) == 5
+    first_button = keyboard.inline_keyboard[0][0]
+    assert first_button.text == "Грузика Нани"
+    assert first_button.url == "https://gruzinka.rest.market/"
+    assert first_button.callback_data is None
+    for row in keyboard.inline_keyboard[:4]:
+        button = row[0]
+        assert button.url is not None
+        assert button.callback_data is None
+    back_button = keyboard.inline_keyboard[4][0]
+    assert back_button.text == "🔙 Назад в меню"
+    assert back_button.url is None
+    assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value
+
+
 def test_all_telegram_callback_data_fit_telegram_limits() -> None:
     """Проверяет, что callback_data не превышает лимит Telegram (64 байта)."""
 
     keyboards = [
         build_main_menu_inline_keyboard(),
+        build_delivery_inline_keyboard(),
         build_support_menu_inline_keyboard(has_tickets=False),
         build_support_menu_inline_keyboard(has_tickets=True),
         build_support_feedback_inline_keyboard(),

@@ -33,6 +33,7 @@ class GuestMenuAction(StrEnum):
     SHARE_CONTACT = "share_contact"
     BALANCE = "balance"
     VIRTUAL_CARD = "virtual_card"
+    DELIVERY = "delivery"
     SUPPORT = "support"
     VACANCIES = "vacancies"
     SUPPORT_FEEDBACK = "support_feedback"

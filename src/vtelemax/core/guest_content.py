@@ -15,6 +15,7 @@ from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContra
 
 BUTTON_BALANCE = "💰 Мой баланс"
 BUTTON_VIRTUAL_CARD = "🪪 Виртуальная карта"
+BUTTON_DELIVERY = "🚚 Доставка"
 BUTTON_SUPPORT = "🆘 Отдел заботы"
 BUTTON_VACANCIES = "💼 Вакансии"
 
@@ -49,6 +50,14 @@ BUTTON_NOTIFICATIONS_YES = "✅ О да, кидай всё, что есть! �
 BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков… 🙁"
 BUTTON_RETRY_IIKO_SYNC = "🔄 Повторить синхронизацию"
 FEEDBACK_FORM_URL = "https://rdata.one/Nyyl"
+BUTTON_DELIVERY_GRUZIKA_NANI = "Грузика Нани"
+BUTTON_DELIVERY_SUSAMI = "Сами Сусами"
+BUTTON_DELIVERY_CHINA = "Чина"
+BUTTON_DELIVERY_UZBECHKA = "Узбечка"
+DELIVERY_URL_GRUZIKA_NANI = "https://gruzinka.rest.market/"
+DELIVERY_URL_SUSAMI = "https://susami.rest.market/"
+DELIVERY_URL_CHINA = "https://china.rest.market/"
+DELIVERY_URL_UZBECHKA = "https://uzbechka.rest.market/"
 
 
 CONTACT_SCREEN_TEXTS = {
@@ -107,6 +116,8 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_BONUSES.lower(): GuestMenuAction.BALANCE,
         BUTTON_VIRTUAL_CARD.lower(): GuestMenuAction.VIRTUAL_CARD,
         "виртуальная карта": GuestMenuAction.VIRTUAL_CARD,
+        BUTTON_DELIVERY.lower(): GuestMenuAction.DELIVERY,
+        "доставка": GuestMenuAction.DELIVERY,
         BUTTON_SUPPORT.lower(): GuestMenuAction.SUPPORT,
         "отдел заботы": GuestMenuAction.SUPPORT,
         "поддержка": GuestMenuAction.SUPPORT,
@@ -275,9 +286,45 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
         buttons=(
             MenuButtonContract(action=GuestMenuAction.BALANCE, label=BUTTON_BALANCE),
             MenuButtonContract(action=GuestMenuAction.VIRTUAL_CARD, label=BUTTON_VIRTUAL_CARD),
+            MenuButtonContract(action=GuestMenuAction.DELIVERY, label=BUTTON_DELIVERY),
             MenuButtonContract(action=GuestMenuAction.SUPPORT, label=BUTTON_SUPPORT),
             MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
             MenuButtonContract(action=GuestMenuAction.PROFILE, label=BUTTON_PROFILE),
+        ),
+    )
+
+
+def build_delivery_screen() -> MenuScreenContract:
+    """Экран подменю «Доставка» с ссылками на страницы заведений."""
+
+    return MenuScreenContract(
+        screen_id="delivery",
+        text=(
+            "🚚 Доставка\n\n"
+            "Выберите заведение:"
+        ),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_DELIVERY_GRUZIKA_NANI,
+                url=DELIVERY_URL_GRUZIKA_NANI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_DELIVERY_SUSAMI,
+                url=DELIVERY_URL_SUSAMI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_DELIVERY_CHINA,
+                url=DELIVERY_URL_CHINA,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_DELIVERY_UZBECHKA,
+                url=DELIVERY_URL_UZBECHKA,
+            ),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
         ),
     )
 
