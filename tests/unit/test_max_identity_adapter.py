@@ -388,6 +388,51 @@ def test_max_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
     assert response.screen.screen_id == "notifications_consent"
 
 
+def test_max_phone_match_with_registered_profile_opens_menu_without_reasking_name() -> None:
+    """Проверяет, что при привязке к уже зарегистрированному профилю MAX сразу открывает меню."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = MaxIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="ready-tg-2",
+            raw_phone="+79125556677",
+            first_name_input="Андрей",
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_legacy=False,
+            is_registered=True,
+        )
+    )
+
+    adapter.handle_start(max_user_id=4602)
+    adapter.handle_incoming(max_user_id=4602, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(
+        max_user_id=4602,
+        text="",
+        payload=None,
+        contact_phone="+79125556677",
+    )
+
+    attached_person = lookup_use_case.execute(
+        command=GetPersonByAccountCommand(platform="max", external_id="4602")
+    )
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "main_menu"
+    assert "Андрей" in response.text
+    assert attached_person is not None
+    assert len(attached_person.accounts) == 2
+
+
 def test_max_dirty_input_on_rules_step_keeps_consent_pending() -> None:
     """Проверяет грязный сценарий: случайный текст вместо согласия."""
 

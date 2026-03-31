@@ -314,6 +314,27 @@ class TelegramIdentityAdapter:
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "telegram_contact"
 
+        if previous_state == OnboardingState.WAITING_PHONE and person.is_registered and not person.is_legacy:
+            self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+            self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            self._clear_moderator_state(telegram_user_id)
+            method_logger.info(
+                "Телефон найден в зарегистрированном профиле, завершаем привязку Telegram-аккаунта без повторного onboarding. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return TelegramRegistrationResult(
+                is_success=True,
+                status="menu",
+                message=self.build_menu_overview_message(
+                    user_name=self._resolve_menu_user_name(
+                        telegram_user_id=telegram_user_id,
+                        person=person,
+                    )
+                ),
+                person_id=person.person_id,
+            )
+
         if previous_state == OnboardingState.WAITING_PHONE:
             self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_FIRST_NAME
             self._dialog_state_by_user_id.pop(telegram_user_id, None)

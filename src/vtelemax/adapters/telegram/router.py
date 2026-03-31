@@ -84,6 +84,16 @@ def _is_button_data_invalid_error(error: Exception) -> bool:
     return "button_data_invalid" in str(error).lower()
 
 
+def _is_message_cant_be_edited_error(error: Exception) -> bool:
+    """Проверяет, что Telegram запретил редактирование сообщения."""
+
+    if isinstance(error, TelegramBadRequest):
+        text = str(error).lower()
+        return "message can't be edited" in text or "message cant be edited" in text
+    text = str(error).lower()
+    return "message can't be edited" in text or "message cant be edited" in text
+
+
 def build_telegram_identity_router(
     identity_adapter: TelegramIdentityAdapter,
     delivery_processor: PendingModeratorDeliveryProcessor | None = None,
@@ -157,11 +167,38 @@ def build_telegram_identity_router(
             try:
                 await sent_message.edit_reply_markup(reply_markup=reply_markup)
             except TelegramBadRequest as error:
-                if not _is_button_data_invalid_error(error):
-                    raise
-                router_logger.warning(
-                    "Невалидная callback-кнопка в reply_markup. Оставляем сообщение без inline-клавиатуры."
-                )
+                if _is_button_data_invalid_error(error):
+                    router_logger.warning(
+                        "Невалидная callback-кнопка в reply_markup. Оставляем сообщение без inline-клавиатуры."
+                    )
+                    return
+                if _is_message_cant_be_edited_error(error):
+                    router_logger.warning(
+                        "Telegram не дал отредактировать сообщение для inline-клавиатуры. Применяем fallback отправкой нового сообщения."
+                    )
+                    try:
+                        await sent_message.delete()
+                    except Exception:  # noqa: BLE001
+                        router_logger.debug("Не удалось удалить промежуточное сообщение fallback.")
+                    try:
+                        await message.answer(
+                            result.message,
+                            parse_mode=getattr(result, "parse_mode", None),
+                            reply_markup=reply_markup,
+                        )
+                    except TelegramBadRequest as fallback_error:
+                        if not _is_button_data_invalid_error(fallback_error):
+                            raise
+                        router_logger.warning(
+                            "Невалидная callback-кнопка в fallback reply_markup. Отправляем сообщение без inline-клавиатуры."
+                        )
+                        await message.answer(
+                            result.message,
+                            parse_mode=getattr(result, "parse_mode", None),
+                            reply_markup=ReplyKeyboardRemove(),
+                        )
+                    return
+                raise
             return
         try:
             await message.answer(
@@ -207,11 +244,40 @@ def build_telegram_identity_router(
                     reply_markup=reply_markup,
                 )
             except TelegramBadRequest as error:
-                if not _is_button_data_invalid_error(error):
-                    raise
-                router_logger.warning(
-                    "Невалидная callback-кнопка в reply_markup. Оставляем сообщение без inline-клавиатуры."
-                )
+                if _is_button_data_invalid_error(error):
+                    router_logger.warning(
+                        "Невалидная callback-кнопка в reply_markup. Оставляем сообщение без inline-клавиатуры."
+                    )
+                    return
+                if _is_message_cant_be_edited_error(error):
+                    router_logger.warning(
+                        "Telegram не дал отредактировать сообщение для inline-клавиатуры (send_to_chat). Применяем fallback отправкой нового сообщения."
+                    )
+                    try:
+                        await bot.delete_message(chat_id=chat_id, message_id=sent_message.message_id)
+                    except Exception:  # noqa: BLE001
+                        router_logger.debug("Не удалось удалить промежуточное сообщение fallback (send_to_chat).")
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=result.message,
+                            parse_mode=getattr(result, "parse_mode", None),
+                            reply_markup=reply_markup,
+                        )
+                    except TelegramBadRequest as fallback_error:
+                        if not _is_button_data_invalid_error(fallback_error):
+                            raise
+                        router_logger.warning(
+                            "Невалидная callback-кнопка в fallback reply_markup (send_to_chat). Отправляем сообщение без inline-клавиатуры."
+                        )
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=result.message,
+                            parse_mode=getattr(result, "parse_mode", None),
+                            reply_markup=ReplyKeyboardRemove(),
+                        )
+                    return
+                raise
             return
         try:
             await bot.send_message(

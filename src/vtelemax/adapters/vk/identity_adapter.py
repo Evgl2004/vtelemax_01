@@ -384,6 +384,18 @@ class VkIdentityAdapter:
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "vk_text_input"
         legacy_flow_active = is_legacy or bool(person.is_legacy)
+        if person.is_registered and not legacy_flow_active:
+            self._state_by_user_id.pop(vk_user_id, None)
+            self._onboarding_draft_by_user_id.pop(vk_user_id, None)
+            self._clear_moderator_state(vk_user_id)
+            method_logger.info(
+                "Телефон найден в зарегистрированном профиле, завершаем привязку VK-аккаунта без повторного onboarding. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            main_screen = self._menu_adapter.build_main_menu_screen(
+                user_name=self._resolve_menu_user_name(vk_user_id=vk_user_id, person=person)
+            )
+            return VkAdapterResponse(text=main_screen.text, screen=main_screen)
         if legacy_flow_active and not draft.is_legacy_upgrade:
             draft.is_legacy_upgrade = True
         if not is_legacy and person.is_legacy:

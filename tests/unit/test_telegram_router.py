@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from vtelemax.adapters.telegram.router import (
     _is_button_data_invalid_error,
+    _is_message_cant_be_edited_error,
     _is_message_not_modified_error,
 )
 
@@ -31,3 +32,16 @@ def test_is_button_data_invalid_error_returns_false_for_other_errors() -> None:
     """Проверяет, что посторонние ошибки не считаются BUTTON_DATA_INVALID."""
 
     assert not _is_button_data_invalid_error(RuntimeError("Bad Request: chat not found"))
+
+
+def test_is_message_cant_be_edited_error_detects_known_patterns() -> None:
+    """Проверяет распознавание ошибки Telegram «message can't be edited»."""
+
+    assert _is_message_cant_be_edited_error(RuntimeError("Bad Request: message can't be edited"))
+    assert _is_message_cant_be_edited_error(RuntimeError("BAD REQUEST: MESSAGE CANT BE EDITED"))
+
+
+def test_is_message_cant_be_edited_error_returns_false_for_other_errors() -> None:
+    """Проверяет, что посторонние ошибки не считаются «message can't be edited»."""
+
+    assert not _is_message_cant_be_edited_error(RuntimeError("Bad Request: message is not modified"))

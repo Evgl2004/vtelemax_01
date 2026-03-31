@@ -575,6 +575,46 @@ def test_telegram_start_interaction_for_registered_user_returns_menu() -> None:
     assert "Иван" in result.message
 
 
+def test_telegram_attach_to_registered_profile_skips_reentering_name() -> None:
+    """Проверяет, что при привязке к уже зарегистрированному профилю Telegram сразу открывает меню."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="ready-vk-1",
+            raw_phone="+79126667788",
+            first_name_input="Пётр",
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_legacy=False,
+            is_registered=True,
+        )
+    )
+
+    adapter.start_interaction(telegram_user_id=4701)
+    adapter.handle_menu_action(telegram_user_id=4701, action_text="✅ Согласен")
+    result = adapter.register_contact(telegram_user_id=4701, raw_phone="+79126667788")
+
+    attached_person = lookup_use_case.execute(
+        command=GetPersonByAccountCommand(platform="telegram", external_id="4701")
+    )
+
+    assert result.is_success is True
+    assert result.status == "menu"
+    assert "Пётр" in result.message
+    assert attached_person is not None
+    assert len(attached_person.accounts) == 2
+
+
 def test_telegram_onboarding_iiko_failure_moves_to_retry_step() -> None:
     """Проверяет отдельный шаг retry, если синхронизация с iiko не удалась."""
 

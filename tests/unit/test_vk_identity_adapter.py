@@ -373,6 +373,46 @@ def test_vk_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
     assert response.screen.screen_id == "notifications_consent"
 
 
+def test_vk_phone_match_with_registered_profile_opens_menu_without_reasking_name() -> None:
+    """Проверяет, что при привязке к уже зарегистрированному профилю VK сразу открывает меню."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="ready-tg-1",
+            raw_phone="+79124445566",
+            first_name_input="Андрей",
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_legacy=False,
+            is_registered=True,
+        )
+    )
+
+    adapter.handle_start(vk_user_id=4601)
+    adapter.handle_incoming(vk_user_id=4601, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(vk_user_id=4601, text="+79124445566", payload=None)
+
+    attached_person = lookup_use_case.execute(
+        command=GetPersonByAccountCommand(platform="vk", external_id="4601")
+    )
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "main_menu"
+    assert "Андрей" in response.text
+    assert attached_person is not None
+    assert len(attached_person.accounts) == 2
+
+
 def test_vk_dirty_input_on_rules_step_keeps_consent_pending() -> None:
     """Проверяет грязный сценарий: случайный текст вместо согласия."""
 
