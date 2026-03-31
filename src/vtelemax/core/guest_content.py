@@ -289,6 +289,7 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
             MenuButtonContract(action=GuestMenuAction.DELIVERY, label=BUTTON_DELIVERY),
             MenuButtonContract(action=GuestMenuAction.SUPPORT, label=BUTTON_SUPPORT),
             MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
+            MenuButtonContract(action=GuestMenuAction.SUPPORT_FEEDBACK, label=BUTTON_SUPPORT_FEEDBACK),
             MenuButtonContract(action=GuestMenuAction.PROFILE, label=BUTTON_PROFILE),
         ),
     )
@@ -333,7 +334,6 @@ def build_support_menu_screen(has_tickets: bool) -> MenuScreenContract:
     """Экран раздела поддержки."""
 
     buttons: list[MenuButtonContract] = [
-        MenuButtonContract(action=GuestMenuAction.SUPPORT_FEEDBACK, label=BUTTON_SUPPORT_FEEDBACK),
         MenuButtonContract(action=GuestMenuAction.SUPPORT_QUESTION, label=BUTTON_SUPPORT_QUESTION),
     ]
     if has_tickets:

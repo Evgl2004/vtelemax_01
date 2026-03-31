@@ -125,6 +125,7 @@ def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY))],
             [InlineKeyboardButton(text=BUTTON_SUPPORT, callback_data=_action_callback(GuestMenuAction.SUPPORT))],
             [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
+            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, callback_data=_action_callback(GuestMenuAction.SUPPORT_FEEDBACK))],
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
         ]
     )
@@ -154,7 +155,6 @@ def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeybo
     """Создает inline-клавиатуру подменю «Отдел заботы» (вертикальный список)."""
 
     buttons = [
-        [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, callback_data=_action_callback(GuestMenuAction.SUPPORT_FEEDBACK))],
         [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION))],
     ]
     if has_tickets:
