@@ -119,7 +119,12 @@ async def _upload_vk_png_for_messages(*, ctx_api: Any, peer_id: int, image_bytes
 
 
 async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_numbers: tuple[str, ...]) -> None:
-    """Отправляет QR-коды карт в VK перед итоговым текстовым ответом."""
+    """Отправляет QR-коды карт в VK перед итоговым текстовым ответом.
+
+    Для лучшего UX отправляем картинку и текст отдельными сообщениями:
+    1) сообщение только с изображением QR;
+    2) отдельное сообщение с номером карты.
+    """
 
     if not card_numbers:
         return
@@ -144,12 +149,29 @@ async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_num
             qr_logger.warning("Не удалось загрузить QR в VK для карты #{index}.", index=index)
             continue
 
-        await ctx_api.messages.send(
-            peer_id=peer_id,
-            random_id=0,
-            message=f"💳 Карта: {card_number}",
-            attachment=attachment,
-        )
+        try:
+            await ctx_api.messages.send(
+                peer_id=peer_id,
+                random_id=0,
+                message="",
+                attachment=attachment,
+            )
+            await ctx_api.messages.send(
+                peer_id=peer_id,
+                random_id=0,
+                message=f"💳 Карта: {card_number}",
+            )
+        except Exception:  # noqa: BLE001
+            qr_logger.exception(
+                "Ошибка отправки раздельного контента QR в VK для карты #{index}. Пробуем fallback-комбинацию.",
+                index=index,
+            )
+            await ctx_api.messages.send(
+                peer_id=peer_id,
+                random_id=0,
+                message=f"💳 Карта: {card_number}",
+                attachment=attachment,
+            )
 
 
 def _extract_vk_peer_id(event: MessageEvent) -> int | None:
