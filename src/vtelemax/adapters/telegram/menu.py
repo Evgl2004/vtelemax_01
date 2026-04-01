@@ -128,7 +128,7 @@ def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY))],
             [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION))],
             [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
-            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, callback_data=_action_callback(GuestMenuAction.SUPPORT_FEEDBACK))],
+            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, url=SUPPORT_FEEDBACK_URL)],
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
         ]
     )
