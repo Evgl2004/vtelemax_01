@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from uuid import UUID
 
@@ -66,6 +66,47 @@ class SQLAlchemySupportRepository(SupportRepository):
         )
         rows = self._session.execute(statement).scalars().all()
         return [self._to_ticket(row) for row in rows]
+
+    def list_person_tickets_page(
+        self,
+        person_id: UUID,
+        page: int,
+        per_page: int,
+    ) -> tuple[list[SupportTicket], int]:
+        """
+        Возвращает страницу тикетов пользователя и общее количество тикетов.
+        
+        Args:
+            person_id: идентификатор пользователя
+            page: номер страницы (начиная с 1)
+            per_page: количество тикетов на странице
+            
+        Returns:
+            Кортеж (список тикетов, общее количество тикетов)
+        """
+        if page < 1:
+            page = 1
+        offset = (page - 1) * per_page
+        
+        # Подсчёт общего количества тикетов
+        count_stmt = (
+            select(func.count(SupportTicketRow.ticket_id))
+            .where(SupportTicketRow.person_id == person_id)
+        )
+        total = self._session.execute(count_stmt).scalar_one()
+        
+        # Получение страницы тикетов
+        tickets_stmt = (
+            select(SupportTicketRow)
+            .where(SupportTicketRow.person_id == person_id)
+            .order_by(SupportTicketRow.created_at.desc())
+            .offset(offset)
+            .limit(per_page)
+        )
+        rows = self._session.execute(tickets_stmt).scalars().all()
+        tickets = [self._to_ticket(row) for row in rows]
+        
+        return tickets, total
 
     def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
         row = self._session.get(SupportTicketRow, ticket_id)

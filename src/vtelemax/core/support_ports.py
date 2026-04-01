@@ -26,6 +26,24 @@ class SupportRepository(Protocol):
     def list_person_tickets(self, person_id: UUID, limit: int = 20) -> list[SupportTicket]:
         """Возвращает список тикетов конкретного пользователя."""
 
+    def list_person_tickets_page(
+        self,
+        person_id: UUID,
+        page: int,
+        per_page: int,
+    ) -> tuple[list[SupportTicket], int]:
+        """
+        Возвращает страницу тикетов пользователя и общее количество тикетов.
+        
+        Args:
+            person_id: идентификатор пользователя
+            page: номер страницы (начиная с 1)
+            per_page: количество тикетов на странице
+            
+        Returns:
+            Кортеж (список тикетов, общее количество тикетов)
+        """
+
     def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
         """Обновляет канал последней активности гостя."""
 

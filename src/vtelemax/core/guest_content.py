@@ -21,8 +21,8 @@ BUTTON_VACANCIES = "💼 Вакансии"
 
 BUTTON_SUPPORT_FEEDBACK = "✍️ Оставить отзыв"
 BUTTON_SUPPORT_FEEDBACK_LINK = "✍️ Оставить отзыв!"
-BUTTON_SUPPORT_QUESTION = "❓ Мне только спросить (В разработке)"
-BUTTON_SUPPORT_QUESTION_LEGACY = "❓ Мне только спросить"
+BUTTON_SUPPORT_QUESTION = "❓ Мне только спросить"
+BUTTON_SUPPORT_QUESTION_LEGACY = "❓ Мне только спросить (В разработке)"
 BUTTON_MY_TICKETS = "📋 Мои обращения"
 BUTTON_SUPPORT_CONTACTS = "📧 Контакты"
 BUTTON_BACK_TO_MAIN = "🔙 Назад в меню"
@@ -130,6 +130,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         "❓ мне только спросить": GuestMenuAction.SUPPORT_QUESTION,
         "задать вопрос": GuestMenuAction.SUPPORT_QUESTION,
         "мне только спросить": GuestMenuAction.SUPPORT_QUESTION,
+        "support_question_from_list": GuestMenuAction.SUPPORT_QUESTION_FROM_LIST,
         BUTTON_MY_TICKETS.lower(): GuestMenuAction.MY_TICKETS,
         "мои обращения": GuestMenuAction.MY_TICKETS,
         BUTTON_SUPPORT_CONTACTS.lower(): GuestMenuAction.SUPPORT_CONTACTS,
@@ -287,7 +288,7 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
             MenuButtonContract(action=GuestMenuAction.BALANCE, label=BUTTON_BALANCE),
             MenuButtonContract(action=GuestMenuAction.VIRTUAL_CARD, label=BUTTON_VIRTUAL_CARD),
             MenuButtonContract(action=GuestMenuAction.DELIVERY, label=BUTTON_DELIVERY),
-            MenuButtonContract(action=GuestMenuAction.SUPPORT, label=BUTTON_SUPPORT),
+            MenuButtonContract(action=GuestMenuAction.SUPPORT_QUESTION, label=BUTTON_SUPPORT_QUESTION),
             MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
             MenuButtonContract(action=GuestMenuAction.SUPPORT_FEEDBACK, label=BUTTON_SUPPORT_FEEDBACK),
             MenuButtonContract(action=GuestMenuAction.PROFILE, label=BUTTON_PROFILE),
@@ -333,9 +334,7 @@ def build_delivery_screen() -> MenuScreenContract:
 def build_support_menu_screen(has_tickets: bool) -> MenuScreenContract:
     """Экран раздела поддержки."""
 
-    buttons: list[MenuButtonContract] = [
-        MenuButtonContract(action=GuestMenuAction.SUPPORT_QUESTION, label=BUTTON_SUPPORT_QUESTION),
-    ]
+    buttons: list[MenuButtonContract] = []
     if has_tickets:
         buttons.append(MenuButtonContract(action=GuestMenuAction.MY_TICKETS, label=BUTTON_MY_TICKETS))
     buttons.extend(
@@ -442,7 +441,7 @@ def build_support_question_screen() -> MenuScreenContract:
             "Пожалуйста, отправьте ваш вопрос, и наш модератор свяжется с вами в ближайшее время.\n\n"
             "Введите ваш вопрос:"
         ),
-        buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_SUPPORT, label=BUTTON_BACK_TO_SUPPORT),),
+        buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),),
         parse_mode="markdown",
     )
 

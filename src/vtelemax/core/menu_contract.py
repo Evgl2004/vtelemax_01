@@ -38,6 +38,7 @@ class GuestMenuAction(StrEnum):
     VACANCIES = "vacancies"
     SUPPORT_FEEDBACK = "support_feedback"
     SUPPORT_QUESTION = "support_question"
+    SUPPORT_QUESTION_FROM_LIST = "support_question_from_list"
     MY_TICKETS = "my_tickets"
     SUPPORT_CONTACTS = "support_contacts"
     BACK_TO_MAIN = "back_to_main"

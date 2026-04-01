@@ -27,6 +27,9 @@ from .menu import (
     NOTIFY_NO_CALLBACK,
     NOTIFY_YES_CALLBACK,
     RULES_ACCEPT_CALLBACK,
+    USER_TICKETS_PAGE_PREFIX,
+    USER_TICKETS_PREV_PAGE_PREFIX,
+    USER_TICKETS_NEXT_PAGE_PREFIX,
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_DELIVERY,
@@ -56,6 +59,7 @@ from .menu import (
     build_rules_consent_inline_keyboard,
     build_support_feedback_inline_keyboard,
     build_support_menu_inline_keyboard,
+    build_user_tickets_pagination_keyboard,
     BUTTON_PROFILE,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SUPPORT,
@@ -311,7 +315,14 @@ def build_telegram_identity_router(
             return build_notifications_consent_inline_keyboard()
         if result.status in {"iiko_sync_retry", "iiko_sync_retry_pending"}:
             return build_iiko_sync_retry_inline_keyboard()
-        if result.status in {"support", "tickets_list", "tickets_empty"}:
+        if result.status == "tickets_list" and result.current_page is not None and result.total_pages is not None:
+            # Показываем пагинацию для списка тикетов
+            return build_user_tickets_pagination_keyboard(
+                current_page=result.current_page,
+                total_pages=result.total_pages,
+                has_tickets=result.has_support_tickets,
+            )
+        if result.status in {"support", "tickets_empty"}:
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status == "support_feedback":
             return build_support_feedback_inline_keyboard()

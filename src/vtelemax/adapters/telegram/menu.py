@@ -48,6 +48,9 @@ from vtelemax.core import (
 RULES_ACCEPT_CALLBACK = "rules_accept"
 NOTIFY_YES_CALLBACK = "notify_yes"
 NOTIFY_NO_CALLBACK = "notify_no"
+USER_TICKETS_PAGE_PREFIX = "user_tickets_page_"
+USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
+USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 DOCS_URL = "https://sagur.24vds.ru/agreement/#"
 NOTIFICATIONS_DOCS_URL = "https://sagur.24vds.ru/notifications/#"
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
@@ -123,7 +126,7 @@ def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=BUTTON_BALANCE, callback_data=_action_callback(GuestMenuAction.BALANCE))],
             [InlineKeyboardButton(text=BUTTON_VIRTUAL_CARD, callback_data=_action_callback(GuestMenuAction.VIRTUAL_CARD))],
             [InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY))],
-            [InlineKeyboardButton(text=BUTTON_SUPPORT, callback_data=_action_callback(GuestMenuAction.SUPPORT))],
+            [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION))],
             [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
             [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, callback_data=_action_callback(GuestMenuAction.SUPPORT_FEEDBACK))],
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
@@ -276,9 +279,67 @@ def build_main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BUTTON_BALANCE)],
             [KeyboardButton(text=BUTTON_VIRTUAL_CARD)],
             [KeyboardButton(text=BUTTON_DELIVERY)],
-            [KeyboardButton(text=BUTTON_SUPPORT)],
+            [KeyboardButton(text=BUTTON_SUPPORT_QUESTION)],
             [KeyboardButton(text=BUTTON_VACANCIES)],
             [KeyboardButton(text=BUTTON_PROFILE)],
         ],
         resize_keyboard=True,
     )
+
+
+def build_user_tickets_pagination_keyboard(
+    current_page: int,
+    total_pages: int,
+    has_tickets: bool = True,
+) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру для пагинации списка тикетов пользователя."""
+    
+    buttons = []
+    
+    # Кнопки навигации
+    nav_buttons = []
+    if current_page > 1:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text="◀️ Назад",
+                callback_data=f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}",
+            )
+        )
+    
+    nav_buttons.append(
+        InlineKeyboardButton(
+            text=f"{current_page}/{total_pages}",
+            callback_data="noop",  # Неактивная кнопка
+        )
+    )
+    
+    if current_page < total_pages:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text="Вперед ▶️",
+                callback_data=f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}",
+            )
+        )
+    
+    # Кнопка создания нового тикета (первая позиция)
+    if has_tickets:
+        buttons.append([
+            InlineKeyboardButton(
+                text="📝 Создать новый тикет",
+                callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION_FROM_LIST),
+            )
+        ])
+    
+    # Навигация (вторая позиция)
+    if nav_buttons:
+        buttons.append(nav_buttons)
+    
+    # Кнопка возврата в главное меню (третья позиция)
+    buttons.append([
+        InlineKeyboardButton(
+            text=BUTTON_BACK_TO_MAIN,
+            callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN),
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
