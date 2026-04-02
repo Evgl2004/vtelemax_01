@@ -5,6 +5,9 @@ from __future__ import annotations
 from vtelemax.adapters.telegram.menu import (
     DOCS_URL,
     RULES_ACCEPT_CALLBACK,
+    USER_TICKETS_PREV_PAGE_PREFIX,
+    USER_TICKETS_NEXT_PAGE_PREFIX,
+    USER_TICKET_DETAILS_PREFIX,
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
@@ -14,6 +17,7 @@ from vtelemax.adapters.telegram.menu import (
     build_rules_consent_inline_keyboard,
     build_support_feedback_inline_keyboard,
     build_support_menu_inline_keyboard,
+    build_user_tickets_pagination_keyboard,
 )
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
@@ -126,3 +130,87 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
                 if callback_data is None:
                     continue
                 assert len(callback_data.encode("utf-8")) <= 64
+
+
+def test_build_user_tickets_pagination_keyboard() -> None:
+    """Проверяет формирование клавиатуры пагинации тикетов."""
+    from uuid import uuid4
+    from datetime import datetime, timezone
+    from vtelemax.core import PersonSupportTicketSummary, SupportTicketStatus
+
+    # Создаем 6 тикетов
+    tickets = tuple(
+        PersonSupportTicketSummary(
+            ticket_id=uuid4(),
+            status=SupportTicketStatus.OPEN,
+            source_platform="telegram",
+            last_guest_platform="telegram",
+            created_at=datetime(2025, 1, i + 1, tzinfo=timezone.utc),
+        )
+        for i in range(6)
+    )
+
+    # Страница 1, всего страниц 2 (per_page=5)
+    keyboard = build_user_tickets_pagination_keyboard(
+        current_page=1,
+        total_pages=2,
+        tickets=tickets[:5],  # первые 5 тикетов
+        has_tickets=True,
+    )
+
+    inline_keyboard = keyboard.inline_keyboard
+    # Ожидаем: 5 строк тикетов + строка создания нового тикета + строка навигации + строка назад
+    # Но навигация добавляется только если total_pages > 1, и если текущая страница не первая/последняя?
+    # В логике: навигационные кнопки добавляются, если total_pages > 1.
+    # Для страницы 1 из 2: кнопка "Вперед" и номер страницы, кнопка "Назад" не добавляется.
+    # Проверим общее количество строк.
+    # 5 тикетов + 1 создание + 1 навигация + 1 назад = 8 строк? Но навигация - это одна строка с кнопками.
+    # Посчитаем.
+    # Тикеты: 5 строк
+    ticket_rows = inline_keyboard[:5]
+    # Следующая строка - создание нового тикета
+    create_row = inline_keyboard[5]
+    # Следующая строка - навигация
+    nav_row = inline_keyboard[6]
+    # Последняя строка - назад
+    back_row = inline_keyboard[7]
+
+    assert len(inline_keyboard) == 8
+
+    # Проверяем кнопки тикетов
+    for i, row in enumerate(ticket_rows):
+        assert len(row) == 1
+        button = row[0]
+        assert button.text.startswith("🆕 #")
+        assert button.callback_data.startswith(USER_TICKET_DETAILS_PREFIX)
+
+    # Проверяем кнопку создания нового тикета
+    assert len(create_row) == 1
+    assert create_row[0].text == "📝 Создать новый тикет"
+    assert create_row[0].callback_data == "support_question_from_list"
+
+    # Проверяем навигацию: должна быть кнопка номера страницы и "Вперед"
+    assert len(nav_row) == 2  # номер страницы и вперед
+    assert nav_row[0].text == "1/2"
+    assert nav_row[0].callback_data == "noop"
+    assert nav_row[1].text == "Вперед ▶️"
+    assert nav_row[1].callback_data.startswith(USER_TICKETS_NEXT_PAGE_PREFIX)
+
+    # Проверяем кнопку назад в главное меню
+    assert len(back_row) == 1
+    assert back_row[0].text == "🔙 Назад в меню"
+    assert back_row[0].callback_data == "back_to_main"
+
+    # Тест для случая без тикетов
+    keyboard_empty = build_user_tickets_pagination_keyboard(
+        current_page=1,
+        total_pages=1,
+        tickets=(),
+        has_tickets=False,
+    )
+    # Должна быть только кнопка назад (и возможно создание нового тикета? Нет, has_tickets=False)
+    # В логике: если has_tickets=False, кнопка создания не добавляется.
+    # Навигация не добавляется (total_pages = 1).
+    # Ожидаем одну строку - назад.
+    assert len(keyboard_empty.inline_keyboard) == 1
+    assert keyboard_empty.inline_keyboard[0][0].text == "🔙 Назад в меню"

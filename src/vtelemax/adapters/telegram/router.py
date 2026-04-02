@@ -329,7 +329,7 @@ def build_telegram_identity_router(
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status == "support_feedback":
             return build_support_feedback_inline_keyboard()
-        if result.status in {"support_question", "support_contacts", "support_question_empty", "support_question_unavailable"}:
+        if result.status in {"support_question", "support_contacts", "support_question_empty", "support_question_unavailable", "support_question_input"}:
             return back_to_support_keyboard
         if result.status in {"ticket_details", "ticket_details_error"}:
             # Для деталей тикета и ошибки показываем кнопку "Назад к списку обращений"
