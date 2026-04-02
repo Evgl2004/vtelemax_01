@@ -214,6 +214,21 @@ def build_back_to_support_inline_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def build_back_to_tickets_list_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру с кнопкой возврата к списку обращений (MY_TICKETS)."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_MY_TICKETS,
+                    callback_data=_action_callback(GuestMenuAction.MY_TICKETS),
+                )
+            ]
+        ]
+    )
+
+
 def build_profile_inline_keyboard() -> InlineKeyboardMarkup:
     """Создает inline-клавиатуру экрана профиля."""
 

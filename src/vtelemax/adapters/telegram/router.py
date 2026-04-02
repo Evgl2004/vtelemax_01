@@ -49,6 +49,7 @@ from .menu import (
     BUTTON_MY_TICKETS,
     build_back_to_main_inline_keyboard,
     build_back_to_support_inline_keyboard,
+    build_back_to_tickets_list_inline_keyboard,
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
@@ -332,7 +333,7 @@ def build_telegram_identity_router(
             return back_to_support_keyboard
         if result.status in {"ticket_details", "ticket_details_error"}:
             # Для деталей тикета и ошибки показываем кнопку "Назад к списку обращений"
-            return back_to_support_keyboard
+            return build_back_to_tickets_list_inline_keyboard()
         if result.status == "delivery":
             return build_delivery_inline_keyboard()
         if result.status in {
