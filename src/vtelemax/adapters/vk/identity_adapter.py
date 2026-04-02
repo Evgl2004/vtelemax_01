@@ -1401,19 +1401,8 @@ class VkIdentityAdapter:
             return self._handle_virtual_card_action(person_phone_e164=person.phone_e164)
 
         if action == GuestMenuAction.MY_TICKETS:
-            tickets = self._list_user_tickets(
-                platform="vk",
-                external_id=str(vk_user_id),
-                limit=5,
-            )
-            if not tickets:
-                return VkAdapterResponse(
-                    text=(
-                        "📭 У вас пока нет обращений.\n\n"
-                        f"Нажмите «{BUTTON_SUPPORT_QUESTION}», чтобы задать вопрос."
-                    )
-                )
-            return VkAdapterResponse(text=self._format_person_tickets_message(tickets))
+            # Показываем первую страницу тикетов с пагинацией
+            return self._show_user_tickets_page(vk_user_id=vk_user_id, page=1, per_page=3)
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
             has_tickets = self._has_user_tickets(platform="vk", external_id=str(vk_user_id))

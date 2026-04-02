@@ -1441,19 +1441,8 @@ class MaxIdentityAdapter:
             return self._handle_virtual_card_action(person_phone_e164=person.phone_e164)
 
         if action == GuestMenuAction.MY_TICKETS:
-            tickets = self._list_user_tickets(
-                platform="max",
-                external_id=str(max_user_id),
-                limit=10,
-            )
-            if not tickets:
-                return MaxAdapterResponse(
-                    text=(
-                        "📭 У вас пока нет обращений.\n\n"
-                        f"Нажмите «{BUTTON_SUPPORT_QUESTION}», чтобы задать вопрос."
-                    )
-                )
-            return MaxAdapterResponse(text=self._format_person_tickets_message(tickets))
+            # Показываем первую страницу тикетов с пагинацией
+            return self._show_user_tickets_page(max_user_id=max_user_id, page=1, per_page=5)
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
             has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
