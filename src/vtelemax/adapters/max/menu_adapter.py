@@ -8,6 +8,7 @@ from datetime import date, datetime
 from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
+    PersonSupportTicketSummary,
     build_about_screen,
     build_balance_screen,
     build_delivery_screen,
@@ -34,6 +35,7 @@ from .payloads import build_max_payload
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
+USER_TICKET_DETAILS_PREFIX = "user_ticket_"
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,38 +273,58 @@ class MaxGuestMenuAdapter:
         self,
         current_page: int,
         total_pages: int,
+        tickets: tuple[PersonSupportTicketSummary, ...] = (),
         has_tickets: bool = True,
     ) -> MaxScreen:
-        """Создает экран пагинации списка тикетов пользователя."""
+        """Создает экран пагинации списка тикетов пользователя с кнопками тикетов."""
         
         rows = []
         
-        # Кнопки навигации
-        nav_buttons = []
-        if current_page > 1:
-            nav_buttons.append(
-                MaxButton(
-                    label="◀️ Назад",
-                    payload=f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}",
+        # Кнопки тикетов (группируем по 2 в строке для экономии строк)
+        if tickets:
+            ticket_rows = []
+            current_row = []
+            for ticket in tickets:
+                # Эмодзи статуса
+                status_emoji = {
+                    "open": "🆕",
+                    "closed": "🔒",
+                }.get(ticket.status.value, "❓")
+                
+                # Короткий идентификатор (последние 4 символа UUID в верхнем регистре)
+                short_id = str(ticket.ticket_id)[-4:].upper()
+                
+                # Дата создания
+                date_str = ""
+                if ticket.created_at:
+                    date_str = ticket.created_at.strftime("%d.%m")
+                
+                # Текст кнопки
+                label = f"{status_emoji} #{short_id}"
+                if date_str:
+                    label += f" от {date_str}"
+                
+                # Создаем кнопку тикета
+                current_row.append(
+                    MaxButton(
+                        label=label,
+                        payload=f"{USER_TICKET_DETAILS_PREFIX}{ticket.ticket_id}",
+                    )
                 )
-            )
+                
+                # Если в строке накопилось 2 кнопки или это последний тикет
+                if len(current_row) == 2:
+                    ticket_rows.append(tuple(current_row))
+                    current_row = []
+            
+            # Добавляем оставшиеся кнопки
+            if current_row:
+                ticket_rows.append(tuple(current_row))
+            
+            # Добавляем строки с тикетами в общий список
+            rows.extend(ticket_rows)
         
-        nav_buttons.append(
-            MaxButton(
-                label=f"{current_page}/{total_pages}",
-                payload="noop",  # Неактивная кнопка
-            )
-        )
-        
-        if current_page < total_pages:
-            nav_buttons.append(
-                MaxButton(
-                    label="Вперед ▶️",
-                    payload=f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}",
-                )
-            )
-        
-        # Кнопка создания нового тикета (первая позиция)
+        # Кнопка создания нового тикета (после списка тикетов)
         if has_tickets:
             rows.append((
                 MaxButton(
@@ -311,11 +333,37 @@ class MaxGuestMenuAdapter:
                 ),
             ))
         
-        # Навигация (вторая позиция)
+        # Кнопки навигации (только если больше одной страницы)
+        nav_buttons = []
+        if total_pages > 1:
+            if current_page > 1:
+                nav_buttons.append(
+                    MaxButton(
+                        label="◀️ Назад",
+                        payload=f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}",
+                    )
+                )
+            
+            nav_buttons.append(
+                MaxButton(
+                    label=f"{current_page}/{total_pages}",
+                    payload="noop",  # Неактивная кнопка
+                )
+            )
+            
+            if current_page < total_pages:
+                nav_buttons.append(
+                    MaxButton(
+                        label="Вперед ▶️",
+                        payload=f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}",
+                    )
+                )
+        
+        # Навигация (после кнопки создания)
         if nav_buttons:
             rows.append(tuple(nav_buttons))
         
-        # Кнопка возврата в главное меню (третья позиция)
+        # Кнопка возврата в главное меню
         rows.append((
             MaxButton(
                 label="🏠 Назад в меню",

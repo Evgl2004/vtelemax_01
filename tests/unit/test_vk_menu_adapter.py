@@ -16,20 +16,30 @@ def test_vk_payload_build_and_resolve_roundtrip() -> None:
 
 
 def test_vk_main_menu_contains_expected_first_buttons() -> None:
-    """Проверяет ключевые первые кнопки главного меню (вертикальный список)."""
+    """Проверяет ключевые первые кнопки главного меню (специальная группировка для VK)."""
 
     adapter = VkGuestMenuAdapter()
     screen = adapter.build_main_menu_screen(user_name="Гость")
 
-    # Проверяем, что семь строк, каждая с одной кнопкой
-    assert len(screen.rows) == 7
+    # Проверяем, что пять строк (две пары + три одиночные)
+    assert len(screen.rows) == 5
+    # Первая строка: баланс и виртуальная карта
+    assert len(screen.rows[0]) == 2
     assert screen.rows[0][0].label == "💰 Мой баланс"
-    assert screen.rows[1][0].label == "🪪 Виртуальная карта"
+    assert screen.rows[0][1].label == "🪪 Виртуальная карта"
+    # Вторая строка: "Мне только спросить" и обратная связь
+    assert len(screen.rows[1]) == 2
+    assert screen.rows[1][0].label == "❓ Мне только спросить"
+    assert screen.rows[1][1].label == "✍️ Оставить отзыв"
+    # Третья строка: доставка (одна кнопка)
+    assert len(screen.rows[2]) == 1
     assert screen.rows[2][0].label == "🚚 Доставка"
-    assert screen.rows[3][0].label == "❓ Мне только спросить"
-    assert screen.rows[4][0].label == "💼 Вакансии"
-    assert screen.rows[5][0].label == "✍️ Оставить отзыв"
-    assert screen.rows[6][0].label == "👤 Профиль"
+    # Четвертая строка: вакансии (одна кнопка)
+    assert len(screen.rows[3]) == 1
+    assert screen.rows[3][0].label == "💼 Вакансии"
+    # Пятая строка: профиль (одна кнопка)
+    assert len(screen.rows[4]) == 1
+    assert screen.rows[4][0].label == "👤 Профиль"
 
 
 def test_vk_support_menu_respects_my_tickets_flag() -> None:

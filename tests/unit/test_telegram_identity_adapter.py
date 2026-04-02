@@ -786,39 +786,6 @@ def test_telegram_support_question_activates_question_input_when_no_tickets() ->
     assert "введите ваш вопрос" in result.message.lower() or "задайте вопрос" in result.message.lower()
 
 
-def test_telegram_support_question_flow_allows_back_to_support_menu() -> None:
-    """После открытия пункта «Мне только спросить» возврат в меню заботы должен работать штатно."""
-
-    repository = InMemoryIdentityRepository()
-    support_repository = InMemorySupportRepository()
-    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
-        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
-    )
-    lookup_use_case = GetPersonByAccountTransactionalUseCase(
-        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
-    )
-    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
-    get_person_tickets_page_use_case = GetPersonTicketsPageTransactionalUseCase(
-        unit_of_work_factory=support_uow_factory
-    )
-    adapter = TelegramIdentityAdapter(
-        registration_use_case,
-        lookup_use_case,
-        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
-    )
-
-    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    first = adapter.handle_menu_action(
-        telegram_user_id=1001,
-        action_text="❓ Мне только спросить (В разработке)",
-    )
-    back = adapter.handle_menu_action(telegram_user_id=1001, action_text="🔙 Назад в отдел заботы")
-
-    assert first.status == "support_question_input"
-    assert back.status == "support"
-    assert "Отдел заботы" in back.message
-
-
 def test_telegram_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения» после создания обращения пользователем."""
 

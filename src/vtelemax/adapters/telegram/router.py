@@ -320,6 +320,7 @@ def build_telegram_identity_router(
             return build_user_tickets_pagination_keyboard(
                 current_page=result.current_page,
                 total_pages=result.total_pages,
+                tickets=result.tickets,
                 has_tickets=result.has_support_tickets,
             )
         if result.status in {"support", "tickets_empty"}:
@@ -327,6 +328,9 @@ def build_telegram_identity_router(
         if result.status == "support_feedback":
             return build_support_feedback_inline_keyboard()
         if result.status in {"support_question", "support_contacts", "support_question_empty", "support_question_unavailable"}:
+            return back_to_support_keyboard
+        if result.status in {"ticket_details", "ticket_details_error"}:
+            # Для деталей тикета и ошибки показываем кнопку "Назад к списку обращений"
             return back_to_support_keyboard
         if result.status == "delivery":
             return build_delivery_inline_keyboard()

@@ -40,6 +40,7 @@ class GuestMenuAction(StrEnum):
     SUPPORT_QUESTION = "support_question"
     SUPPORT_QUESTION_FROM_LIST = "support_question_from_list"
     MY_TICKETS = "my_tickets"
+    VIEW_TICKET_DETAILS = "view_ticket_details"
     SUPPORT_CONTACTS = "support_contacts"
     BACK_TO_MAIN = "back_to_main"
     BACK_TO_SUPPORT = "back_to_support"

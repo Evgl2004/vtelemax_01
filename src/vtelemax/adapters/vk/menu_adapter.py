@@ -8,6 +8,7 @@ from datetime import date, datetime
 from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
+    PersonSupportTicketSummary,
     build_about_screen,
     build_balance_screen,
     build_delivery_screen,
@@ -34,6 +35,7 @@ from .payloads import build_vk_payload
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
+USER_TICKET_DETAILS_PREFIX = "user_ticket_"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,8 +86,20 @@ class VkGuestMenuAdapter:
         """Главное меню гостя (пять разделов, вертикальный список)."""
 
         screen = build_main_menu_screen(user_name=user_name)
-        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
-        return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+        vk_buttons = [_to_vk_button(button) for button in screen.buttons]
+        # Специальная группировка для соответствия лимитам VK inline-клавиатуры (макс. 6 строк)
+        # и логическому объединению кнопок поддержки.
+        # Порядок кнопок из guest_content:
+        # 0: Баланс, 1: Виртуальная карта, 2: Доставка, 3: Мне только спросить,
+        # 4: Вакансии, 5: Обратная связь, 6: Профиль
+        rows: list[tuple[VkButton, ...]] = [
+            (vk_buttons[0], vk_buttons[1]),                     # Баланс | Виртуальная карта
+            (vk_buttons[3], vk_buttons[5]),                     # Мне только спросить | Обратная связь
+            (vk_buttons[2],),                                   # Доставка
+            (vk_buttons[4],),                                   # Вакансии
+            (vk_buttons[6],),                                   # Профиль
+        ]
+        return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=tuple(rows))
 
     def build_support_menu_screen(self, has_tickets: bool) -> VkScreen:
         """Экран поддержки с условной кнопкой 'Мои обращения'."""
@@ -271,38 +285,58 @@ class VkGuestMenuAdapter:
         self,
         current_page: int,
         total_pages: int,
+        tickets: tuple[PersonSupportTicketSummary, ...] = (),
         has_tickets: bool = True,
     ) -> VkScreen:
-        """Создает экран пагинации списка тикетов пользователя."""
+        """Создает экран пагинации списка тикетов пользователя с кнопками тикетов."""
         
         rows = []
         
-        # Кнопки навигации
-        nav_buttons = []
-        if current_page > 1:
-            nav_buttons.append(
-                VkButton(
-                    label="◀️ Назад",
-                    payload={"cmd": f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}"},
+        # Кнопки тикетов (группируем по 2 в строке для экономии строк)
+        if tickets:
+            ticket_rows = []
+            current_row = []
+            for ticket in tickets:
+                # Эмодзи статуса
+                status_emoji = {
+                    "open": "🆕",
+                    "closed": "🔒",
+                }.get(ticket.status.value, "❓")
+                
+                # Короткий идентификатор (последние 4 символа UUID в верхнем регистре)
+                short_id = str(ticket.ticket_id)[-4:].upper()
+                
+                # Дата создания
+                date_str = ""
+                if ticket.created_at:
+                    date_str = ticket.created_at.strftime("%d.%m")
+                
+                # Текст кнопки
+                label = f"{status_emoji} #{short_id}"
+                if date_str:
+                    label += f" от {date_str}"
+                
+                # Создаем кнопку тикета
+                current_row.append(
+                    VkButton(
+                        label=label,
+                        payload={"cmd": f"{USER_TICKET_DETAILS_PREFIX}{ticket.ticket_id}"},
+                    )
                 )
-            )
+                
+                # Если в строке накопилось 2 кнопки или это последний тикет
+                if len(current_row) == 2:
+                    ticket_rows.append(tuple(current_row))
+                    current_row = []
+            
+            # Добавляем оставшиеся кнопки
+            if current_row:
+                ticket_rows.append(tuple(current_row))
+            
+            # Добавляем строки с тикетами в общий список
+            rows.extend(ticket_rows)
         
-        nav_buttons.append(
-            VkButton(
-                label=f"{current_page}/{total_pages}",
-                payload={"cmd": "noop"},  # Неактивная кнопка
-            )
-        )
-        
-        if current_page < total_pages:
-            nav_buttons.append(
-                VkButton(
-                    label="Вперед ▶️",
-                    payload={"cmd": f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}"},
-                )
-            )
-        
-        # Кнопка создания нового тикета (первая позиция)
+        # Кнопка создания нового тикета (после списка тикетов)
         if has_tickets:
             rows.append((
                 VkButton(
@@ -311,11 +345,37 @@ class VkGuestMenuAdapter:
                 ),
             ))
         
-        # Навигация (вторая позиция)
+        # Кнопки навигации (только если больше одной страницы)
+        nav_buttons = []
+        if total_pages > 1:
+            if current_page > 1:
+                nav_buttons.append(
+                    VkButton(
+                        label="◀️ Назад",
+                        payload={"cmd": f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}"},
+                    )
+                )
+            
+            nav_buttons.append(
+                VkButton(
+                    label=f"{current_page}/{total_pages}",
+                    payload={"cmd": "noop"},  # Неактивная кнопка
+                )
+            )
+            
+            if current_page < total_pages:
+                nav_buttons.append(
+                    VkButton(
+                        label="Вперед ▶️",
+                        payload={"cmd": f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}"},
+                    )
+                )
+        
+        # Навигация (после кнопки создания)
         if nav_buttons:
             rows.append(tuple(nav_buttons))
         
-        # Кнопка возврата в главное меню (третья позиция)
+        # Кнопка возврата в главное меню
         rows.append((
             VkButton(
                 label="🏠 Назад в меню",
