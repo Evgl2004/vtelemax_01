@@ -450,6 +450,20 @@ def build_support_question_screen() -> MenuScreenContract:
     )
 
 
+def build_support_question_confirmation_screen() -> MenuScreenContract:
+    """Экран подтверждения создания тикета (после отправки вопроса)."""
+
+    return MenuScreenContract(
+        screen_id="support_question_confirmation",
+        text=(
+            "📨 *Ваш вопрос принят!*\n\n"
+            "Модератор рассмотрит обращение в ближайшее время."
+        ),
+        buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),),
+        parse_mode="markdown",
+    )
+
+
 def build_support_contacts_screen() -> MenuScreenContract:
     """Экран контактной информации."""
 

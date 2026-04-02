@@ -697,18 +697,15 @@ class MaxIdentityAdapter:
 
         self._state_by_user_id.pop(max_user_id, None)
         
-        # Сообщение о создании тикета
-        ticket_message = ""
+        platform = "max"
         if self._create_support_ticket_use_case is None:
-            ticket_message = (
-                "📨 Ваш вопрос принят!\n"
-                "Модератор рассмотрит обращение в ближайшее время."
-            )
+            # Тестовый режим без use-case
+            pass
         else:
             try:
-                created = self._create_support_ticket_use_case.execute(
+                self._create_support_ticket_use_case.execute(
                     CreateSupportTicketCommand(
-                        platform="max",
+                        platform=platform,
                         external_id=str(max_user_id),
                         question_text=question,
                     )
@@ -720,19 +717,11 @@ class MaxIdentityAdapter:
                         f"Причина: {error}"
                     )
                 )
-            short_id = self._format_ticket_id_short(created.ticket_id)
-            ticket_message = (
-                "📨 Ваш вопрос принят!\n"
-                f"🎫 Создан тикет #{short_id}\n"
-                "Канал обращения: max\n"
-                "Модератор рассмотрит обращение в ближайшее время."
-            )
         
-        # После создания тикета показываем меню поддержки с кнопкой "Назад в меню"
-        # У пользователя теперь есть хотя бы один тикет, поэтому has_tickets=True
-        screen = self._menu_adapter.build_support_menu_screen(has_tickets=True)
+        # После создания тикета показываем экран подтверждения с кнопкой "Назад в меню"
+        screen = self._menu_adapter.build_support_question_confirmation_screen()
         return MaxAdapterResponse(
-            text=ticket_message,
+            text=screen.text,
             screen=screen,
         )
 
