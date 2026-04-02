@@ -1958,7 +1958,7 @@ class TelegramIdentityAdapter:
         lines = ["📋 Ваши обращения:"]
         status_emoji = {"open": "🆕", "closed": "🔒"}
         for i, ticket in enumerate(tickets, 1):
-            created_at = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+            created_at = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
             short_status = "открыт" if ticket.status.value == "open" else "закрыт"
             short_id = TelegramIdentityAdapter._format_ticket_id_short(ticket.ticket_id)
             lines.append(
