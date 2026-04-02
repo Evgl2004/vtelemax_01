@@ -12,6 +12,8 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SUPPORT_QUESTION,
+    BUTTON_MY_TICKETS,
+    BUTTON_BACK_TO_SUPPORT,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
@@ -42,8 +44,8 @@ from vtelemax.core import (
     resolve_guest_menu_action,
 )
 
-from .menu_adapter import VkGuestMenuAdapter, VkScreen
-from .payloads import resolve_action_from_vk_payload
+from .menu_adapter import VkButton, VkGuestMenuAdapter, VkScreen
+from .payloads import build_vk_payload, resolve_action_from_vk_payload
 
 _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
@@ -1801,8 +1803,20 @@ class VkIdentityAdapter:
         
         message = "\n".join(message_lines)
         
+        # Создаем экран с кнопкой "Назад к списку обращений"
+        back_button = VkButton(
+            label=BUTTON_MY_TICKETS,
+            payload=build_vk_payload(GuestMenuAction.MY_TICKETS),
+        )
+        screen = VkScreen(
+            screen_id="ticket_details",
+            text=message,
+            rows=((back_button,),),
+        )
+        
         return VkAdapterResponse(
             text=message,
+            screen=screen,
         )
 
     def _sync_registration_with_loyalty(

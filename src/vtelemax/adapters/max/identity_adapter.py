@@ -13,6 +13,8 @@ from vtelemax.core import (
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT_QUESTION,
+    BUTTON_MY_TICKETS,
+    BUTTON_BACK_TO_SUPPORT,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
@@ -43,8 +45,8 @@ from vtelemax.core import (
     resolve_guest_menu_action,
 )
 
-from .menu_adapter import MaxGuestMenuAdapter, MaxScreen
-from .payloads import resolve_action_from_max_payload
+from .menu_adapter import MaxGuestMenuAdapter, MaxScreen, MaxButton
+from .payloads import resolve_action_from_max_payload, build_max_payload
 
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
@@ -1841,8 +1843,20 @@ class MaxIdentityAdapter:
         
         message = "\n".join(message_lines)
         
+        # Создаем экран с кнопкой "Назад к списку обращений"
+        back_button = MaxButton(
+            label=BUTTON_MY_TICKETS,
+            payload=build_max_payload(GuestMenuAction.MY_TICKETS),
+        )
+        screen = MaxScreen(
+            screen_id="ticket_details",
+            text=message,
+            rows=((back_button,),),
+        )
+        
         return MaxAdapterResponse(
             text=message,
+            screen=screen,
         )
 
     def _sync_registration_with_loyalty(
