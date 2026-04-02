@@ -314,8 +314,14 @@ class MaxIdentityAdapter:
             return self._handle_moderator_state_input(max_user_id=max_user_id, text=text)
 
         # Обработка callback'ов пагинации тикетов
-        if payload and isinstance(payload, dict):
-            cmd = str(payload.get("cmd", "")).strip()
+        if payload:
+            cmd: str
+            if isinstance(payload, dict):
+                raw_cmd = payload.get("cmd", "")
+                cmd = str(raw_cmd).strip()
+            else:
+                cmd = str(payload).strip()
+
             if cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX):
                 try:
                     page = int(cmd[len(USER_TICKETS_PREV_PAGE_PREFIX):])
