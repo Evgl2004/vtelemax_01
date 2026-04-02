@@ -642,6 +642,7 @@ def build_telegram_identity_router(
                 GuestMenuAction.PROFILE.value,
                 GuestMenuAction.SUPPORT_FEEDBACK.value,
                 GuestMenuAction.SUPPORT_QUESTION.value,
+                GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value,
                 GuestMenuAction.SUPPORT_CONTACTS.value,
                 GuestMenuAction.MY_TICKETS.value,
                 GuestMenuAction.BACK_TO_MAIN.value,
