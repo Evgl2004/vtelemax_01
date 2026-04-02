@@ -30,6 +30,7 @@ from .menu import (
     USER_TICKETS_PAGE_PREFIX,
     USER_TICKETS_PREV_PAGE_PREFIX,
     USER_TICKETS_NEXT_PAGE_PREFIX,
+    USER_TICKET_DETAILS_PREFIX,
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_DELIVERY,
@@ -623,6 +624,66 @@ def build_telegram_identity_router(
                     event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback уведомлений.")
             await _answer_with_result(message=callback.message, result=result, reply_markup=reply_markup)
             return
+
+        await _send_to_chat_with_result(
+            bot=callback.bot,
+            chat_id=callback.from_user.id,
+            result=result,
+            reply_markup=reply_markup,
+        )
+
+    @router.callback_query(
+        F.data.startswith(USER_TICKET_DETAILS_PREFIX) |
+        F.data.startswith(USER_TICKETS_PREV_PAGE_PREFIX) |
+        F.data.startswith(USER_TICKETS_NEXT_PAGE_PREFIX) |
+        F.data.startswith(USER_TICKETS_PAGE_PREFIX)
+    )
+    async def ticket_pagination_callback_handler(callback: CallbackQuery) -> None:
+        """Обработчик inline-кнопок деталей тикета и пагинации списка обращений."""
+
+        event_logger = router_logger.bind(
+            stage="ticket_pagination_callback",
+            user_id=str(callback.from_user.id) if callback.from_user else "-",
+        )
+        await _try_process_pending_deliveries(callback.bot)
+
+        if callback.from_user is None:
+            event_logger.warning("Не удалось определить пользователя Telegram в callback пагинации тикетов.")
+            await callback.answer("Не удалось определить пользователя. Повторите /start.", show_alert=True)
+            return
+
+        result = identity_adapter.handle_menu_action(
+            telegram_user_id=callback.from_user.id,
+            action_text=callback.data,
+        )
+        event_logger.info("Callback пагинации тикетов обработан. status={status}.", status=result.status)
+
+        reply_markup = _choose_reply_markup(result)
+
+        await callback.answer()
+        if callback.message is not None:
+            if not isinstance(reply_markup, InlineKeyboardMarkup):
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+                except Exception as error:  # noqa: BLE001
+                    if _is_message_not_modified_error(error):
+                        event_logger.debug("Inline-клавиатура уже очищена перед текстовым ответом.")
+                    else:
+                        event_logger.debug("Не удалось убрать inline-клавиатуру перед отправкой текстового ответа.")
+                await _answer_with_result(message=callback.message, result=result, reply_markup=reply_markup)
+                return
+            try:
+                await callback.message.edit_text(
+                    result.message,
+                    parse_mode=result.parse_mode,
+                    reply_markup=reply_markup if isinstance(reply_markup, InlineKeyboardMarkup) else None,
+                )
+                return
+            except Exception as error:  # noqa: BLE001
+                if _is_message_not_modified_error(error):
+                    event_logger.debug("Редактирование callback-сообщения не требуется: контент не изменился.")
+                    return
+                event_logger.debug("Не удалось перерисовать сообщение по callback, отправляем новое.")
 
         await _send_to_chat_with_result(
             bot=callback.bot,
