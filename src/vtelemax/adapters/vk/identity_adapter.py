@@ -412,7 +412,13 @@ class VkIdentityAdapter:
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "vk_text_input"
         legacy_flow_active = is_legacy or bool(person.is_legacy)
-        if person.is_registered and not legacy_flow_active:
+        # Проверяем, нужно ли собирать согласия для этой платформы
+        platform_consents_complete = (
+            person.get_rules_accepted_for_platform("vk") is True
+            and person.get_notifications_allowed_for_platform("vk") is not None
+        )
+        if person.is_registered and not legacy_flow_active and platform_consents_complete:
+            # Все согласия для VK уже собраны, можно открыть главное меню
             self._state_by_user_id.pop(vk_user_id, None)
             self._onboarding_draft_by_user_id.pop(vk_user_id, None)
             self._clear_moderator_state(vk_user_id)
@@ -463,10 +469,32 @@ class VkIdentityAdapter:
             )
             return VkAdapterResponse(text=transition.message, screen=None)
 
-        transition = self._onboarding_flow.begin_first_name_step()
-        self._state_by_user_id[vk_user_id] = transition.state.value
-        method_logger.info("Телефон подтвержден, переходим к шагу имени. person_id={person_id}.", person_id=person.person_id)
-        return VkAdapterResponse(text=transition.message, screen=None)
+        # Определяем следующий шаг onboarding
+        if person.first_name_input:
+            # Имя уже есть, переходим к шагу согласия на рассылку
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=draft.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+            )
+            self._state_by_user_id[vk_user_id] = transition.state.value
+            method_logger.info(
+                "Телефон подтвержден, переходим к шагу согласия на рассылку. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return VkAdapterResponse(
+                text=transition.message,
+                screen=self._menu_adapter.build_notifications_consent_screen(),
+            )
+        else:
+            # Имя отсутствует, запрашиваем его
+            transition = self._onboarding_flow.begin_first_name_step()
+            self._state_by_user_id[vk_user_id] = transition.state.value
+            method_logger.info(
+                "Телефон подтвержден, переходим к шагу имени. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return VkAdapterResponse(text=transition.message, screen=None)
 
     def _handle_first_name_input(self, vk_user_id: int, text: str) -> VkAdapterResponse:
         """Обрабатывает шаг ввода имени в сокращенной регистрации."""

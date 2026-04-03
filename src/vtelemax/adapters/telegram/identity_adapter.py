@@ -268,6 +268,49 @@ class TelegramIdentityAdapter:
             self._onboarding_state_by_user_id[telegram_user_id] = transition.state
             return TelegramMenuActionResult(status=transition.status, message=transition.message)
 
+        # Проверяем, собраны ли все согласия для платформы Telegram
+        platform_consents_complete = (
+            person.get_rules_accepted_for_platform("telegram") is True
+            and person.get_notifications_allowed_for_platform("telegram") is not None
+        )
+        if not platform_consents_complete:
+            method_logger.info(
+                "Пользователь зарегистрирован, но согласия для Telegram неполные, продолжаем onboarding."
+            )
+            draft = _OnboardingDraft(
+                rules_accepted_at=person.get_rules_accepted_at_for_platform("telegram"),
+                phone_e164=person.phone_e164,
+                phone_verified_at=person.phone_verified_at,
+                phone_verification_method=person.phone_verification_method,
+                first_name_input=person.first_name_input,
+                is_legacy_upgrade=person.is_legacy,
+            )
+            self._onboarding_draft_by_user_id[telegram_user_id] = draft
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            self._clear_moderator_state(telegram_user_id)
+
+            if not person.get_rules_accepted_for_platform("telegram"):
+                transition = self._onboarding_flow.begin_new_user()
+                self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+                return TelegramMenuActionResult(
+                    status=transition.status,
+                    message=transition.message,
+                    requires_contact_keyboard=transition.requires_contact_keyboard,
+                )
+
+            if not person.first_name_input:
+                transition = self._onboarding_flow.begin_first_name_step()
+                self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+                return TelegramMenuActionResult(status=transition.status, message=transition.message)
+
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+            )
+            self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+            return TelegramMenuActionResult(status=transition.status, message=transition.message)
+
         self._onboarding_state_by_user_id.pop(telegram_user_id, None)
         self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
         self._dialog_state_by_user_id.pop(telegram_user_id, None)
@@ -331,25 +374,83 @@ class TelegramIdentityAdapter:
         draft.phone_verification_method = "telegram_contact"
 
         if previous_state == OnboardingState.WAITING_PHONE and person.is_registered and not person.is_legacy:
-            self._onboarding_state_by_user_id.pop(telegram_user_id, None)
-            self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
-            self._dialog_state_by_user_id.pop(telegram_user_id, None)
-            self._clear_moderator_state(telegram_user_id)
-            method_logger.info(
-                "Телефон найден в зарегистрированном профиле, завершаем привязку Telegram-аккаунта без повторного onboarding. person_id={person_id}.",
-                person_id=person.person_id,
+            # Проверяем, собраны ли все согласия для платформы Telegram
+            platform_consents_complete = (
+                person.get_rules_accepted_for_platform("telegram") is True
+                and person.get_notifications_allowed_for_platform("telegram") is not None
             )
-            return TelegramRegistrationResult(
-                is_success=True,
-                status="menu",
-                message=self.build_menu_overview_message(
-                    user_name=self._resolve_menu_user_name(
-                        telegram_user_id=telegram_user_id,
-                        person=person,
+            if platform_consents_complete:
+                self._onboarding_state_by_user_id.pop(telegram_user_id, None)
+                self._onboarding_draft_by_user_id.pop(telegram_user_id, None)
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                self._clear_moderator_state(telegram_user_id)
+                method_logger.info(
+                    "Телефон найден в зарегистрированном профиле, согласия для Telegram собраны, открываем главное меню. person_id={person_id}.",
+                    person_id=person.person_id,
+                )
+                return TelegramRegistrationResult(
+                    is_success=True,
+                    status="menu",
+                    message=self.build_menu_overview_message(
+                        user_name=self._resolve_menu_user_name(
+                            telegram_user_id=telegram_user_id,
+                            person=person,
+                        )
+                    ),
+                    person_id=person.person_id,
+                )
+            else:
+                method_logger.info(
+                    "Телефон найден в зарегистрированном профиле, но согласия для Telegram неполные, продолжаем onboarding. person_id={person_id}.",
+                    person_id=person.person_id,
+                )
+                draft = self._onboarding_draft_by_user_id.setdefault(telegram_user_id, _OnboardingDraft())
+                draft.phone_e164 = person.phone_e164
+                draft.phone_verified_at = person.phone_verified_at
+                draft.phone_verification_method = person.phone_verification_method
+                draft.rules_accepted_at = person.get_rules_accepted_at_for_platform("telegram")
+                draft.first_name_input = person.first_name_input
+                draft.is_legacy_upgrade = person.is_legacy
+
+                if not person.get_rules_accepted_for_platform("telegram"):
+                    transition = self._onboarding_flow.begin_new_user()
+                    self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+                    return TelegramRegistrationResult(
+                        is_success=False,
+                        status=transition.status,
+                        message=transition.message,
+                        person_id=person.person_id,
                     )
-                ),
-                person_id=person.person_id,
-            )
+
+                if not person.first_name_input:
+                    self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_FIRST_NAME
+                    self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                    self._clear_moderator_state(telegram_user_id)
+                    method_logger.info(
+                        "Переходим к шагу ввода имени. person_id={person_id}.",
+                        person_id=person.person_id,
+                    )
+                    return TelegramRegistrationResult(
+                        is_success=False,
+                        status="first_name_required",
+                        message=build_first_name_input_screen().text,
+                        person_id=person.person_id,
+                    )
+
+                transition = self._onboarding_flow.begin_notifications_consent_step(
+                    phone_e164=person.phone_e164,
+                    accounts_count=len(person.accounts),
+                    first_name_input=person.first_name_input,
+                )
+                self._onboarding_state_by_user_id[telegram_user_id] = transition.state
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                self._clear_moderator_state(telegram_user_id)
+                return TelegramRegistrationResult(
+                    is_success=False,
+                    status=transition.status,
+                    message=transition.message,
+                    person_id=person.person_id,
+                )
 
         if previous_state == OnboardingState.WAITING_PHONE:
             self._onboarding_state_by_user_id[telegram_user_id] = OnboardingState.WAITING_FIRST_NAME

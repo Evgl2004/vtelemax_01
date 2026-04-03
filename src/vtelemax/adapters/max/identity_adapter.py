@@ -188,6 +188,50 @@ class MaxIdentityAdapter:
                 screen=self._menu_adapter.build_notifications_consent_screen(),
             )
 
+        # Проверяем, собраны ли все согласия для платформы MAX
+        platform_consents_complete = (
+            person.get_rules_accepted_for_platform("max") is True
+            and person.get_notifications_allowed_for_platform("max") is not None
+        )
+        if not platform_consents_complete:
+            method_logger.info(
+                "Пользователь зарегистрирован, но согласия для MAX неполные, продолжаем onboarding."
+            )
+            draft = _OnboardingDraft(
+                rules_accepted_at=person.get_rules_accepted_at_for_platform("max"),
+                phone_e164=person.phone_e164,
+                phone_verified_at=person.phone_verified_at,
+                phone_verification_method=person.phone_verification_method,
+                first_name_input=person.first_name_input,
+                is_legacy_upgrade=person.is_legacy,
+            )
+            self._onboarding_draft_by_user_id[max_user_id] = draft
+            self._clear_moderator_state(max_user_id)
+
+            if not person.get_rules_accepted_for_platform("max"):
+                transition = self._onboarding_flow.begin_new_user()
+                self._state_by_user_id[max_user_id] = transition.state.value
+                return MaxAdapterResponse(
+                    text=transition.message,
+                    screen=self._menu_adapter.build_start_rules_screen(),
+                )
+
+            if not person.first_name_input:
+                transition = self._onboarding_flow.begin_first_name_step()
+                self._state_by_user_id[max_user_id] = transition.state.value
+                return MaxAdapterResponse(text=transition.message, screen=None)
+
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+            )
+            self._state_by_user_id[max_user_id] = transition.state.value
+            return MaxAdapterResponse(
+                text=transition.message,
+                screen=self._menu_adapter.build_notifications_consent_screen(),
+            )
+
         self._state_by_user_id.pop(max_user_id, None)
         self._onboarding_draft_by_user_id.pop(max_user_id, None)
         self._clear_moderator_state(max_user_id)
@@ -451,17 +495,59 @@ class MaxIdentityAdapter:
         draft.phone_verification_method = "max_contact"
         legacy_flow_active = is_legacy or bool(person.is_legacy)
         if person.is_registered and not legacy_flow_active:
-            self._state_by_user_id.pop(max_user_id, None)
-            self._onboarding_draft_by_user_id.pop(max_user_id, None)
-            self._clear_moderator_state(max_user_id)
-            method_logger.info(
-                "Телефон найден в зарегистрированном профиле, завершаем привязку MAX-аккаунта без повторного onboarding. person_id={person_id}.",
-                person_id=person.person_id,
+            # Проверяем, собраны ли все согласия для платформы MAX
+            platform_consents_complete = (
+                person.get_rules_accepted_for_platform("max") is True
+                and person.get_notifications_allowed_for_platform("max") is not None
             )
-            main_screen = self._menu_adapter.build_main_menu_screen(
-                user_name=self._resolve_menu_user_name(max_user_id=max_user_id, person=person)
-            )
-            return MaxAdapterResponse(text=main_screen.text, screen=main_screen)
+            if platform_consents_complete:
+                self._state_by_user_id.pop(max_user_id, None)
+                self._onboarding_draft_by_user_id.pop(max_user_id, None)
+                self._clear_moderator_state(max_user_id)
+                method_logger.info(
+                    "Телефон найден в зарегистрированном профиле, согласия для MAX собраны, открываем главное меню. person_id={person_id}.",
+                    person_id=person.person_id,
+                )
+                main_screen = self._menu_adapter.build_main_menu_screen(
+                    user_name=self._resolve_menu_user_name(max_user_id=max_user_id, person=person)
+                )
+                return MaxAdapterResponse(text=main_screen.text, screen=main_screen)
+            else:
+                method_logger.info(
+                    "Телефон найден в зарегистрированном профиле, но согласия для MAX неполные, продолжаем onboarding. person_id={person_id}.",
+                    person_id=person.person_id,
+                )
+                draft = self._onboarding_draft_by_user_id.setdefault(max_user_id, _OnboardingDraft())
+                draft.phone_e164 = person.phone_e164
+                draft.phone_verified_at = person.phone_verified_at
+                draft.phone_verification_method = person.phone_verification_method
+                draft.rules_accepted_at = person.get_rules_accepted_at_for_platform("max")
+                draft.first_name_input = person.first_name_input
+                draft.is_legacy_upgrade = person.is_legacy
+
+                if not person.get_rules_accepted_for_platform("max"):
+                    transition = self._onboarding_flow.begin_new_user()
+                    self._state_by_user_id[max_user_id] = transition.state.value
+                    return MaxAdapterResponse(
+                        text=transition.message,
+                        screen=self._menu_adapter.build_start_rules_screen(),
+                    )
+
+                if not person.first_name_input:
+                    transition = self._onboarding_flow.begin_first_name_step()
+                    self._state_by_user_id[max_user_id] = transition.state.value
+                    return MaxAdapterResponse(text=transition.message, screen=None)
+
+                transition = self._onboarding_flow.begin_notifications_consent_step(
+                    phone_e164=person.phone_e164,
+                    accounts_count=len(person.accounts),
+                    first_name_input=person.first_name_input,
+                )
+                self._state_by_user_id[max_user_id] = transition.state.value
+                return MaxAdapterResponse(
+                    text=transition.message,
+                    screen=self._menu_adapter.build_notifications_consent_screen(),
+                )
         if legacy_flow_active and not draft.is_legacy_upgrade:
             draft.is_legacy_upgrade = True
         if not is_legacy and person.is_legacy:
