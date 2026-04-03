@@ -235,7 +235,7 @@ class TelegramIdentityAdapter:
         if not person.is_registered:
             method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
             draft = _OnboardingDraft(
-                rules_accepted_at=person.rules_accepted_at,
+                rules_accepted_at=person.get_rules_accepted_at_for_platform("telegram"),
                 phone_e164=person.phone_e164,
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
@@ -246,7 +246,7 @@ class TelegramIdentityAdapter:
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             self._clear_moderator_state(telegram_user_id)
 
-            if not person.rules_accepted:
+            if not person.get_rules_accepted_for_platform("telegram"):
                 transition = self._onboarding_flow.begin_new_user()
                 self._onboarding_state_by_user_id[telegram_user_id] = transition.state
                 return TelegramMenuActionResult(
@@ -963,10 +963,10 @@ class TelegramIdentityAdapter:
             gender=person.gender,
             birth_date=person.birth_date,
             email=person.email,
-            rules_accepted=person.rules_accepted,
-            rules_accepted_at=person.rules_accepted_at,
-            notifications_allowed=person.notifications_allowed,
-            notifications_allowed_at=person.notifications_allowed_at,
+            rules_accepted=person.get_rules_accepted_for_platform("telegram"),
+            rules_accepted_at=person.get_rules_accepted_at_for_platform("telegram"),
+            notifications_allowed=person.get_notifications_allowed_for_platform("telegram"),
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("telegram"),
         )
         return TelegramMenuActionResult(
             status="profile",
@@ -2120,10 +2120,10 @@ class TelegramIdentityAdapter:
             gender=person.gender,
             birth_date=person.birth_date,
             email=person.email,
-            rules_accepted=person.rules_accepted,
-            notifications_allowed=person.notifications_allowed,
-            rules_accepted_at=person.rules_accepted_at,
-            notifications_allowed_at=person.notifications_allowed_at,
+            rules_accepted=person.get_rules_accepted_for_platform("telegram"),
+            notifications_allowed=person.get_notifications_allowed_for_platform("telegram"),
+            rules_accepted_at=person.get_rules_accepted_at_for_platform("telegram"),
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("telegram"),
         )
 
     def _handle_view_ticket_details(

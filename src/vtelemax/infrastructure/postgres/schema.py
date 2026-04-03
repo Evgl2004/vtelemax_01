@@ -66,6 +66,18 @@ class PersonRow(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     phone_verification_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    rules_accepted_tg: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    rules_accepted_tg_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rules_accepted_vk: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    rules_accepted_vk_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rules_accepted_max: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    rules_accepted_max_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notifications_allowed_tg: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    notifications_allowed_tg_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notifications_allowed_vk: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    notifications_allowed_vk_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notifications_allowed_max: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    notifications_allowed_max_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PhoneRow(Base):

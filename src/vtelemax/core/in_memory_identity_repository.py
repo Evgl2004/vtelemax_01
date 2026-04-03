@@ -89,3 +89,27 @@ class InMemoryIdentityRepository(IdentityRepository):
             person.phone_verified_at = patch.phone_verified_at
         if patch.phone_verification_method is not None:
             person.phone_verification_method = patch.phone_verification_method
+        if patch.rules_accepted_tg is not None:
+            person.rules_accepted_tg = patch.rules_accepted_tg
+        if patch.rules_accepted_tg_at is not None:
+            person.rules_accepted_tg_at = patch.rules_accepted_tg_at
+        if patch.rules_accepted_vk is not None:
+            person.rules_accepted_vk = patch.rules_accepted_vk
+        if patch.rules_accepted_vk_at is not None:
+            person.rules_accepted_vk_at = patch.rules_accepted_vk_at
+        if patch.rules_accepted_max is not None:
+            person.rules_accepted_max = patch.rules_accepted_max
+        if patch.rules_accepted_max_at is not None:
+            person.rules_accepted_max_at = patch.rules_accepted_max_at
+        if patch.notifications_allowed_tg is not None:
+            person.notifications_allowed_tg = patch.notifications_allowed_tg
+        if patch.notifications_allowed_tg_at is not None:
+            person.notifications_allowed_tg_at = patch.notifications_allowed_tg_at
+        if patch.notifications_allowed_vk is not None:
+            person.notifications_allowed_vk = patch.notifications_allowed_vk
+        if patch.notifications_allowed_vk_at is not None:
+            person.notifications_allowed_vk_at = patch.notifications_allowed_vk_at
+        if patch.notifications_allowed_max is not None:
+            person.notifications_allowed_max = patch.notifications_allowed_max
+        if patch.notifications_allowed_max_at is not None:
+            person.notifications_allowed_max_at = patch.notifications_allowed_max_at

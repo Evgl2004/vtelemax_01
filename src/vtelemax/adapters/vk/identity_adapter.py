@@ -155,7 +155,7 @@ class VkIdentityAdapter:
         if not person.is_registered:
             method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
             draft = _OnboardingDraft(
-                rules_accepted_at=person.rules_accepted_at,
+                rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
                 phone_e164=person.phone_e164,
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
@@ -164,7 +164,7 @@ class VkIdentityAdapter:
             )
             self._onboarding_draft_by_user_id[vk_user_id] = draft
             self._clear_moderator_state(vk_user_id)
-            if not person.rules_accepted:
+            if not person.get_rules_accepted_for_platform("vk"):
                 transition = self._onboarding_flow.begin_new_user()
                 self._state_by_user_id[vk_user_id] = transition.state.value
                 return VkAdapterResponse(
@@ -711,10 +711,10 @@ class VkIdentityAdapter:
             gender=person.gender,
             birth_date=person.birth_date,
             email=person.email,
-            rules_accepted=person.rules_accepted,
-            rules_accepted_at=person.rules_accepted_at,
-            notifications_allowed=person.notifications_allowed,
-            notifications_allowed_at=person.notifications_allowed_at,
+            rules_accepted=person.get_rules_accepted_for_platform("vk"),
+            rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
+            notifications_allowed=person.get_notifications_allowed_for_platform("vk"),
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("vk"),
         )
         return VkAdapterResponse(text=screen.text, screen=screen, parse_mode=screen.parse_mode)
 
@@ -1626,11 +1626,11 @@ class VkIdentityAdapter:
         )
         rules_accepted_at = (
             (draft.rules_accepted_at if draft is not None else None)
-            or (person.rules_accepted_at if person is not None else None)
+            or (person.get_rules_accepted_at_for_platform("vk") if person is not None else None)
         )
         rules_accepted = bool(
             (draft is not None and draft.rules_accepted_at is not None)
-            or (person is not None and person.rules_accepted)
+            or (person is not None and person.get_rules_accepted_for_platform("vk"))
         )
         accounts_count = len(person.accounts) if person is not None else 1
         accounts_platforms = (
@@ -1650,8 +1650,8 @@ class VkIdentityAdapter:
             email=person.email if person is not None else None,
             rules_accepted=rules_accepted,
             rules_accepted_at=rules_accepted_at,
-            notifications_allowed=person.notifications_allowed if person is not None else None,
-            notifications_allowed_at=person.notifications_allowed_at if person is not None else None,
+            notifications_allowed=person.get_notifications_allowed_for_platform("vk") if person is not None else None,
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("vk") if person is not None else None,
         ).text
 
     @staticmethod
@@ -1850,8 +1850,8 @@ class VkIdentityAdapter:
             gender=person.gender,
             birth_date=person.birth_date,
             email=person.email,
-            rules_accepted=person.rules_accepted,
-            notifications_allowed=person.notifications_allowed,
-            rules_accepted_at=person.rules_accepted_at,
-            notifications_allowed_at=person.notifications_allowed_at,
+            rules_accepted=person.get_rules_accepted_for_platform("vk"),
+            notifications_allowed=person.get_notifications_allowed_for_platform("vk"),
+            rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("vk"),
         )
