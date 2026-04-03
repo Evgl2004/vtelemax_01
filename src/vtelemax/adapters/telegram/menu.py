@@ -23,6 +23,8 @@ from vtelemax.core import (
     BUTTON_NOTIFICATIONS_DOCS,
     BUTTON_NOTIFICATIONS_NO,
     BUTTON_NOTIFICATIONS_YES,
+    BUTTON_PERSONAL_DATA_CONSENT_LINK,
+    BUTTON_PRIVACY_POLICY_LINK,
     BUTTON_PROFILE,
     BUTTON_PROFILE_EDIT,
     BUTTON_PROFILE_EDIT_BIRTH_DATE,
@@ -43,6 +45,9 @@ from vtelemax.core import (
     BUTTON_VIRTUAL_CARD,
     GuestMenuAction,
     PersonSupportTicketSummary,
+    PERSONAL_DATA_CONSENT_URLS,
+    PRIVACY_POLICY_URLS,
+    MAILING_CONSENT_URLS,
     build_delivery_screen,
 )
 
@@ -53,8 +58,8 @@ USER_TICKETS_PAGE_PREFIX = "user_tickets_page_"
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
-DOCS_URL = "https://sagur.24vds.ru/agreement/#"
-NOTIFICATIONS_DOCS_URL = "https://sagur.24vds.ru/notifications/#"
+DOCS_URL = PERSONAL_DATA_CONSENT_URLS["telegram"]
+NOTIFICATIONS_DOCS_URL = MAILING_CONSENT_URLS["telegram"]
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
 SUPPORT_FEEDBACK_BUTTON_LABEL = "✍️ Оставить отзыв!"
 
@@ -87,7 +92,8 @@ def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=BUTTON_DOCS_LINK, url=DOCS_URL)],
+            [InlineKeyboardButton(text=BUTTON_PERSONAL_DATA_CONSENT_LINK, url=PERSONAL_DATA_CONSENT_URLS["telegram"])],
+            [InlineKeyboardButton(text=BUTTON_PRIVACY_POLICY_LINK, url=PRIVACY_POLICY_URLS["telegram"])],
             [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)],
         ]
     )

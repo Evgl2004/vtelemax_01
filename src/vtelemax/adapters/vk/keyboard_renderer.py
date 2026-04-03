@@ -87,5 +87,5 @@ def _resolve_button_color(button: VkButton) -> str:
         return "positive"
     if action == GuestMenuAction.VACANCIES:
         return "secondary"
-    # BALANCE, VIRTUAL_CARD, PROFILE, HELP, ABOUT, etc.
+    # BALANCE, VIRTUAL_CARD, PROFILE, HELP, ABOUT, DELIVERY, PROFILE_EDIT, etc.
     return "primary"
