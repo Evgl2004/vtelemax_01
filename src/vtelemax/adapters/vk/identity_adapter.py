@@ -568,14 +568,17 @@ class VkIdentityAdapter:
             )
 
         notifications_fixed_at = datetime.now(timezone.utc)
+        # Определяем, давал ли пользователь согласие с правилами для VK
+        rules_accepted = True if draft.rules_accepted_at is not None else None
+        rules_accepted_at = draft.rules_accepted_at
         try:
             person = self._registration_use_case.execute(
                 RegisterOrAttachAccountCommand(
                     platform="vk",
                     external_id=str(vk_user_id),
                     raw_phone=draft.phone_e164,
-                    rules_accepted=True,
-                    rules_accepted_at=draft.rules_accepted_at or notifications_fixed_at,
+                    rules_accepted=rules_accepted,
+                    rules_accepted_at=rules_accepted_at,
                     notifications_allowed=notifications_choice,
                     notifications_allowed_at=notifications_fixed_at,
                     first_name_input=draft.first_name_input,
