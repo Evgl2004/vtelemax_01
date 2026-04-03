@@ -57,14 +57,21 @@ def test_vk_support_menu_respects_my_tickets_flag() -> None:
 
 
 def test_vk_start_rules_screen_has_rules_and_consent_buttons() -> None:
-    """Проверяет, что на экране правил есть кнопка документов и кнопка согласия."""
+    """Проверяет, что на экране правил есть две кнопки документов и кнопка согласия."""
 
     adapter = VkGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
 
-    assert len(screen.rows) == 2
-    assert screen.rows[0][0].url is not None
-    assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
+    assert len(screen.rows) == 3
+    # Первая кнопка - согласие на ПД
+    assert screen.rows[0][0].url == "https://sagur.24vds.ru/personal-data-consent/vk/"
+    assert screen.rows[0][0].payload.get("cmd") == GuestMenuAction.OPEN_DOCS.value
+    # Вторая кнопка - политика конфиденциальности
+    assert screen.rows[1][0].url == "https://sagur.24vds.ru/privacy-policy/vk/"
+    assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.OPEN_DOCS.value
+    # Третья кнопка - согласие
+    assert screen.rows[2][0].url is None
+    assert screen.rows[2][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
 
 
 def test_vk_start_contact_screen_has_no_buttons_for_manual_input() -> None:
