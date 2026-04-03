@@ -74,7 +74,7 @@ class MaxGuestMenuAdapter:
     def build_start_rules_screen(self) -> MaxScreen:
         """Стартовый экран правил."""
 
-        screen = build_start_rules_screen()
+        screen = build_start_rules_screen(platform="max")
         rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
@@ -167,7 +167,7 @@ class MaxGuestMenuAdapter:
     def build_notifications_consent_screen(self, profile_text: str | None = None) -> MaxScreen:
         """Экран согласия на рассылку после review-анкеты."""
 
-        screen = build_notifications_consent_screen(profile_text=profile_text)
+        screen = build_notifications_consent_screen(profile_text=profile_text, platform="max")
         rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
