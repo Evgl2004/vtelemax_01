@@ -1,4 +1,4 @@
-﻿"""РўРµСЃС‚С‹ MAX identity-Р°РґР°РїС‚РµСЂР°."""
+"""Тесты MAX identity-адаптера."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from vtelemax.core import (
 
 
 class InMemoryIdentityUnitOfWork(IdentityUnitOfWork):
-    """РўРµСЃС‚РѕРІС‹Р№ UnitOfWork РїРѕРІРµСЂС… in-memory СЂРµРїРѕР·РёС‚РѕСЂРёСЏ."""
+    """Тестовый UnitOfWork поверх in-memory репозитория."""
 
     def __init__(self, repository: IdentityRepository) -> None:
         self.identity_repository = repository
@@ -57,7 +57,7 @@ class InMemoryIdentityUnitOfWork(IdentityUnitOfWork):
 
 
 class InMemorySupportUnitOfWork(InMemoryIdentityUnitOfWork):
-    """РўРµСЃС‚РѕРІС‹Р№ UoW СЃ РїРѕРґРґРµСЂР¶РєРѕР№ С‚РёРєРµС‚РѕРІ."""
+    """Тестовый UoW с поддержкой тикетов."""
 
     def __init__(self, repository: IdentityRepository, support_repository: InMemorySupportRepository) -> None:
         super().__init__(repository)
@@ -65,7 +65,7 @@ class InMemorySupportUnitOfWork(InMemoryIdentityUnitOfWork):
 
 
 class StubLoyaltyGateway(LoyaltyGateway):
-    """РўРµСЃС‚РѕРІС‹Р№ С€Р»СЋР· Р»РѕСЏР»СЊРЅРѕСЃС‚Рё РґР»СЏ РїСЂРѕРІРµСЂРєРё РјРµРЅСЋ В«Р‘Р°Р»Р°РЅСЃ/Р’РёСЂС‚СѓР°Р»СЊРЅР°СЏ РєР°СЂС‚Р°В»."""
+    """Тестовый шлюз лояльности для проверки меню «Баланс/Виртуальная карта»."""
 
     def __init__(self, *, customer: LoyaltyCustomer | None) -> None:
         self._customer = customer
@@ -87,7 +87,7 @@ class StubLoyaltyGateway(LoyaltyGateway):
 
 
 class AlwaysFailLoyaltyGateway(LoyaltyGateway):
-    """РўРµСЃС‚РѕРІС‹Р№ С€Р»СЋР·, РєРѕС‚РѕСЂС‹Р№ РІСЃРµРіРґР° РІРѕР·РІСЂР°С‰Р°РµС‚ РѕС€РёР±РєСѓ iiko."""
+    """Тестовый шлюз, который всегда возвращает ошибку iiko."""
 
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         raise LoyaltyGatewayError("temporary unavailable")
@@ -106,7 +106,7 @@ class AlwaysFailLoyaltyGateway(LoyaltyGateway):
 
 
 class FlakyLoyaltyGateway(LoyaltyGateway):
-    """РўРµСЃС‚РѕРІС‹Р№ С€Р»СЋР·: РїРµСЂРІР°СЏ РїРѕРїС‹С‚РєР° РїР°РґР°РµС‚, РїРѕРІС‚РѕСЂРЅР°СЏ вЂ” СѓСЃРїРµС€РЅР°."""
+    """Тестовый шлюз: первая попытка падает, повторная — успешна."""
 
     def __init__(self) -> None:
         self._calls = 0
@@ -135,15 +135,15 @@ class FlakyLoyaltyGateway(LoyaltyGateway):
 
 
 class LegacyPrefillLoyaltyGateway(LoyaltyGateway):
-    """РўРµСЃС‚РѕРІС‹Р№ С€Р»СЋР·, РєРѕС‚РѕСЂС‹Р№ РІРѕР·РІСЂР°С‰Р°РµС‚ РїСЂРѕС„РёР»СЊ iiko РґР»СЏ legacy-РґРѕР·Р°РїРѕР»РЅРµРЅРёСЏ."""
+    """Тестовый шлюз, который возвращает профиль iiko для legacy-дозаполнения."""
 
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         return LoyaltyCustomer(
             customer_id="legacy-cust",
             balance=0.0,
             cards=(),
-            first_name="РђРЅРґСЂРµР№",
-            last_name="РЎРѕР±РѕР»РµРІ",
+            first_name="Андрей",
+            last_name="Соболев",
             gender="male",
             birth_date=date(1990, 5, 17),
             email="legacy@example.com",
@@ -232,44 +232,44 @@ def _build_adapter_with_support_context() -> tuple[
 
 def _complete_max_registration(adapter: MaxIdentityAdapter, max_user_id: int = 1001) -> None:
     adapter.handle_start(max_user_id=max_user_id)
-    adapter.handle_incoming(max_user_id=max_user_id, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=max_user_id, text="✅ Согласен", payload=None)
     adapter.handle_incoming(
         max_user_id=max_user_id,
         text="",
         payload=None,
         contact_phone="+79123456789",
     )
-    adapter.handle_incoming(max_user_id=max_user_id, text="РРІР°РЅ", payload=None)
-    adapter.handle_incoming(max_user_id=max_user_id, text="Р”Р°", payload=None)
+    adapter.handle_incoming(max_user_id=max_user_id, text="Иван", payload=None)
+    adapter.handle_incoming(max_user_id=max_user_id, text="Да", payload=None)
 
 
 def test_max_start_for_unregistered_user_requests_rules_consent() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ `/start` РґР»СЏ РЅРѕРІРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ Р·Р°РїСЂР°С€РёРІР°РµС‚ СЃРѕРіР»Р°СЃРёРµ."""
+    """Проверяет, что `/start` для нового пользователя запрашивает согласие."""
 
     adapter = _build_adapter()
 
     response = adapter.handle_start(max_user_id=1001)
 
-    assert "РЎРѕРіР»Р°СЃРµРЅ" in response.text
+    assert "Согласен" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_rules"
 
 
 def test_max_onboarding_moves_from_rules_to_phone() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ РїРµСЂРµС…РѕРґ onboarding РёР· РїСЂР°РІРёР» Рє С€Р°РіСѓ С‚РµР»РµС„РѕРЅР°."""
+    """Проверяет переход onboarding из правил к шагу телефона."""
 
     adapter = _build_adapter()
     adapter.handle_start(max_user_id=1001)
 
-    response = adapter.handle_incoming(max_user_id=1001, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    response = adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
-    assert "РџРѕРґРµР»РёС‚СЊСЃСЏ РєРѕРЅС‚Р°РєС‚РѕРј" in response.text
+    assert "Поделиться контактом" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
 
 
 def test_max_migrated_legacy_user_goes_to_legacy_phone_after_rules_consent() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ migrated legacy-РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РїРѕСЃР»Рµ РЅРѕРІС‹С… РїСЂР°РІРёР» РїРµСЂРµС…РѕРґРёС‚ РІ legacy-С€Р°Рі С‚РµР»РµС„РѕРЅР°."""
+    """Проверяет, что migrated legacy-пользователь после новых правил переходит в legacy-шаг телефона."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -292,17 +292,17 @@ def test_max_migrated_legacy_user_goes_to_legacy_phone_after_rules_consent() -> 
     )
 
     start_response = adapter.handle_start(max_user_id=3005)
-    response = adapter.handle_incoming(max_user_id=3005, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    response = adapter.handle_incoming(max_user_id=3005, text="✅ Согласен", payload=None)
 
     assert start_response.screen is not None
     assert start_response.screen.screen_id == "start_rules"
-    assert "РїСЂРµРґС‹РґСѓС‰РµР№ РІРµСЂСЃРёРё Р±РѕС‚Р°" in response.text
+    assert "предыдущей версии бота" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
 
 
 def test_max_legacy_phone_step_prefills_profile_from_iiko() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ legacy-РІРµС‚РєР° РїРѕСЃР»Рµ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ С‚РµР»РµС„РѕРЅР° РїРѕРґС‚СЏРіРёРІР°РµС‚ РїСѓСЃС‚С‹Рµ РїРѕР»СЏ РёР· iiko."""
+    """Проверяет, что legacy-ветка после подтверждения телефона подтягивает пустые поля из iiko."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -329,7 +329,7 @@ def test_max_legacy_phone_step_prefills_profile_from_iiko() -> None:
     )
 
     adapter.handle_start(max_user_id=3010)
-    adapter.handle_incoming(max_user_id=3010, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=3010, text="✅ Согласен", payload=None)
     phone_result = adapter.handle_incoming(
         max_user_id=3010,
         text="",
@@ -344,15 +344,15 @@ def test_max_legacy_phone_step_prefills_profile_from_iiko() -> None:
     assert phone_result.screen is not None
     assert phone_result.screen.screen_id == "notifications_consent"
     assert resolved_person is not None
-    assert resolved_person.first_name_input == "РђРЅРґСЂРµР№"
-    assert resolved_person.last_name_input == "РЎРѕР±РѕР»РµРІ"
+    assert resolved_person.first_name_input == "Андрей"
+    assert resolved_person.last_name_input == "Соболев"
     assert resolved_person.gender == "male"
     assert resolved_person.birth_date == date(1990, 5, 17)
     assert resolved_person.email == "legacy@example.com"
 
 
 def test_max_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ Р°РІС‚Рѕ-РїРµСЂРµС…РѕРґ РІ legacy-РІРµС‚РєСѓ РІ MAX, РµСЃР»Рё С‚РµР»РµС„РѕРЅ РЅР°Р№РґРµРЅ Сѓ legacy-РїСЂРѕС„РёР»СЏ Telegram."""
+    """Проверяет авто-переход в legacy-ветку в MAX, если телефон найден у legacy-профиля Telegram."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -368,7 +368,7 @@ def test_max_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
             platform="telegram",
             external_id="legacy-tg-2",
             raw_phone="+79123334455",
-            first_name_input="РђРЅРґСЂРµР№",
+            first_name_input="Андрей",
             rules_accepted=False,
             is_legacy=True,
             is_registered=False,
@@ -376,7 +376,7 @@ def test_max_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
     )
 
     adapter.handle_start(max_user_id=4502)
-    adapter.handle_incoming(max_user_id=4502, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=4502, text="✅ Согласен", payload=None)
     response = adapter.handle_incoming(
         max_user_id=4502,
         text="",
@@ -389,7 +389,7 @@ def test_max_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
 
 
 def test_max_phone_match_with_registered_profile_opens_menu_without_reasking_name() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ РїСЂРё РїСЂРёРІСЏР·РєРµ Рє СѓР¶Рµ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅРѕРјСѓ РїСЂРѕС„РёР»СЋ MAX СЃСЂР°Р·Сѓ РѕС‚РєСЂС‹РІР°РµС‚ РјРµРЅСЋ."""
+    """Проверяет, что при привязке к уже зарегистрированному профилю MAX сразу открывает меню."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -405,7 +405,7 @@ def test_max_phone_match_with_registered_profile_opens_menu_without_reasking_nam
             platform="telegram",
             external_id="ready-tg-2",
             raw_phone="+79125556677",
-            first_name_input="РђРЅРґСЂРµР№",
+            first_name_input="Андрей",
             rules_accepted=True,
             notifications_allowed=True,
             is_legacy=False,
@@ -414,7 +414,7 @@ def test_max_phone_match_with_registered_profile_opens_menu_without_reasking_nam
     )
 
     adapter.handle_start(max_user_id=4602)
-    adapter.handle_incoming(max_user_id=4602, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=4602, text="✅ Согласен", payload=None)
     response = adapter.handle_incoming(
         max_user_id=4602,
         text="",
@@ -427,31 +427,31 @@ def test_max_phone_match_with_registered_profile_opens_menu_without_reasking_nam
     )
 
     assert response.screen is not None
-    assert response.screen.screen_id == "notifications_consent"
+    assert response.screen.screen_id == "main_menu"
+    assert "Андрей" in response.text
     assert attached_person is not None
-    assert attached_person.first_name_input == "РђРЅРґСЂРµР№"
     assert len(attached_person.accounts) == 2
 
 
 def test_max_dirty_input_on_rules_step_keeps_consent_pending() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ РіСЂСЏР·РЅС‹Р№ СЃС†РµРЅР°СЂРёР№: СЃР»СѓС‡Р°Р№РЅС‹Р№ С‚РµРєСЃС‚ РІРјРµСЃС‚Рѕ СЃРѕРіР»Р°СЃРёСЏ."""
+    """Проверяет грязный сценарий: случайный текст вместо согласия."""
 
     adapter = _build_adapter()
     adapter.handle_start(max_user_id=1001)
 
-    response = adapter.handle_incoming(max_user_id=1001, text="С…РѕС‡Сѓ Р±РѕРЅСѓСЃС‹", payload=None)
+    response = adapter.handle_incoming(max_user_id=1001, text="хочу бонусы", payload=None)
 
-    assert "Р§С‚РѕР±С‹ РїСЂРѕРґРѕР»Р¶РёС‚СЊ СЂРµРіРёСЃС‚СЂР°С†РёСЋ" in response.text
+    assert "Чтобы продолжить регистрацию" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_rules"
 
 
 def test_max_registration_by_phone_after_rules_consent() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ РїРµСЂРµС…РѕРґ Рє С€Р°РіСѓ РІРІРѕРґР° РёРјРµРЅРё РїРѕСЃР»Рµ СЃРѕРіР»Р°СЃРёСЏ Рё РІРІРѕРґР° РЅРѕРјРµСЂР°."""
+    """Проверяет переход к шагу ввода имени после согласия и ввода номера."""
 
     adapter = _build_adapter()
     adapter.handle_start(max_user_id=1001)
-    adapter.handle_incoming(max_user_id=1001, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
     response = adapter.handle_incoming(
         max_user_id=1001,
@@ -460,36 +460,36 @@ def test_max_registration_by_phone_after_rules_consent() -> None:
         contact_phone="+7 (912) 345-67-89",
     )
 
-    assert "РёРјСЏ" in response.text.lower()
+    assert "имя" in response.text.lower()
     assert response.screen is None
 
 
 def test_max_profile_available_after_registration() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ РїРѕР»СѓС‡РµРЅРёРµ РїСЂРѕС„РёР»СЏ РїРѕСЃР»Рµ СЂРµРіРёСЃС‚СЂР°С†РёРё."""
+    """Проверяет получение профиля после регистрации."""
 
     adapter = _build_adapter()
     _complete_max_registration(adapter)
 
-    response = adapter.handle_incoming(max_user_id=1001, text="рџ‘¤ РџСЂРѕС„РёР»СЊ", payload=None)
+    response = adapter.handle_incoming(max_user_id=1001, text="👤 Профиль", payload=None)
 
-    assert "РџСЂРѕС„РёР»СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ" in response.text
+    assert "Профиль пользователя" in response.text
     assert "+79123456789" in response.text
 
 
 def test_max_start_for_registered_user_uses_first_name_in_menu() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ РіР»Р°РІРЅРѕРµ РјРµРЅСЋ РґР»СЏ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РїРѕРєР°Р·С‹РІР°РµС‚ РёРјСЏ."""
+    """Проверяет, что главное меню для зарегистрированного пользователя показывает имя."""
 
     adapter = _build_adapter()
     _complete_max_registration(adapter)
 
     response = adapter.handle_start(max_user_id=1001)
 
-    assert "РРІР°РЅ" in response.text
-    assert "РіР»Р°РІРЅРѕРј РјРµРЅСЋ" in response.text
+    assert "Иван" in response.text
+    assert "главном меню" in response.text
 
 
 def test_max_onboarding_iiko_failure_moves_to_retry_step() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ РѕС‚РґРµР»СЊРЅС‹Р№ С€Р°Рі retry, РµСЃР»Рё СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ СЃ iiko РЅРµ СѓРґР°Р»Р°СЃСЊ."""
+    """Проверяет отдельный шаг retry, если синхронизация с iiko не удалась."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -505,23 +505,23 @@ def test_max_onboarding_iiko_failure_moves_to_retry_step() -> None:
     )
 
     adapter.handle_start(max_user_id=2001)
-    adapter.handle_incoming(max_user_id=2001, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=2001, text="✅ Согласен", payload=None)
     adapter.handle_incoming(max_user_id=2001, text="", payload=None, contact_phone="+79123456789")
-    adapter.handle_incoming(max_user_id=2001, text="РРІР°РЅ", payload=None)
-    failure_result = adapter.handle_incoming(max_user_id=2001, text="Р”Р°", payload=None)
+    adapter.handle_incoming(max_user_id=2001, text="Иван", payload=None)
+    failure_result = adapter.handle_incoming(max_user_id=2001, text="Да", payload=None)
 
     assert failure_result.screen is not None
     assert failure_result.screen.screen_id == "iiko_sync_retry"
-    assert "СЃРёРЅС…СЂРѕРЅРёР·Р°С†" in failure_result.text.lower()
+    assert "синхронизац" in failure_result.text.lower()
 
     pending_result = adapter.handle_incoming(max_user_id=2001, text="/menu", payload=None)
     assert pending_result.screen is not None
     assert pending_result.screen.screen_id == "iiko_sync_retry"
-    assert "РџРѕРІС‚РѕСЂРёС‚СЊ СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёСЋ" in pending_result.text
+    assert "Повторить синхронизацию" in pending_result.text
 
 
 def test_max_onboarding_iiko_retry_eventually_returns_menu() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ СѓСЃРїРµС€РЅС‹Р№ РІС‹С…РѕРґ РІ РјРµРЅСЋ РїРѕСЃР»Рµ РїРѕРІС‚РѕСЂРЅРѕР№ СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё iiko."""
+    """Проверяет успешный выход в меню после повторной синхронизации iiko."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -537,11 +537,11 @@ def test_max_onboarding_iiko_retry_eventually_returns_menu() -> None:
     )
 
     adapter.handle_start(max_user_id=2002)
-    adapter.handle_incoming(max_user_id=2002, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=2002, text="✅ Согласен", payload=None)
     adapter.handle_incoming(max_user_id=2002, text="", payload=None, contact_phone="+79123456789")
-    adapter.handle_incoming(max_user_id=2002, text="РРІР°РЅ", payload=None)
+    adapter.handle_incoming(max_user_id=2002, text="Иван", payload=None)
 
-    first_try = adapter.handle_incoming(max_user_id=2002, text="Р”Р°", payload=None)
+    first_try = adapter.handle_incoming(max_user_id=2002, text="Да", payload=None)
     second_try = adapter.handle_incoming(max_user_id=2002, text="", payload="retry_iiko_sync")
 
     assert first_try.screen is not None
@@ -552,7 +552,7 @@ def test_max_onboarding_iiko_retry_eventually_returns_menu() -> None:
 
 
 def test_max_balance_uses_loyalty_use_case() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ РїСѓРЅРєС‚ В«РњРѕР№ Р±Р°Р»Р°РЅСЃВ» РІРѕР·РІСЂР°С‰Р°РµС‚ РґР°РЅРЅС‹Рµ РёР· loyalty use-case."""
+    """Проверяет, что пункт «Мой баланс» возвращает данные из loyalty use-case."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -571,7 +571,7 @@ def test_max_balance_uses_loyalty_use_case() -> None:
     )
     _complete_max_registration(adapter)
 
-    response = adapter.handle_incoming(max_user_id=1001, text="рџ’° РњРѕР№ Р±Р°Р»Р°РЅСЃ", payload=None)
+    response = adapter.handle_incoming(max_user_id=1001, text="💰 Мой баланс", payload=None)
 
     assert "44.50" in response.text
     assert response.screen is not None
@@ -579,7 +579,7 @@ def test_max_balance_uses_loyalty_use_case() -> None:
 
 
 def test_max_virtual_card_uses_loyalty_use_case() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ РїСѓРЅРєС‚ В«Р’РёСЂС‚СѓР°Р»СЊРЅР°СЏ РєР°СЂС‚Р°В» РІРѕР·РІСЂР°С‰Р°РµС‚ РЅРѕРјРµСЂ РєР°СЂС‚С‹ РёР· loyalty use-case."""
+    """Проверяет, что пункт «Виртуальная карта» возвращает номер карты из loyalty use-case."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -602,52 +602,52 @@ def test_max_virtual_card_uses_loyalty_use_case() -> None:
     )
     _complete_max_registration(adapter)
 
-    response = adapter.handle_incoming(max_user_id=1001, text="рџЄЄ Р’РёСЂС‚СѓР°Р»СЊРЅР°СЏ РєР°СЂС‚Р°", payload=None)
+    response = adapter.handle_incoming(max_user_id=1001, text="🪪 Виртуальная карта", payload=None)
 
-    assert "РќР°Р·Р°Рґ РІ РјРµРЅСЋ" in response.text
+    assert "Назад в меню" in response.text
     assert response.virtual_card_numbers == ("79123456789_20260325",)
     assert response.screen is not None
     assert response.screen.screen_id == "virtual_card_result"
 
 
 def test_max_invalid_phone_returns_validation_error() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ РЅРµРіР°С‚РёРІРЅС‹Р№ СЃС†РµРЅР°СЂРёР№ РїСЂРё РЅРµРІР°Р»РёРґРЅРѕРј РЅРѕРјРµСЂРµ."""
+    """Проверяет негативный сценарий при невалидном номере."""
 
     adapter = _build_adapter()
     adapter.handle_start(max_user_id=1001)
-    adapter.handle_incoming(max_user_id=1001, text="вњ… РЎРѕРіР»Р°СЃРµРЅ", payload=None)
+    adapter.handle_incoming(max_user_id=1001, text="✅ Согласен", payload=None)
 
     response = adapter.handle_incoming(max_user_id=1001, text="abc", payload=None)
 
-    assert "С‚РѕР»СЊРєРѕ С‡РµСЂРµР· РєРЅРѕРїРєСѓ" in response.text
+    assert "только через кнопку" in response.text
 
 
 def test_max_support_question_flow_returns_to_main_menu() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚, С‡С‚Рѕ РїСѓРЅРєС‚ В«РњРЅРµ С‚РѕР»СЊРєРѕ СЃРїСЂРѕСЃРёС‚СЊВ» РїРѕРјРµС‡РµРЅ РєР°Рє РЅРµРіРѕС‚РѕРІС‹Р№ РґР»СЏ РіРѕСЃС‚РµР№."""
+    """Проверяет, что пункт «Мне только спросить» помечен как неготовый для гостей."""
 
     adapter = _build_adapter()
     _complete_max_registration(adapter)
 
     result = adapter.handle_incoming(
         max_user_id=1001,
-        text="вќ“ РњРЅРµ С‚РѕР»СЊРєРѕ СЃРїСЂРѕСЃРёС‚СЊ (Р’ СЂР°Р·СЂР°Р±РѕС‚РєРµ)",
+        text="❓ Мне только спросить (В разработке)",
         payload=None,
     )
 
-    assert "РІ СЂР°Р·СЂР°Р±РѕС‚РєРµ" in result.text.lower()
+    assert "в разработке" in result.text.lower()
     assert result.screen is not None
     assert result.screen.screen_id == "support_menu"
 
 
 def test_max_support_question_flow_allows_back_to_support_by_callback() -> None:
-    """РџРѕСЃР»Рµ РѕС‚РєСЂС‹С‚РёСЏ РЅРµРіРѕС‚РѕРІРѕРіРѕ РїСѓРЅРєС‚Р° callback В«РќР°Р·Р°Рґ РІ РѕС‚РґРµР» Р·Р°Р±РѕС‚С‹В» РѕСЃС‚Р°РІР»СЏРµС‚ РІ РјРµРЅСЋ Р·Р°Р±РѕС‚С‹."""
+    """После открытия неготового пункта callback «Назад в отдел заботы» оставляет в меню заботы."""
 
     adapter = _build_adapter(with_support=True)
     _complete_max_registration(adapter)
 
     first = adapter.handle_incoming(
         max_user_id=1001,
-        text="вќ“ РњРЅРµ С‚РѕР»СЊРєРѕ СЃРїСЂРѕСЃРёС‚СЊ (Р’ СЂР°Р·СЂР°Р±РѕС‚РєРµ)",
+        text="❓ Мне только спросить (В разработке)",
         payload=None,
     )
     back = adapter.handle_incoming(max_user_id=1001, text="", payload="back_to_support")
@@ -656,11 +656,11 @@ def test_max_support_question_flow_allows_back_to_support_by_callback() -> None:
     assert first.screen.screen_id == "support_menu"
     assert back.screen is not None
     assert back.screen.screen_id == "support_menu"
-    assert "РћС‚РґРµР» Р·Р°Р±РѕС‚С‹" in back.text
+    assert "Отдел заботы" in back.text
 
 
 def test_max_my_tickets_shows_created_tickets() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ СЂР°Р·РґРµР» В«РњРѕРё РѕР±СЂР°С‰РµРЅРёСЏВ»: РїРѕСЃР»Рµ СЃРѕР·РґР°РЅРёСЏ С‚РёРєРµС‚Р° РІРѕР·РІСЂР°С‰Р°РµС‚СЃСЏ СЃРїРёСЃРѕРє."""
+    """Проверяет раздел «Мои обращения»: после создания тикета возвращается список."""
 
     adapter, _, create_ticket_use_case = _build_adapter_with_support_context()
     _complete_max_registration(adapter)
@@ -669,17 +669,17 @@ def test_max_my_tickets_shows_created_tickets() -> None:
         CreateSupportTicketCommand(
             platform="max",
             external_id="1001",
-            question_text="РќСѓР¶РЅР° РїРѕРјРѕС‰СЊ",
+            question_text="Нужна помощь",
         )
     )
-    tickets_response = adapter.handle_incoming(max_user_id=1001, text="рџ“‹ РњРѕРё РѕР±СЂР°С‰РµРЅРёСЏ", payload=None)
+    tickets_response = adapter.handle_incoming(max_user_id=1001, text="📋 Мои обращения", payload=None)
 
-    assert "Р’Р°С€Рё РѕР±СЂР°С‰РµРЅРёСЏ" in tickets_response.text
-    assert "РўРёРєРµС‚ #" in tickets_response.text
+    assert "Ваши обращения" in tickets_response.text
+    assert "Тикет #" in tickets_response.text
 
 
 def test_max_legacy_start_requests_phone_confirmation() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ legacy-РІРµС‚РєСѓ СЃ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµРј С‚РµР»РµС„РѕРЅР° РґР»СЏ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ."""
+    """Проверяет legacy-ветку с подтверждением телефона для зарегистрированного пользователя."""
 
     adapter = _build_adapter()
     _complete_max_registration(adapter)
@@ -691,18 +691,18 @@ def test_max_legacy_start_requests_phone_confirmation() -> None:
         payload=None,
         contact_phone="+79123456789",
     )
-    finish = adapter.handle_incoming(max_user_id=1001, text="Р”Р°", payload=None)
+    finish = adapter.handle_incoming(max_user_id=1001, text="Да", payload=None)
 
-    assert "РїСЂРµРґС‹РґСѓС‰РµР№ РІРµСЂСЃРёРё Р±РѕС‚Р°" in legacy_start.text
+    assert "предыдущей версии бота" in legacy_start.text
     assert legacy_start.screen is not None
     assert legacy_start.screen.screen_id == "start_contact"
     assert confirm.screen is not None
     assert confirm.screen.screen_id == "notifications_consent"
-    assert "Р РµРіРёСЃС‚СЂР°С†РёСЏ СѓСЃРїРµС€РЅРѕ Р·Р°РІРµСЂС€РµРЅР°." in finish.text
+    assert "Регистрация успешно завершена." in finish.text
 
 
 def test_max_moderator_reply_can_route_to_another_messenger() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ РјРѕРґРµСЂР°С†РёСЋ: РѕС‚РІРµС‚ РёР· MAX СЃ РґРѕСЃС‚Р°РІРєРѕР№ РІ РґСЂСѓРіРѕР№ РєР°РЅР°Р»."""
+    """Проверяет модерацию: ответ из MAX с доставкой в другой канал."""
 
     adapter, register_use_case, create_ticket_use_case = _build_adapter_with_support_context()
     _complete_max_registration(adapter, max_user_id=1001)
@@ -719,24 +719,24 @@ def test_max_moderator_reply_can_route_to_another_messenger() -> None:
         CreateSupportTicketCommand(
             platform="max",
             external_id="1001",
-            question_text="РќСѓР¶РЅР° РїРѕРјРѕС‰СЊ",
+            question_text="Нужна помощь",
         )
     )
     ticket_id = str(created_ticket.ticket_id)
 
     reply = adapter.handle_incoming(
         max_user_id=9999,
-        text=f"/modreply {ticket_id} --to=vk РћС‚РІРµС‚ РѕС‚РїСЂР°РІР»РµРЅ.",
+        text=f"/modreply {ticket_id} --to=vk Ответ отправлен.",
         payload=None,
     )
     details = adapter.handle_incoming(max_user_id=9999, text=f"/modticket {ticket_id}", payload=None)
 
-    assert "РњР°СЂС€СЂСѓС‚ РґРѕСЃС‚Р°РІРєРё: vk" in reply.text
-    assert "РљР°РЅР°Р» СЃРѕР·РґР°РЅРёСЏ: max" in details.text
+    assert "Маршрут доставки: vk" in reply.text
+    assert "Канал создания: max" in details.text
 
 
 def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
-    """РџСЂРѕРІРµСЂСЏРµС‚ `/mod`-РјРµРЅСЋ: СЃРїРёСЃРѕРє С‚РёРєРµС‚РѕРІ, РіСЂСЏР·РЅС‹Р№ UUID Рё СѓСЃРїРµС€РЅС‹Р№ РѕС‚РІРµС‚."""
+    """Проверяет `/mod`-меню: список тикетов, грязный UUID и успешный ответ."""
 
     adapter, _, create_ticket_use_case = _build_adapter_with_support_context()
     _complete_max_registration(adapter, max_user_id=1001)
@@ -745,7 +745,7 @@ def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
         CreateSupportTicketCommand(
             platform="max",
             external_id="1001",
-            question_text="РќСѓР¶РЅР° РїРѕРјРѕС‰СЊ",
+            question_text="Нужна помощь",
         )
     )
     ticket_id = str(created_ticket.ticket_id)
@@ -753,18 +753,18 @@ def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     open_menu = adapter.handle_incoming(max_user_id=9999, text="/mod", payload=None)
     open_tickets = adapter.handle_incoming(max_user_id=9999, text="1", payload=None)
     wait_ticket = adapter.handle_incoming(max_user_id=9999, text="2", payload=None)
-    dirty_ticket = adapter.handle_incoming(max_user_id=9999, text="РЅРµ-uuid", payload=None)
+    dirty_ticket = adapter.handle_incoming(max_user_id=9999, text="не-uuid", payload=None)
     wait_reply = adapter.handle_incoming(max_user_id=9999, text=ticket_id, payload=None)
-    routed = adapter.handle_incoming(max_user_id=9999, text="РћС‚РІРµС‚ РїСЂРёРЅСЏС‚", payload=None)
+    routed = adapter.handle_incoming(max_user_id=9999, text="Ответ принят", payload=None)
     wait_details = adapter.handle_incoming(max_user_id=9999, text="3", payload=None)
     details = adapter.handle_incoming(max_user_id=9999, text=ticket_id, payload=None)
 
-    assert "РњРµРЅСЋ РјРѕРґРµСЂР°С‚РѕСЂР°" in open_menu.text
-    assert "РћС‚РєСЂС‹С‚С‹Рµ С‚РёРєРµС‚С‹:" in open_tickets.text
-    assert "Р’РІРµРґРёС‚Рµ UUID С‚РёРєРµС‚Р°" in wait_ticket.text
-    assert "РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ ticket_id" in dirty_ticket.text
-    assert "Р’РІРµРґРёС‚Рµ С‚РµРєСЃС‚ РѕС‚РІРµС‚Р° РјРѕРґРµСЂР°С‚РѕСЂР°" in wait_reply.text
-    assert "РњР°СЂС€СЂСѓС‚ РґРѕСЃС‚Р°РІРєРё: max" in routed.text
-    assert "Р’РІРµРґРёС‚Рµ UUID С‚РёРєРµС‚Р°, С‡С‚РѕР±С‹ РїРѕРєР°Р·Р°С‚СЊ РєР°СЂС‚РѕС‡РєСѓ РѕР±СЂР°С‰РµРЅРёСЏ." in wait_details.text
-    assert "РљР°РЅР°Р» СЃРѕР·РґР°РЅРёСЏ: max" in details.text
+    assert "Меню модератора" in open_menu.text
+    assert "Открытые тикеты:" in open_tickets.text
+    assert "Введите UUID тикета" in wait_ticket.text
+    assert "Некорректный ticket_id" in dirty_ticket.text
+    assert "Введите текст ответа модератора" in wait_reply.text
+    assert "Маршрут доставки: max" in routed.text
+    assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
+    assert "Канал создания: max" in details.text
 

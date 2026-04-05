@@ -177,17 +177,17 @@ class VkIdentityAdapter:
                 screen=self._menu_adapter.build_notifications_consent_screen(),
             )
 
-        # Проверяем, собраны ли все согласия для платформы VK.
+        # Для текущей модели Person согласия хранятся на уровне профиля (без разреза по платформам).
         platform_consents_complete = (
-            person.get_rules_accepted_for_platform("vk") is True
-            and person.get_notifications_allowed_at_for_platform("vk") is not None
+            person.rules_accepted is True
+            and person.notifications_allowed_at is not None
         )
         if not platform_consents_complete:
             method_logger.info(
                 "Пользователь зарегистрирован, но согласия для VK неполные, продолжаем onboarding."
             )
             draft = _OnboardingDraft(
-                rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
+                rules_accepted_at=person.rules_accepted_at,
                 phone_e164=person.phone_e164,
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
@@ -197,7 +197,7 @@ class VkIdentityAdapter:
             self._onboarding_draft_by_user_id[vk_user_id] = draft
             self._clear_moderator_state(vk_user_id)
 
-            if not person.get_rules_accepted_for_platform("vk"):
+            if not person.rules_accepted:
                 transition = self._onboarding_flow.begin_new_user()
                 self._state_by_user_id[vk_user_id] = transition.state.value
                 return VkAdapterResponse(

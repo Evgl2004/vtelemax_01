@@ -16,6 +16,7 @@ from vtelemax.core import (
     InMemoryIdentityRepository,
     RegisterOrAttachAccountTransactionalUseCase,
     build_main_menu_screen,
+    build_start_rules_screen,
     build_support_menu_screen,
 )
 
@@ -149,28 +150,37 @@ def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
 
 
 def test_rules_screen_has_expected_inline_buttons() -> None:
-    """Rules screen should include two docs URL buttons and accept callback button."""
+    """Rules screen should keep parity with core contract for VK and MAX."""
 
     vk_adapter = VkGuestMenuAdapter()
     max_adapter = MaxGuestMenuAdapter()
+    core_screen = build_start_rules_screen()
 
     vk_screen = vk_adapter.build_start_rules_screen()
     max_screen = max_adapter.build_start_rules_screen()
 
-    assert len(vk_screen.rows) == 3
-    assert len(max_screen.rows) == 3
-    assert isinstance(vk_screen.rows[0][0], VkButton)
-    assert isinstance(vk_screen.rows[1][0], VkButton)
-    assert isinstance(vk_screen.rows[2][0], VkButton)
-    assert isinstance(max_screen.rows[0][0], MaxButton)
-    assert isinstance(max_screen.rows[1][0], MaxButton)
-    assert isinstance(max_screen.rows[2][0], MaxButton)
-    assert vk_screen.rows[0][0].url is not None
-    assert vk_screen.rows[1][0].url is not None
-    assert max_screen.rows[0][0].url is not None
-    assert max_screen.rows[1][0].url is not None
-    assert vk_screen.rows[2][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
-    assert max_screen.rows[2][0].payload == GuestMenuAction.ACCEPT_RULES.value
+    assert len(vk_screen.rows) == len(core_screen.buttons)
+    assert len(max_screen.rows) == len(core_screen.buttons)
+
+    for index, core_button in enumerate(core_screen.buttons):
+        vk_button = vk_screen.rows[index][0]
+        assert isinstance(vk_button, VkButton)
+        assert vk_button.label == core_button.label
+        assert vk_button.payload.get("cmd") == core_button.action.value
+        if index == len(core_screen.buttons) - 1:
+            assert vk_button.url is None
+        else:
+            assert vk_button.url is not None
+
+    for index, core_button in enumerate(core_screen.buttons):
+        max_button = max_screen.rows[index][0]
+        assert isinstance(max_button, MaxButton)
+        assert max_button.label == core_button.label
+        assert max_button.payload == core_button.action.value
+        if index == len(core_screen.buttons) - 1:
+            assert max_button.url is None
+        else:
+            assert max_button.url is not None
 
 
 def test_contact_screen_buttons_are_platform_specific() -> None:
