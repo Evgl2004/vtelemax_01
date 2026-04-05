@@ -35,6 +35,7 @@ from vtelemax.core import (
     RouteModeratorReplyTransactionalUseCase,
     SUPPORTED_PLATFORMS,
     normalize_email,
+    normalize_menu_text,
     normalize_person_name,
     parse_birth_date,
     resolve_guest_menu_action,
@@ -154,6 +155,49 @@ class VkIdentityAdapter:
             self._onboarding_draft_by_user_id[vk_user_id] = draft
             self._clear_moderator_state(vk_user_id)
             if not person.rules_accepted:
+                transition = self._onboarding_flow.begin_new_user()
+                self._state_by_user_id[vk_user_id] = transition.state.value
+                return VkAdapterResponse(
+                    text=transition.message,
+                    screen=self._menu_adapter.build_start_rules_screen(),
+                )
+            if not person.first_name_input:
+                transition = self._onboarding_flow.begin_first_name_step()
+                self._state_by_user_id[vk_user_id] = transition.state.value
+                return VkAdapterResponse(text=transition.message, screen=None)
+
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=person.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+            )
+            self._state_by_user_id[vk_user_id] = transition.state.value
+            return VkAdapterResponse(
+                text=transition.message,
+                screen=self._menu_adapter.build_notifications_consent_screen(),
+            )
+
+        # Проверяем, собраны ли все согласия для платформы VK.
+        platform_consents_complete = (
+            person.get_rules_accepted_for_platform("vk") is True
+            and person.get_notifications_allowed_at_for_platform("vk") is not None
+        )
+        if not platform_consents_complete:
+            method_logger.info(
+                "Пользователь зарегистрирован, но согласия для VK неполные, продолжаем onboarding."
+            )
+            draft = _OnboardingDraft(
+                rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
+                phone_e164=person.phone_e164,
+                phone_verified_at=person.phone_verified_at,
+                phone_verification_method=person.phone_verification_method,
+                first_name_input=person.first_name_input,
+                is_legacy_upgrade=person.is_legacy,
+            )
+            self._onboarding_draft_by_user_id[vk_user_id] = draft
+            self._clear_moderator_state(vk_user_id)
+
+            if not person.get_rules_accepted_for_platform("vk"):
                 transition = self._onboarding_flow.begin_new_user()
                 self._state_by_user_id[vk_user_id] = transition.state.value
                 return VkAdapterResponse(

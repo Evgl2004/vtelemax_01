@@ -230,6 +230,9 @@ def register_max_guest_handlers(
         event_logger.debug("Получен callback. payload={payload}.", payload=callback_payload)
         if hasattr(event, "answer"):
             await event.answer("")
+        if callback_payload is not None and callback_payload.strip() == "noop":
+            event_logger.debug("Получен noop callback пагинации, игнорируем без изменения экрана.")
+            return
 
         response = adapter.handle_incoming(
             max_user_id=user_id,

@@ -576,7 +576,11 @@ def test_telegram_start_interaction_for_registered_user_returns_menu() -> None:
 
 
 def test_telegram_attach_to_registered_profile_skips_reentering_name() -> None:
-    """Проверяет, что при привязке к уже зарегистрированному профилю Telegram сразу открывает меню."""
+    """Проверяет, что при привязке к зарегистрированному профилю Telegram не спрашивает имя повторно.
+
+    Для новой платформы обязателен сбор платформенных согласий, поэтому после контакта
+    ожидаем переход на шаг согласия уведомлений, а не мгновенное открытие меню.
+    """
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -608,10 +612,10 @@ def test_telegram_attach_to_registered_profile_skips_reentering_name() -> None:
         command=GetPersonByAccountCommand(platform="telegram", external_id="4701")
     )
 
-    assert result.is_success is True
-    assert result.status == "menu"
-    assert "Пётр" in result.message
+    assert result.is_success is False
+    assert result.status == "notifications_consent_required"
     assert attached_person is not None
+    assert attached_person.first_name_input == "Пётр"
     assert len(attached_person.accounts) == 2
 
 

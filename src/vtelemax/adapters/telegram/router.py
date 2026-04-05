@@ -616,6 +616,18 @@ def build_telegram_identity_router(
             reply_markup=reply_markup,
         )
 
+    @router.callback_query(F.data == "noop")
+    async def noop_callback_handler(callback: CallbackQuery) -> None:
+        """Подтверждает no-op callback пагинации без изменения сообщения."""
+
+        event_logger = router_logger.bind(
+            stage="noop_callback",
+            user_id=str(callback.from_user.id) if callback.from_user else "-",
+        )
+        await _try_process_pending_deliveries(callback.bot)
+        await callback.answer()
+        event_logger.debug("No-op callback подтвержден без сценарного перехода.")
+
     @router.callback_query(
         F.data.in_(
             [

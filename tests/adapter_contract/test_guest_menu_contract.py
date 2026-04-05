@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from types import TracebackType
 
 from vtelemax.adapters.max import MaxButton, MaxGuestMenuAdapter, MaxIdentityAdapter
@@ -92,7 +93,9 @@ def test_main_menu_labels_are_identical_between_core_vk_max() -> None:
     vk_labels = [button.label for button in _flatten_rows(vk_screen.rows)]
     max_labels = [button.label for button in _flatten_rows(max_screen.rows)]
 
-    assert vk_labels == core_labels
+    # VK intentionally groups rows in a platform-specific order.
+    # Contract requirement here is parity of available labels, not strict order.
+    assert Counter(vk_labels) == Counter(core_labels)
     assert max_labels == core_labels
 
 
@@ -146,7 +149,7 @@ def test_unknown_action_is_reported_consistently_for_registered_users() -> None:
 
 
 def test_rules_screen_has_expected_inline_buttons() -> None:
-    """Rules screen should include docs URL button and accept callback button."""
+    """Rules screen should include two docs URL buttons and accept callback button."""
 
     vk_adapter = VkGuestMenuAdapter()
     max_adapter = MaxGuestMenuAdapter()
@@ -154,16 +157,20 @@ def test_rules_screen_has_expected_inline_buttons() -> None:
     vk_screen = vk_adapter.build_start_rules_screen()
     max_screen = max_adapter.build_start_rules_screen()
 
-    assert len(vk_screen.rows) == 2
-    assert len(max_screen.rows) == 2
+    assert len(vk_screen.rows) == 3
+    assert len(max_screen.rows) == 3
     assert isinstance(vk_screen.rows[0][0], VkButton)
     assert isinstance(vk_screen.rows[1][0], VkButton)
+    assert isinstance(vk_screen.rows[2][0], VkButton)
     assert isinstance(max_screen.rows[0][0], MaxButton)
     assert isinstance(max_screen.rows[1][0], MaxButton)
+    assert isinstance(max_screen.rows[2][0], MaxButton)
     assert vk_screen.rows[0][0].url is not None
+    assert vk_screen.rows[1][0].url is not None
     assert max_screen.rows[0][0].url is not None
-    assert vk_screen.rows[1][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
-    assert max_screen.rows[1][0].payload == GuestMenuAction.ACCEPT_RULES.value
+    assert max_screen.rows[1][0].url is not None
+    assert vk_screen.rows[2][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
+    assert max_screen.rows[2][0].payload == GuestMenuAction.ACCEPT_RULES.value
 
 
 def test_contact_screen_buttons_are_platform_specific() -> None:
@@ -183,19 +190,22 @@ def test_contact_screen_buttons_are_platform_specific() -> None:
 
 
 def test_callback_buttons_have_no_url_or_request_contact() -> None:
-    """Main menu callback buttons should not carry URL/contact-only fields."""
+    """Main menu buttons should match URL/request_contact contract from core."""
 
     vk_adapter = VkGuestMenuAdapter()
     max_adapter = MaxGuestMenuAdapter()
+    core_screen = build_main_menu_screen()
+    expected_url_by_label = {button.label: button.url for button in core_screen.buttons}
 
     vk_screen = vk_adapter.build_main_menu_screen()
     max_screen = max_adapter.build_main_menu_screen()
 
-    for vk_row, max_row in zip(vk_screen.rows, max_screen.rows):
-        for vk_button, max_button in zip(vk_row, max_row):
-            assert vk_button.url is None
-            assert max_button.url is None
-            assert max_button.request_contact is False
+    for vk_button in _flatten_rows(vk_screen.rows):
+        assert vk_button.url == expected_url_by_label[vk_button.label]
+
+    for max_button in _flatten_rows(max_screen.rows):
+        assert max_button.url == expected_url_by_label[max_button.label]
+        assert max_button.request_contact is False
 
 
 def test_onboarding_flow_transitions() -> None:

@@ -326,6 +326,13 @@ def register_vk_guest_handlers(
         payload = event.get_payload_json() or {}
         action = resolve_action_from_vk_payload(payload if isinstance(payload, dict) else None)
         if action is None:
+            # Для no-op и неизвестных payload обязательно подтверждаем callback,
+            # чтобы у клиента не зависал индикатор ожидания.
+            await event.send_empty_answer()
+            if cmd == "noop":
+                event_logger.debug("Получен noop callback пагинации, игнорируем без изменений.")
+            else:
+                event_logger.debug("Неизвестный callback payload, ответ отправлен без сценарного перехода.")
             return
 
         response = adapter.handle_incoming(

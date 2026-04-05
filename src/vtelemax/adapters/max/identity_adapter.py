@@ -36,6 +36,7 @@ from vtelemax.core import (
     RouteModeratorReplyTransactionalUseCase,
     SUPPORTED_PLATFORMS,
     normalize_email,
+    normalize_menu_text,
     normalize_person_name,
     parse_birth_date,
     resolve_guest_menu_action,
