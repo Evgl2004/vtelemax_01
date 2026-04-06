@@ -148,6 +148,17 @@ def main() -> int:
                     f"[reset-user]   - platform={account.platform}, external_id={account.external_id}"
                 )
             print(
+                f"[reset-user] Платформенных состояний регистрации: {len(snapshot.platform_states)}"
+            )
+            for state in snapshot.platform_states:
+                print(
+                    "[reset-user]   - "
+                    f"platform={state.platform}, "
+                    f"rules_accepted={state.rules_accepted}, "
+                    f"notifications_allowed={state.notifications_allowed}, "
+                    f"is_registered={state.is_registered}"
+                )
+            print(
                 "[reset-user] Support-данные: "
                 f"tickets={snapshot.tickets_count}, messages={snapshot.messages_count}"
             )
@@ -176,6 +187,7 @@ def main() -> int:
         redis_patterns = build_default_redis_patterns(
             phone_e164=phone_e164,
             accounts=tuple() if snapshot is None else snapshot.accounts,
+            person_id=None if snapshot is None else snapshot.person_id,
         )
 
     print(f"[reset-user] Redis-шаблоны для поиска: {len(redis_patterns)}")

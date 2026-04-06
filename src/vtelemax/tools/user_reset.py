@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from vtelemax.infrastructure.postgres import (
     PersonRow,
+    PersonPlatformStateRow,
     PhoneRow,
     PlatformAccountRow,
     SupportMessageRow,
@@ -37,12 +38,23 @@ class PersonResetAccount:
 
 
 @dataclass(frozen=True, slots=True)
+class PersonResetPlatformState:
+    """Снимок платформенного состояния регистрации/согласий пользователя."""
+
+    platform: str
+    rules_accepted: bool
+    notifications_allowed: bool
+    is_registered: bool
+
+
+@dataclass(frozen=True, slots=True)
 class PersonResetSnapshot:
     """Снимок данных пользователя перед удалением."""
 
     person_id: UUID
     phone_e164: str
     accounts: tuple[PersonResetAccount, ...]
+    platform_states: tuple[PersonResetPlatformState, ...]
     tickets_count: int
     messages_count: int
 
@@ -70,6 +82,26 @@ def get_person_snapshot_by_phone(session: Session, phone_e164: str) -> PersonRes
         PersonResetAccount(platform=row.platform, external_id=row.external_id) for row in account_rows
     )
 
+    platform_state_rows = session.execute(
+        select(
+            PersonPlatformStateRow.platform,
+            PersonPlatformStateRow.rules_accepted,
+            PersonPlatformStateRow.notifications_allowed,
+            PersonPlatformStateRow.is_registered,
+        )
+        .where(PersonPlatformStateRow.person_id == person_id)
+        .order_by(PersonPlatformStateRow.platform)
+    ).all()
+    platform_states = tuple(
+        PersonResetPlatformState(
+            platform=row.platform,
+            rules_accepted=bool(row.rules_accepted),
+            notifications_allowed=bool(row.notifications_allowed),
+            is_registered=bool(row.is_registered),
+        )
+        for row in platform_state_rows
+    )
+
     tickets_count = (
         session.execute(
             select(func.count()).select_from(SupportTicketRow).where(SupportTicketRow.person_id == person_id)
@@ -91,6 +123,7 @@ def get_person_snapshot_by_phone(session: Session, phone_e164: str) -> PersonRes
         person_id=person_id,
         phone_e164=phone_e164,
         accounts=accounts,
+        platform_states=platform_states,
         tickets_count=int(tickets_count),
         messages_count=int(messages_count),
     )
@@ -104,8 +137,9 @@ def delete_person_by_id(session: Session, person_id: UUID) -> int:
 
     1. `phones`;
     2. `platform_accounts`;
-    3. `support_tickets`;
-    4. `support_messages` (через каскад от тикетов).
+    3. `person_platform_states`;
+    4. `support_tickets`;
+    5. `support_messages` (через каскад от тикетов).
     """
 
     result = session.execute(delete(PersonRow).where(PersonRow.person_id == person_id))
@@ -115,6 +149,8 @@ def delete_person_by_id(session: Session, person_id: UUID) -> int:
 def build_default_redis_patterns(
     phone_e164: str,
     accounts: tuple[PersonResetAccount, ...],
+    *,
+    person_id: UUID | None = None,
 ) -> list[str]:
     """Строит безопасные шаблоны Redis-ключей для точечной очистки.
 
@@ -126,6 +162,8 @@ def build_default_redis_patterns(
     patterns: set[str] = {
         f"vtelemax:*{phone_e164}*",
     }
+    if person_id is not None:
+        patterns.add(f"vtelemax:*{person_id}*")
     if digits:
         patterns.add(f"vtelemax:*{digits}*")
 

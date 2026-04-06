@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from vtelemax.infrastructure.postgres import (
     Base,
     PersonRow,
+    PersonPlatformStateRow,
     PhoneRow,
     PlatformAccountRow,
     SupportMessageRow,
@@ -54,12 +55,26 @@ def test_build_default_redis_patterns_contains_phone_and_accounts() -> None:
             PersonResetAccount(platform="telegram", external_id="571682735"),
             PersonResetAccount(platform="vk", external_id="1069961024"),
         ),
+        person_id=None,
     )
 
     assert any("+79991234567" in pattern for pattern in patterns)
     assert any("79991234567" in pattern for pattern in patterns)
     assert any("telegram" in pattern and "571682735" in pattern for pattern in patterns)
     assert any("vk" in pattern and "1069961024" in pattern for pattern in patterns)
+
+
+def test_build_default_redis_patterns_contains_person_id_when_passed() -> None:
+    """Проверяет включение person_id в auto-шаблоны Redis при передаче параметра."""
+
+    person_id = uuid4()
+    patterns = build_default_redis_patterns(
+        phone_e164="+79991230000",
+        accounts=(),
+        person_id=person_id,
+    )
+
+    assert any(str(person_id) in pattern for pattern in patterns)
 
 
 def test_collect_matching_redis_keys_deduplicates_keys() -> None:
@@ -122,6 +137,8 @@ def test_get_snapshot_and_delete_person_cascade() -> None:
 
     with Session(engine) as session:
         session.add(PersonRow(person_id=person_id))
+        # Для SQLite фиксируем родительскую запись до вставки зависимых строк.
+        session.flush()
         session.add(PhoneRow(phone_id=phone_id, person_id=person_id, phone_e164="+79991234567"))
         session.add(
             PlatformAccountRow(
@@ -137,6 +154,24 @@ def test_get_snapshot_and_delete_person_cascade() -> None:
                 person_id=person_id,
                 platform="vk",
                 external_id="1069961024",
+            )
+        )
+        session.add(
+            PersonPlatformStateRow(
+                person_id=person_id,
+                platform="telegram",
+                rules_accepted=True,
+                notifications_allowed=True,
+                is_registered=True,
+            )
+        )
+        session.add(
+            PersonPlatformStateRow(
+                person_id=person_id,
+                platform="vk",
+                rules_accepted=True,
+                notifications_allowed=False,
+                is_registered=False,
             )
         )
         session.add(
@@ -164,6 +199,7 @@ def test_get_snapshot_and_delete_person_cascade() -> None:
         assert snapshot.tickets_count == 1
         assert snapshot.messages_count == 1
         assert len(snapshot.accounts) == 2
+        assert len(snapshot.platform_states) == 2
 
         deleted_count = delete_person_by_id(session, person_id)
         session.commit()
@@ -173,5 +209,6 @@ def test_get_snapshot_and_delete_person_cascade() -> None:
         assert session.execute(select(PersonRow)).scalars().all() == []
         assert session.execute(select(PhoneRow)).scalars().all() == []
         assert session.execute(select(PlatformAccountRow)).scalars().all() == []
+        assert session.execute(select(PersonPlatformStateRow)).scalars().all() == []
         assert session.execute(select(SupportTicketRow)).scalars().all() == []
         assert session.execute(select(SupportMessageRow)).scalars().all() == []

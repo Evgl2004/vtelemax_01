@@ -4,6 +4,7 @@ from .repository import SQLAlchemyIdentityRepository
 from .schema import (
     Base,
     PersonRow,
+    PersonPlatformStateRow,
     PhoneRow,
     PlatformAccountRow,
     SupportMessageRow,
@@ -16,6 +17,7 @@ from .uow import SQLAlchemyIdentityUnitOfWork
 __all__ = [
     "Base",
     "PersonRow",
+    "PersonPlatformStateRow",
     "PhoneRow",
     "PlatformAccountRow",
     "SupportTicketRow",
