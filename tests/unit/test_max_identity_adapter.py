@@ -15,6 +15,7 @@ from vtelemax.core import (
     GetVirtualCardUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
+    GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
@@ -179,6 +180,9 @@ def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_conversation_use_case = GetSupportTicketConversationTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
@@ -191,6 +195,7 @@ def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
         create_support_ticket_use_case=create_ticket_use_case,
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
+        ticket_conversation_use_case=ticket_conversation_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
     )
@@ -213,6 +218,9 @@ def _build_adapter_with_support_context() -> tuple[
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_conversation_use_case = GetSupportTicketConversationTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
@@ -225,6 +233,7 @@ def _build_adapter_with_support_context() -> tuple[
         create_support_ticket_use_case=create_ticket_use_case,
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
+        ticket_conversation_use_case=ticket_conversation_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
     )
@@ -820,3 +829,27 @@ def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
     assert "Канал создания: max" in details.text
 
+
+def test_max_ticket_details_screen_includes_ticket_history() -> None:
+    """Проверяет, что карточка тикета в MAX содержит историю сообщений, а не заглушку."""
+
+    adapter, _register_use_case, create_ticket_use_case = _build_adapter_with_support_context()
+    _complete_max_registration(adapter, max_user_id=1001)
+
+    created_ticket = create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="max",
+            external_id="1001",
+            question_text="Нужна помощь с бонусами по карте",
+        )
+    )
+
+    response = adapter.handle_incoming(
+        max_user_id=1001,
+        text="",
+        payload={"cmd": f"user_ticket_{created_ticket.ticket_id}"},
+    )
+
+    assert "История переписки" in response.text
+    assert "Нужна помощь с бонусами по карте" in response.text
+    assert "недоступн" not in response.text.lower()

@@ -220,6 +220,29 @@ class SupportTicketDetails:
     linked_platforms: tuple[PlatformName, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SupportTicketConversationMessage:
+    """Сообщение тикета в карточке истории переписки."""
+
+    author: SupportMessageAuthor
+    body: str
+    source_platform: PlatformName
+    created_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class SupportTicketConversation:
+    """Карточка тикета с историей сообщений."""
+
+    ticket_id: UUID
+    person_id: UUID
+    status: SupportTicketStatus
+    source_platform: PlatformName
+    last_guest_platform: PlatformName | None
+    linked_platforms: tuple[PlatformName, ...]
+    messages: tuple[SupportTicketConversationMessage, ...]
+
+
 class GetSupportTicketDetailsTransactionalUseCase:
     """Возвращает карточку тикета и платформы гостя."""
 
@@ -246,6 +269,46 @@ class GetSupportTicketDetailsTransactionalUseCase:
                 source_platform=ticket.source_platform,
                 last_guest_platform=ticket.last_guest_platform,
                 linked_platforms=linked_platforms,
+            )
+
+
+class GetSupportTicketConversationTransactionalUseCase:
+    """Возвращает карточку тикета и историю переписки."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, ticket_id: UUID) -> SupportTicketConversation:
+        """Читает карточку тикета и связанные сообщения."""
+
+        with self._unit_of_work_factory() as unit_of_work:
+            ticket = unit_of_work.support_repository.get_ticket(ticket_id)
+            if ticket is None:
+                raise ValueError("Тикет не найден.")
+
+            person = unit_of_work.identity_repository.get_person_by_id(ticket.person_id)
+            if person is None:
+                raise ValueError("Пользователь тикета не найден в strict identity.")
+
+            linked_platforms = tuple(sorted(account.platform for account in person.accounts))
+            messages = unit_of_work.support_repository.list_messages(ticket_id)
+
+            return SupportTicketConversation(
+                ticket_id=ticket.ticket_id,
+                person_id=ticket.person_id,
+                status=ticket.status,
+                source_platform=ticket.source_platform,
+                last_guest_platform=ticket.last_guest_platform,
+                linked_platforms=linked_platforms,
+                messages=tuple(
+                    SupportTicketConversationMessage(
+                        author=message.author,
+                        body=message.body,
+                        source_platform=message.source_platform,
+                        created_at=message.created_at,
+                    )
+                    for message in messages
+                ),
             )
 
 

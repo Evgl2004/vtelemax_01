@@ -19,6 +19,7 @@ from vtelemax.core import (
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
     GetPersonTicketsPageTransactionalUseCase,
+    GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     PullPendingModeratorMessagesTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
@@ -97,6 +98,17 @@ def build_ticket_details_use_case(
         session_factory
     )
     return GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
+def build_ticket_conversation_use_case(
+    session_factory: sessionmaker[Session],
+) -> GetSupportTicketConversationTransactionalUseCase:
+    """Собирает транзакционный use-case карточки тикета с историей сообщений."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return GetSupportTicketConversationTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
 def build_list_open_tickets_use_case(
@@ -193,6 +205,7 @@ def build_dispatcher(settings: AppSettings) -> Any:
     create_ticket_use_case = build_create_support_ticket_use_case(session_factory)
     moderator_reply_use_case = build_moderator_reply_use_case(session_factory)
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
+    ticket_conversation_use_case = build_ticket_conversation_use_case(session_factory)
     list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)
     list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
     get_person_tickets_page_use_case = build_get_person_tickets_page_use_case(session_factory)
@@ -207,6 +220,7 @@ def build_dispatcher(settings: AppSettings) -> Any:
         create_support_ticket_use_case=create_ticket_use_case,
         moderator_reply_use_case=moderator_reply_use_case,
         ticket_details_use_case=ticket_details_use_case,
+        ticket_conversation_use_case=ticket_conversation_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
         get_person_tickets_page_use_case=get_person_tickets_page_use_case,

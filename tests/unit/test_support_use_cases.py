@@ -11,6 +11,7 @@ import pytest
 from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
+    GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
@@ -269,6 +270,50 @@ def test_get_support_ticket_details_returns_linked_platforms() -> None:
     assert details.source_platform == "max"
     assert details.last_guest_platform == "max"
     assert details.linked_platforms == ("max", "telegram")
+
+
+def test_get_support_ticket_conversation_returns_messages_in_order() -> None:
+    """Проверяет, что карточка тикета возвращает историю сообщений в порядке создания."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-1001",
+            raw_phone="+79123456789",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-1001",
+            question_text="Нужна помощь с начислением бонусов",
+        )
+    )
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case.execute(
+        ModeratorReplyCommand(
+            ticket_id=created.ticket_id,
+            moderator_platform="vk",
+            reply_text="Проверили, начисление будет выполнено сегодня.",
+        )
+    )
+
+    conversation_use_case = GetSupportTicketConversationTransactionalUseCase(unit_of_work_factory=uow_factory)
+    conversation = conversation_use_case.execute(created.ticket_id)
+
+    assert conversation.ticket_id == created.ticket_id
+    assert conversation.status == SupportTicketStatus.IN_PROGRESS
+    assert len(conversation.messages) == 2
+    assert conversation.messages[0].author.value == "guest"
+    assert "Нужна помощь" in conversation.messages[0].body
+    assert conversation.messages[1].author.value == "moderator"
+    assert "начисление будет выполнено" in conversation.messages[1].body
 
 
 def test_list_open_tickets_handles_dirty_limit_and_excludes_closed() -> None:

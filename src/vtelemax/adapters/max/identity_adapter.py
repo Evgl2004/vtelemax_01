@@ -26,6 +26,7 @@ from vtelemax.core import (
     GetPersonByAccountTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
+    GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     GetVirtualCardUseCase,
     GuestMenuAction,
@@ -106,6 +107,7 @@ class MaxIdentityAdapter:
         create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
+        ticket_conversation_use_case: GetSupportTicketConversationTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
         list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
         get_person_tickets_page_use_case: GetPersonTicketsPageTransactionalUseCase | None = None,
@@ -125,6 +127,7 @@ class MaxIdentityAdapter:
         self._create_support_ticket_use_case = create_support_ticket_use_case
         self._moderator_reply_use_case = moderator_reply_use_case
         self._ticket_details_use_case = ticket_details_use_case
+        self._ticket_conversation_use_case = ticket_conversation_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
         self._list_person_tickets_use_case = list_person_tickets_use_case
         self._get_person_tickets_page_use_case = get_person_tickets_page_use_case
@@ -1280,7 +1283,7 @@ class MaxIdentityAdapter:
             )
 
         try:
-            details = self._ticket_details_use_case.execute(ticket_id)
+            details, messages = self._get_ticket_details_with_history(ticket_id)
         except ValueError as error:
             return MaxAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
 
@@ -1658,6 +1661,52 @@ class MaxIdentityAdapter:
         return full_str.upper()
 
     @staticmethod
+    def _format_ticket_status(status_value: str) -> tuple[str, str]:
+        """Возвращает эмодзи и человекочитаемый текст статуса тикета."""
+
+        if status_value == "open":
+            return "🆕", "открыт"
+        if status_value == "in_progress":
+            return "🛠", "в работе"
+        if status_value == "closed":
+            return "🔒", "закрыт"
+        return "❓", status_value
+
+    @staticmethod
+    def _format_ticket_history_lines(messages: tuple[object, ...]) -> list[str]:
+        """Форматирует блок истории переписки тикета."""
+
+        lines: list[str] = ["📨 История переписки:"]
+        if not messages:
+            lines.append("Сообщений в тикете пока нет.")
+            return lines
+
+        for message in messages:
+            author_value = getattr(getattr(message, "author", None), "value", "")
+            author_label = "Гость" if author_value == "guest" else "Модератор"
+            source_platform = str(getattr(message, "source_platform", "-"))
+            created_at = getattr(message, "created_at", None)
+            created_at_text = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "время не указано"
+            body = str(getattr(message, "body", "")).strip() or "—"
+            lines.append(f"• {author_label} ({source_platform}, {created_at_text})")
+            lines.append(body)
+
+        return lines
+
+    def _get_ticket_details_with_history(self, ticket_id: UUID) -> tuple[object, tuple[object, ...]]:
+        """Возвращает карточку тикета и историю переписки (если use-case подключен)."""
+
+        if self._ticket_conversation_use_case is not None:
+            conversation = self._ticket_conversation_use_case.execute(ticket_id)
+            return conversation, conversation.messages
+
+        if self._ticket_details_use_case is None:
+            raise ValueError("Функционал карточки тикета временно недоступен.")
+
+        details = self._ticket_details_use_case.execute(ticket_id)
+        return details, ()
+
+    @staticmethod
     def _format_person_tickets_message(tickets: tuple[PersonSupportTicketSummary, ...]) -> str:
         """Форматирует список тикетов пользователя в текстовое представление."""
 
@@ -1891,7 +1940,7 @@ class MaxIdentityAdapter:
             )
         
         try:
-            details = self._ticket_details_use_case.execute(ticket_id)
+            details, messages = self._get_ticket_details_with_history(ticket_id)
         except ValueError as error:
             method_logger.warning("Тикет не найден или недоступен. error={error}", error=str(error))
             return MaxAdapterResponse(
@@ -1915,6 +1964,7 @@ class MaxIdentityAdapter:
         # Форматируем сообщение с деталями тикета
         status_emoji = {"open": "🆕", "closed": "🔒"}.get(details.status.value, "❓")
         short_id = self._format_ticket_id_short(ticket_id)
+        status_emoji, status_text = self._format_ticket_status(details.status.value)
         
         # TODO: Добавить получение истории сообщений, когда будет доступен use-case
         message_lines = [
@@ -1923,6 +1973,8 @@ class MaxIdentityAdapter:
             f"Создан в: {details.source_platform}",
         ]
         
+        message_lines[1] = f"Статус: {status_text}"
+
         if details.last_guest_platform:
             message_lines.append(f"Последний ответ из: {details.last_guest_platform}")
         
@@ -1934,6 +1986,16 @@ class MaxIdentityAdapter:
             "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
         ])
         
+        header_size = 4 if details.last_guest_platform else 3
+        message_lines = message_lines[:header_size]
+        message_lines.append("")
+        message_lines.extend(self._format_ticket_history_lines(messages))
+        message_lines.extend(
+            [
+                "",
+                "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
+            ]
+        )
         message = "\n".join(message_lines)
         
         # Создаем экран с кнопкой "Назад к списку обращений"

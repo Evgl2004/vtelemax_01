@@ -14,6 +14,7 @@ from vtelemax.core import (
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     GetPersonTicketsPageTransactionalUseCase,
+    GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     GetVirtualCardUseCase,
     IdentityRepository,
@@ -1037,3 +1038,50 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
     assert details.status == "moderation_details"
     assert "Канал создания: telegram" in details.message
 
+
+def test_telegram_ticket_details_screen_includes_ticket_history() -> None:
+    """Проверяет, что карточка тикета в Telegram содержит историю сообщений, а не заглушку."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    ticket_conversation_use_case = GetSupportTicketConversationTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        ticket_details_use_case=ticket_details_use_case,
+        ticket_conversation_use_case=ticket_conversation_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    adapter.handle_menu_action(telegram_user_id=1001, action_text="✅ Согласен")
+    created_ticket = create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="1001",
+            question_text="Нужна помощь с бонусами по карте",
+        )
+    )
+
+    response = adapter.handle_menu_action(
+        telegram_user_id=1001,
+        action_text=f"user_ticket_{created_ticket.ticket_id}",
+    )
+
+    assert response.status == "ticket_details"
+    assert "История переписки" in response.message
+    assert "Нужна помощь с бонусами по карте" in response.message
+    assert "недоступн" not in response.message.lower()
