@@ -62,6 +62,10 @@ class InMemorySupportRepository(SupportRepository):
             ticket.closed_at = None
 
     def add_message(self, message: SupportMessage) -> None:
+        if message.message_id in self._messages_by_id:
+            # Идемпотентный guard: дубликат notification/retry не добавляем повторно.
+            return
+
         self._messages_by_ticket.setdefault(message.ticket_id, []).append(message)
         self._messages_by_id[message.message_id] = message
 
@@ -81,7 +85,7 @@ class InMemorySupportRepository(SupportRepository):
         messages = [
             message
             for message in self._messages_by_id.values()
-            if message.author == SupportMessageAuthor.MODERATOR
+            if message.author in {SupportMessageAuthor.MODERATOR, SupportMessageAuthor.SYSTEM}
             and message.target_platform == target_platform
             and message.delivery_status == SupportDeliveryStatus.CREATED
         ]

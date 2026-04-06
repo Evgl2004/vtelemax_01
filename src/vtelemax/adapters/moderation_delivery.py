@@ -1,4 +1,4 @@
-"""Утилита доставки pending-сообщений модератора в один проход.
+"""Утилита доставки pending-сообщений outbox в один проход.
 
 Файл реализует MVP-контур:
 
@@ -21,6 +21,7 @@ from vtelemax.core import (
     PlatformName,
     PullPendingModeratorMessagesTransactionalUseCase,
     SupportDeliveryStatus,
+    SupportMessageAuthor,
     UpdateModeratorMessageDeliveryStatusCommand,
     UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
 )
@@ -88,7 +89,7 @@ class PendingModeratorDeliveryProcessor:
                 failed_count += 1
                 continue
 
-            text = self._build_delivery_text(delivery.body)
+            text = self._build_delivery_text(author=delivery.author, body=delivery.body)
             try:
                 await sender(external_id, text)
             except Exception as error:  # noqa: BLE001
@@ -135,10 +136,12 @@ class PendingModeratorDeliveryProcessor:
         )
 
     @staticmethod
-    def _build_delivery_text(body: str) -> str:
-        """Формирует текст, который гость получит как ответ модератора."""
+    def _build_delivery_text(*, author: SupportMessageAuthor, body: str) -> str:
+        """Формирует итоговый текст доставки по типу сообщения."""
 
-        return "\n".join(("📬 Ответ модератора:", body))
+        if author == SupportMessageAuthor.MODERATOR:
+            return "\n".join(("📬 Ответ модератора:", body))
+        return body
 
     @staticmethod
     def _normalize_error_text(error: Exception) -> str:

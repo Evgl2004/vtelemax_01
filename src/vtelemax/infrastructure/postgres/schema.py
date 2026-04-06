@@ -226,7 +226,7 @@ class SupportMessageRow(Base):
 
     __tablename__ = "support_messages"
     __table_args__ = (
-        CheckConstraint("author IN ('guest', 'moderator')", name="ck_support_messages_author_allowed"),
+        CheckConstraint("author IN ('guest', 'moderator', 'system')", name="ck_support_messages_author_allowed"),
         CheckConstraint(
             "source_platform IN ('telegram', 'vk', 'max')",
             name="ck_support_messages_source_platform_allowed",

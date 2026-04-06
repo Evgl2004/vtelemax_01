@@ -43,6 +43,18 @@ class InMemoryIdentityRepository(IdentityRepository):
 
         return self._persons_by_id.get(person_id)
 
+    def list_moderator_accounts(self) -> list[PlatformAccount]:
+        """Возвращает аккаунты всех пользователей с признаком модератора."""
+
+        accounts: list[PlatformAccount] = []
+        for person in self._persons_by_id.values():
+            if not person.is_moderator:
+                continue
+            accounts.extend(person.accounts)
+
+        accounts.sort(key=lambda account: (account.platform, account.external_id))
+        return accounts
+
     def add_person(self, person: Person) -> None:
         """Сохраняет нового человека и его индексы."""
 

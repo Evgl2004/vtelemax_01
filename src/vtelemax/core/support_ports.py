@@ -63,7 +63,7 @@ class SupportRepository(Protocol):
         target_platform: PlatformName,
         limit: int = 20,
     ) -> list[SupportMessage]:
-        """Возвращает сообщения модератора, ожидающие доставки в платформу."""
+        """Возвращает сообщения outbox, ожидающие доставки в платформу."""
 
     def update_message_delivery(
         self,
@@ -71,7 +71,7 @@ class SupportRepository(Protocol):
         status: SupportDeliveryStatus,
         error_text: str | None = None,
     ) -> None:
-        """Обновляет статус доставки сообщения модератора."""
+        """Обновляет статус доставки outbox-сообщения."""
 
 
 class SupportUnitOfWork(Protocol):

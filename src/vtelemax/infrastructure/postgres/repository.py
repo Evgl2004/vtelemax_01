@@ -79,6 +79,25 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
         person_row, phone_row = row
         return self._build_person(person_row=person_row, phone_e164=phone_row.phone_e164)
 
+    def list_moderator_accounts(self) -> list[PlatformAccount]:
+        """Возвращает аккаунты пользователей, отмеченных как модераторы."""
+
+        statement = (
+            select(PlatformAccountRow.platform, PlatformAccountRow.external_id)
+            .join(PersonRow, PersonRow.person_id == PlatformAccountRow.person_id)
+            .where(PersonRow.is_moderator.is_(True))
+        )
+        rows = self._session.execute(statement).all()
+        accounts = [
+            PlatformAccount(
+                platform=row.platform,  # type: ignore[arg-type]
+                external_id=row.external_id,
+            )
+            for row in rows
+        ]
+        accounts.sort(key=lambda account: (account.platform, account.external_id))
+        return accounts
+
     def add_person(self, person: Person) -> None:
         """Сохраняет нового человека с телефоном и уже известными аккаунтами."""
 

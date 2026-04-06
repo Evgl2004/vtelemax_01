@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from .models import PlatformName, SUPPORTED_PLATFORMS
 from .support_models import (
@@ -90,12 +90,101 @@ class CreateSupportTicketTransactionalUseCase:
                     source_platform=command.platform,
                 )
             )
+            self._enqueue_moderator_notifications(
+                unit_of_work=unit_of_work,
+                source_message_id=message_id,
+                ticket_id=ticket_id,
+                source_platform=command.platform,
+                source_external_id=external_id,
+                question_text=question_text,
+            )
             unit_of_work.commit()
             return CreatedSupportTicketResult(
                 ticket_id=ticket_id,
                 person_id=person.person_id,
                 source_platform=command.platform,
                 message_id=message_id,
+            )
+
+    @staticmethod
+    def _build_moderator_notification_message_id(
+        *,
+        source_message_id: UUID,
+        target_platform: PlatformName,
+        target_external_id: str,
+    ) -> UUID:
+        """Формирует детерминированный message_id для защиты от дублей уведомлений."""
+
+        seed = f"mod-notify:{source_message_id}:{target_platform}:{target_external_id}"
+        return uuid5(NAMESPACE_URL, seed)
+
+    @staticmethod
+    def _build_moderator_notification_text(
+        *,
+        ticket_id: UUID,
+        source_platform: PlatformName,
+        question_text: str,
+    ) -> str:
+        """Формирует текст уведомления модератору о новом обращении."""
+
+        short_id = str(ticket_id)[-4:].upper()
+        return "\n".join(
+            (
+                "🔔 Новое обращение от гостя",
+                f"Тикет: #{short_id} ({ticket_id})",
+                f"Канал: {source_platform}",
+                "",
+                "Сообщение:",
+                question_text,
+                "",
+                "Откройте меню модератора командой /mod.",
+            )
+        )
+
+    def _enqueue_moderator_notifications(
+        self,
+        *,
+        unit_of_work: SupportUnitOfWork,
+        source_message_id: UUID,
+        ticket_id: UUID,
+        source_platform: PlatformName,
+        source_external_id: str,
+        question_text: str,
+    ) -> None:
+        """Ставит в outbox уведомления модераторам о новом сообщении гостя."""
+
+        moderators = unit_of_work.identity_repository.list_moderator_accounts()
+        if not moderators:
+            return
+
+        notification_body = self._build_moderator_notification_text(
+            ticket_id=ticket_id,
+            source_platform=source_platform,
+            question_text=question_text,
+        )
+        for moderator_account in moderators:
+            if (
+                moderator_account.platform == source_platform
+                and moderator_account.external_id == source_external_id
+            ):
+                # Если обращение создано из аккаунта модератора, не шлем уведомление в тот же аккаунт.
+                continue
+
+            unit_of_work.support_repository.add_message(
+                SupportMessage(
+                    message_id=self._build_moderator_notification_message_id(
+                        source_message_id=source_message_id,
+                        target_platform=moderator_account.platform,
+                        target_external_id=moderator_account.external_id,
+                    ),
+                    ticket_id=ticket_id,
+                    author=SupportMessageAuthor.SYSTEM,
+                    body=notification_body,
+                    source_platform=source_platform,
+                    target_platform=moderator_account.platform,
+                    target_external_id=moderator_account.external_id,
+                    delivery_status=SupportDeliveryStatus.CREATED,
+                )
             )
 
 
@@ -291,7 +380,11 @@ class GetSupportTicketConversationTransactionalUseCase:
                 raise ValueError("Пользователь тикета не найден в strict identity.")
 
             linked_platforms = tuple(sorted(account.platform for account in person.accounts))
-            messages = unit_of_work.support_repository.list_messages(ticket_id)
+            messages = tuple(
+                message
+                for message in unit_of_work.support_repository.list_messages(ticket_id)
+                if message.author != SupportMessageAuthor.SYSTEM
+            )
 
             return SupportTicketConversation(
                 ticket_id=ticket.ticket_id,
@@ -501,9 +594,10 @@ class GetPersonTicketsPageTransactionalUseCase:
 
 @dataclass(frozen=True, slots=True)
 class PendingModeratorDelivery:
-    """Краткая карточка pending-сообщения модератора для доставки в мессенджер."""
+    """Краткая карточка pending-сообщения outbox для доставки в мессенджер."""
 
     message_id: UUID
+    author: SupportMessageAuthor
     ticket_id: UUID
     source_platform: PlatformName
     target_platform: PlatformName
@@ -513,7 +607,12 @@ class PendingModeratorDelivery:
 
 
 class PullPendingModeratorMessagesTransactionalUseCase:
-    """Возвращает pending-сообщения модератора по целевой платформе доставки."""
+    """Возвращает pending-сообщения по целевой платформе доставки.
+
+    В выборку входят:
+    1. ответы модератора гостю;
+    2. системные уведомления модераторам о новых обращениях.
+    """
 
     def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
         self._unit_of_work_factory = unit_of_work_factory
@@ -524,7 +623,7 @@ class PullPendingModeratorMessagesTransactionalUseCase:
         target_platform: PlatformName,
         limit: int = 20,
     ) -> tuple[PendingModeratorDelivery, ...]:
-        """Читает pending-сообщения модератора для заданного канала."""
+        """Читает pending-сообщения для заданного канала."""
 
         if target_platform not in SUPPORTED_PLATFORMS:
             raise ValueError("Платформа доставки не поддерживается.")
@@ -539,6 +638,7 @@ class PullPendingModeratorMessagesTransactionalUseCase:
         return tuple(
             PendingModeratorDelivery(
                 message_id=message.message_id,
+                author=message.author,
                 ticket_id=message.ticket_id,
                 source_platform=message.source_platform,
                 target_platform=message.target_platform or target_platform,

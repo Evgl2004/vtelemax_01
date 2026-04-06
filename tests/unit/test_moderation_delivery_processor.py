@@ -19,6 +19,7 @@ from vtelemax.core import (
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    PersonProfilePatch,
     SupportDeliveryStatus,
     SupportMessageAuthor,
     UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
@@ -161,3 +162,65 @@ def test_delivery_processor_marks_message_as_failed_without_retry() -> None:
     status, error_text = _get_last_moderator_message_status(support_repository, ticket_id=ticket_id)
     assert status == SupportDeliveryStatus.FAILED
     assert error_text is not None
+
+
+def test_delivery_processor_sends_system_notification_without_moderator_prefix() -> None:
+    """Проверяет, что системное уведомление модератору доставляется как есть (без префикса ответа)."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-guest-1001",
+            raw_phone="+79128880001",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-mod-9001",
+            raw_phone="+79128889991",
+        )
+    )
+    moderator_person = identity_repository.get_person_by_account("vk", "vk-mod-9001")
+    assert moderator_person is not None
+    identity_repository.update_person_profile(
+        moderator_person.person_id,
+        PersonProfilePatch(is_moderator=True),
+    )
+
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    create_ticket_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-guest-1001",
+            question_text="Подскажите, пожалуйста, почему не начислились бонусы за заказ.",
+        )
+    )
+
+    pull_pending_use_case = PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
+    update_status_use_case = UpdateModeratorMessageDeliveryStatusTransactionalUseCase(
+        unit_of_work_factory=uow_factory
+    )
+    processor = PendingModeratorDeliveryProcessor(
+        target_platform="vk",
+        pull_pending_use_case=pull_pending_use_case,
+        update_status_use_case=update_status_use_case,
+    )
+
+    sent_payloads: list[tuple[str, str]] = []
+
+    async def sender(external_id: str, text: str) -> None:
+        sent_payloads.append((external_id, text))
+
+    sent_count, failed_count = asyncio.run(processor.process_once(sender=sender, limit=10))
+
+    assert sent_count == 1
+    assert failed_count == 0
+    assert sent_payloads[0][0] == "vk-mod-9001"
+    assert "🔔 Новое обращение от гостя" in sent_payloads[0][1]
+    assert "Ответ модератора" not in sent_payloads[0][1]

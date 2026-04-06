@@ -26,6 +26,9 @@ class IdentityRepository(Protocol):
     def get_person_by_id(self, person_id: UUID) -> Person | None:
         """Возвращает человека по внутреннему идентификатору."""
 
+    def list_moderator_accounts(self) -> list[PlatformAccount]:
+        """Возвращает список платформенных аккаунтов пользователей с ролью модератора."""
+
     def add_person(self, person: Person) -> None:
         """Сохраняет нового человека."""
 

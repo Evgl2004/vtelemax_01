@@ -30,6 +30,7 @@ class SupportMessageAuthor(StrEnum):
 
     GUEST = "guest"
     MODERATOR = "moderator"
+    SYSTEM = "system"
 
 
 class SupportDeliveryStatus(StrEnum):

@@ -20,9 +20,13 @@ from vtelemax.core import (
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
     ModeratorReplyCommand,
+    PersonProfilePatch,
     PullPendingModeratorMessagesTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
     SupportDeliveryStatus,
+    SupportMessage,
+    SupportMessageAuthor,
+    SupportTicket,
     SupportTicketStatus,
     SupportRepository,
     SupportUnitOfWork,
@@ -582,3 +586,107 @@ def test_list_open_tickets_can_filter_multiple_statuses() -> None:
 
     assert {item.ticket_id for item in result} == {second.ticket_id, third.ticket_id}
     assert all(item.status in {SupportTicketStatus.OPEN, SupportTicketStatus.IN_PROGRESS} for item in result)
+
+
+def test_create_support_ticket_enqueues_system_notifications_for_moderators() -> None:
+    """Проверяет, что при новом обращении создаются pending-уведомления для модераторов."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-guest-1001",
+            raw_phone="+79129990001",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-mod-7001",
+            raw_phone="+79129997701",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="max",
+            external_id="max-mod-7002",
+            raw_phone="+79129997702",
+        )
+    )
+
+    vk_moderator = identity_repository.get_person_by_account("vk", "vk-mod-7001")
+    assert vk_moderator is not None
+    identity_repository.update_person_profile(
+        vk_moderator.person_id,
+        PersonProfilePatch(is_moderator=True),
+    )
+    max_moderator = identity_repository.get_person_by_account("max", "max-mod-7002")
+    assert max_moderator is not None
+    identity_repository.update_person_profile(
+        max_moderator.person_id,
+        PersonProfilePatch(is_moderator=True),
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-guest-1001",
+            question_text="Проверьте, пожалуйста, начисление бонусов по последнему чеку.",
+        )
+    )
+
+    pull_use_case = PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
+    vk_pending = pull_use_case.execute(target_platform="vk", limit=10)
+    max_pending = pull_use_case.execute(target_platform="max", limit=10)
+    tg_pending = pull_use_case.execute(target_platform="telegram", limit=10)
+    assert len(vk_pending) == 1
+    assert len(max_pending) == 1
+    assert len(tg_pending) == 0
+    assert vk_pending[0].author == SupportMessageAuthor.SYSTEM
+    assert max_pending[0].author == SupportMessageAuthor.SYSTEM
+    assert "Новое обращение" in vk_pending[0].body
+    assert "Откройте меню модератора командой /mod" in max_pending[0].body
+
+    conversation_use_case = GetSupportTicketConversationTransactionalUseCase(unit_of_work_factory=uow_factory)
+    conversation = conversation_use_case.execute(created.ticket_id)
+    assert len(conversation.messages) == 1
+    assert conversation.messages[0].author == SupportMessageAuthor.GUEST
+
+
+def test_support_repository_add_message_is_idempotent_by_message_id() -> None:
+    """Проверяет защиту от дублей: повтор с тем же message_id не создает вторую запись."""
+
+    support_repository = InMemorySupportRepository()
+    ticket_id = uuid4()
+    support_repository.create_ticket(
+        SupportTicket(
+            ticket_id=ticket_id,
+            person_id=uuid4(),
+            source_platform="telegram",
+            status=SupportTicketStatus.OPEN,
+            last_guest_platform="telegram",
+        )
+    )
+
+    duplicate_message_id = uuid4()
+    message = SupportMessage(
+        message_id=duplicate_message_id,
+        ticket_id=ticket_id,
+        author=SupportMessageAuthor.SYSTEM,
+        body="Тестовое уведомление",
+        source_platform="telegram",
+        target_platform="vk",
+        target_external_id="vk-mod-1",
+        delivery_status=SupportDeliveryStatus.CREATED,
+    )
+    support_repository.add_message(message)
+    support_repository.add_message(message)
+
+    messages = support_repository.list_messages(ticket_id)
+    assert len(messages) == 1
+    assert messages[0].message_id == duplicate_message_id

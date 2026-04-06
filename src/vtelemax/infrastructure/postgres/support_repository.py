@@ -120,6 +120,11 @@ class SQLAlchemySupportRepository(SupportRepository):
             row.closed_at = None
 
     def add_message(self, message: SupportMessage) -> None:
+        existing_row = self._session.get(SupportMessageRow, message.message_id)
+        if existing_row is not None:
+            # Идемпотентный guard: повторная вставка того же message_id игнорируется.
+            return
+
         self._session.add(
             SupportMessageRow(
                 message_id=message.message_id,
@@ -155,7 +160,12 @@ class SQLAlchemySupportRepository(SupportRepository):
         statement = (
             select(SupportMessageRow)
             .where(
-                SupportMessageRow.author == SupportMessageAuthor.MODERATOR.value,
+                SupportMessageRow.author.in_(
+                    (
+                        SupportMessageAuthor.MODERATOR.value,
+                        SupportMessageAuthor.SYSTEM.value,
+                    )
+                ),
                 SupportMessageRow.target_platform == target_platform,
                 SupportMessageRow.delivery_status == SupportDeliveryStatus.CREATED.value,
             )
