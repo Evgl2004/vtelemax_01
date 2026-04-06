@@ -118,7 +118,7 @@ def test_build_main_menu_keyboard_contains_support_question_and_feedback_link() 
     labels = [row[0].text for row in keyboard.inline_keyboard]
     buttons = [row[0] for row in keyboard.inline_keyboard]
 
-    assert "❓ Мне только спросить (В разработке)" in labels
+    assert "❓ Мне только спросить" in labels
     assert "✍️ Оставить отзыв" in labels
     feedback_button = next(button for button in buttons if button.text == "✍️ Оставить отзыв")
     assert feedback_button.url == "https://rdata.one/Nyyl"

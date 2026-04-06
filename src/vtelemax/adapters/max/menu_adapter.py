@@ -31,6 +31,10 @@ from vtelemax.core import (
 
 from .payloads import build_max_payload
 
+# Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
+USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
+USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
+
 
 @dataclass(frozen=True, slots=True)
 class MaxButton:
@@ -262,6 +266,68 @@ class MaxGuestMenuAdapter:
         screen = build_iiko_sync_retry_screen()
         rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
+    def build_user_tickets_pagination_screen(
+        self,
+        current_page: int,
+        total_pages: int,
+        has_tickets: bool = True,
+    ) -> MaxScreen:
+        """Создает экран пагинации списка тикетов пользователя."""
+        
+        rows = []
+        
+        # Кнопки навигации
+        nav_buttons = []
+        if current_page > 1:
+            nav_buttons.append(
+                MaxButton(
+                    label="◀️ Назад",
+                    payload=f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}",
+                )
+            )
+        
+        nav_buttons.append(
+            MaxButton(
+                label=f"{current_page}/{total_pages}",
+                payload="noop",  # Неактивная кнопка
+            )
+        )
+        
+        if current_page < total_pages:
+            nav_buttons.append(
+                MaxButton(
+                    label="Вперед ▶️",
+                    payload=f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}",
+                )
+            )
+        
+        # Кнопка создания нового тикета (первая позиция)
+        if has_tickets:
+            rows.append((
+                MaxButton(
+                    label="📝 Создать новый тикет",
+                    payload=build_max_payload(GuestMenuAction.SUPPORT_QUESTION_FROM_LIST),
+                ),
+            ))
+        
+        # Навигация (вторая позиция)
+        if nav_buttons:
+            rows.append(tuple(nav_buttons))
+        
+        # Кнопка возврата в главное меню (третья позиция)
+        rows.append((
+            MaxButton(
+                label="🏠 Назад в меню",
+                payload=build_max_payload(GuestMenuAction.BACK_TO_MAIN),
+            ),
+        ))
+        
+        return MaxScreen(
+            screen_id="user_tickets_pagination",
+            text="",  # Текст будет добавлен отдельно
+            rows=tuple(rows),
+        )
 
     def resolve_action_screen(
         self,

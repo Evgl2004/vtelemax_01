@@ -29,7 +29,7 @@ def test_vk_main_menu_contains_expected_first_buttons() -> None:
     assert screen.rows[0][1].label == "🪪 Виртуальная карта"
     # Вторая строка: "Мне только спросить" (одна кнопка)
     assert len(screen.rows[1]) == 1
-    assert screen.rows[1][0].label == "❓ Мне только спросить (В разработке)"
+    assert screen.rows[1][0].label == "❓ Мне только спросить"
     # Третья строка: обратная связь (одна кнопка)
     assert len(screen.rows[2]) == 1
     assert screen.rows[2][0].label == "✍️ Оставить отзыв"

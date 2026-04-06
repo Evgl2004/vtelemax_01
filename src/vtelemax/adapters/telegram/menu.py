@@ -48,6 +48,9 @@ from vtelemax.core import (
 RULES_ACCEPT_CALLBACK = "rules_accept"
 NOTIFY_YES_CALLBACK = "notify_yes"
 NOTIFY_NO_CALLBACK = "notify_no"
+USER_TICKETS_PAGE_PREFIX = "user_tickets_page_"
+USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
+USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 PERSONAL_DATA_CONSENT_BUTTON_LABEL = "📄 Согласие на ПД"
 PRIVACY_POLICY_BUTTON_LABEL = "📄 Политика конфиденциальности"
 PERSONAL_DATA_CONSENT_URL = "https://sagur.24vds.ru/personal-data-consent/tg/"
@@ -289,3 +292,61 @@ def build_main_menu_keyboard() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
     )
+
+
+def build_user_tickets_pagination_keyboard(
+    current_page: int,
+    total_pages: int,
+    has_tickets: bool = True,
+) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру для пагинации списка тикетов пользователя."""
+    
+    buttons = []
+    
+    # Кнопки навигации
+    nav_buttons = []
+    if current_page > 1:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text="◀️ Назад",
+                callback_data=f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}",
+            )
+        )
+    
+    nav_buttons.append(
+        InlineKeyboardButton(
+            text=f"{current_page}/{total_pages}",
+            callback_data="noop",  # Неактивная кнопка
+        )
+    )
+    
+    if current_page < total_pages:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text="Вперед ▶️",
+                callback_data=f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}",
+            )
+        )
+    
+    # Кнопка создания нового тикета (первая позиция)
+    if has_tickets:
+        buttons.append([
+            InlineKeyboardButton(
+                text="📝 Создать новый тикет",
+                callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION_FROM_LIST),
+            )
+        ])
+    
+    # Навигация (вторая позиция)
+    if nav_buttons:
+        buttons.append(nav_buttons)
+    
+    # Кнопка возврата в главное меню (третья позиция)
+    buttons.append([
+        InlineKeyboardButton(
+            text=BUTTON_BACK_TO_MAIN,
+            callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN),
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

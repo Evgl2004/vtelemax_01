@@ -72,6 +72,23 @@ class InMemorySupportRepository(SupportRepository):
         messages.sort(key=lambda item: item.created_at or datetime.fromtimestamp(0, tz=timezone.utc))
         return messages[:limit]
 
+    def list_person_tickets_page(
+        self,
+        person_id: UUID,
+        page: int,
+        per_page: int,
+    ) -> tuple[list[SupportTicket], int]:
+        """
+        Возвращает страницу тикетов пользователя и общее количество тикетов.
+        """
+        tickets = [ticket for ticket in self._tickets_by_id.values() if ticket.person_id == person_id]
+        tickets.sort(key=lambda item: item.created_at or datetime.fromtimestamp(0, tz=timezone.utc), reverse=True)
+        total = len(tickets)
+        start = (page - 1) * per_page
+        end = start + per_page
+        page_tickets = tickets[start:end]
+        return page_tickets, total
+
     def update_message_delivery(
         self,
         message_id: UUID,

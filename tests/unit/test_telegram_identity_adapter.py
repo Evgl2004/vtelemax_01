@@ -13,20 +13,22 @@ from vtelemax.core import (
     GetLoyaltyBalanceUseCase,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
-    GetVirtualCardUseCase,
-    ListOpenSupportTicketsTransactionalUseCase,
-    ListPersonSupportTicketsTransactionalUseCase,
+    GetPersonTicketsPageTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
+    GetVirtualCardUseCase,
     IdentityRepository,
     IdentityUnitOfWork,
     InMemoryIdentityRepository,
     InMemorySupportRepository,
+    ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     LoyaltyCard,
     LoyaltyCustomer,
     LoyaltyGateway,
     LoyaltyGatewayError,
     LoyaltyIssueCardResult,
     LoyaltyRegisterCustomerResult,
+    PersonTicketsPageResult,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -750,8 +752,8 @@ def test_telegram_legacy_phone_step_prefills_profile_from_iiko() -> None:
     assert resolved_person.email == "legacy@example.com"
 
 
-def test_telegram_support_question_reports_feature_in_development() -> None:
-    """Проверяет, что пункт «Мне только спросить» помечен как неготовый для пользователей."""
+def test_telegram_support_question_activates_question_input_when_no_tickets() -> None:
+    """Проверяет, что пункт «Мне только спросить» активирует ввод вопроса, если тикетов нет."""
 
     repository = InMemoryIdentityRepository()
     support_repository = InMemorySupportRepository()
@@ -763,10 +765,14 @@ def test_telegram_support_question_reports_feature_in_development() -> None:
     )
     support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    get_person_tickets_page_use_case = GetPersonTicketsPageTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     adapter = TelegramIdentityAdapter(
         registration_use_case,
         lookup_use_case,
         create_support_ticket_use_case=create_ticket_use_case,
+        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
     )
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
@@ -775,21 +781,31 @@ def test_telegram_support_question_reports_feature_in_development() -> None:
         action_text="❓ Мне только спросить (В разработке)",
     )
 
-    assert result.status == "support_question_unavailable"
-    assert "в разработке" in result.message.lower()
+    assert result.status == "support_question_input"
+    assert "в разработке" not in result.message.lower()
+    assert "введите ваш вопрос" in result.message.lower() or "задайте вопрос" in result.message.lower()
 
 
 def test_telegram_support_question_flow_allows_back_to_support_menu() -> None:
-    """После открытия неготового пункта возврат в меню заботы должен работать штатно."""
+    """После открытия пункта «Мне только спросить» возврат в меню заботы должен работать штатно."""
 
     repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
     lookup_use_case = GetPersonByAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    get_person_tickets_page_use_case = GetPersonTicketsPageTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
+    )
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
     first = adapter.handle_menu_action(
@@ -798,7 +814,7 @@ def test_telegram_support_question_flow_allows_back_to_support_menu() -> None:
     )
     back = adapter.handle_menu_action(telegram_user_id=1001, action_text="🔙 Назад в отдел заботы")
 
-    assert first.status == "support_question_unavailable"
+    assert first.status == "support_question_input"
     assert back.status == "support"
     assert "Отдел заботы" in back.message
 
@@ -819,11 +835,15 @@ def test_telegram_my_tickets_shows_created_tickets() -> None:
     list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
+    get_person_tickets_page_use_case = GetPersonTicketsPageTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
     adapter = TelegramIdentityAdapter(
         registration_use_case,
         lookup_use_case,
         create_support_ticket_use_case=create_ticket_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
+        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
     )
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
@@ -838,7 +858,8 @@ def test_telegram_my_tickets_shows_created_tickets() -> None:
 
     assert result.status == "tickets_list"
     assert "Ваши обращения" in result.message
-    assert "Тикет #" in result.message
+    assert "#" in result.message  # идентификатор тикета
+    assert "тикет" in result.message.lower()  # упоминание в пояснении
 
 
 def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> None:

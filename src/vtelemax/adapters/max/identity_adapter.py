@@ -16,6 +16,7 @@ from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
+    GetPersonTicketsPageTransactionalUseCase,
     LoyaltyCustomerUpsertData,
     LoyaltyGateway,
     LoyaltyGatewayError,
@@ -31,6 +32,7 @@ from vtelemax.core import (
     OnboardingFlowService,
     OnboardingState,
     PersonSupportTicketSummary,
+    PersonTicketsPageResult,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -44,6 +46,10 @@ from vtelemax.core import (
 
 from .menu_adapter import MaxGuestMenuAdapter, MaxScreen
 from .payloads import resolve_action_from_max_payload
+
+# Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
+USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
+USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 
 _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
@@ -99,6 +105,7 @@ class MaxIdentityAdapter:
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
         list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
+        get_person_tickets_page_use_case: GetPersonTicketsPageTransactionalUseCase | None = None,
         balance_use_case: GetLoyaltyBalanceUseCase | None = None,
         virtual_card_use_case: GetVirtualCardUseCase | None = None,
         loyalty_gateway: LoyaltyGateway | None = None,
@@ -117,6 +124,7 @@ class MaxIdentityAdapter:
         self._ticket_details_use_case = ticket_details_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
         self._list_person_tickets_use_case = list_person_tickets_use_case
+        self._get_person_tickets_page_use_case = get_person_tickets_page_use_case
         self._balance_use_case = balance_use_case
         self._virtual_card_use_case = virtual_card_use_case
         self._loyalty_gateway = loyalty_gateway
@@ -312,6 +320,22 @@ class MaxIdentityAdapter:
         moderator_state = self._moderator_state_by_user_id.get(max_user_id)
         if moderator_state is not None:
             return self._handle_moderator_state_input(max_user_id=max_user_id, text=text)
+
+        # Обработка callback'ов пагинации тикетов
+        if payload and isinstance(payload, dict):
+            cmd = str(payload.get("cmd", "")).strip()
+            if cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX):
+                try:
+                    page = int(cmd[len(USER_TICKETS_PREV_PAGE_PREFIX):])
+                except ValueError:
+                    page = 1
+                return self._show_user_tickets_page(max_user_id=max_user_id, page=page, per_page=5)
+            if cmd.startswith(USER_TICKETS_NEXT_PAGE_PREFIX):
+                try:
+                    page = int(cmd[len(USER_TICKETS_NEXT_PAGE_PREFIX):])
+                except ValueError:
+                    page = 1
+                return self._show_user_tickets_page(max_user_id=max_user_id, page=page, per_page=5)
 
         action = resolve_action_from_max_payload(payload)
         if action is None:
@@ -1427,22 +1451,26 @@ class MaxIdentityAdapter:
                 return MaxAdapterResponse(
                     text=(
                         "📭 У вас пока нет обращений.\n\n"
-                        f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке."
+                        f"Нажмите «{BUTTON_SUPPORT_QUESTION}», чтобы задать вопрос."
                     )
                 )
             return MaxAdapterResponse(text=self._format_person_tickets_message(tickets))
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
             has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
-            support_screen = self._menu_adapter.build_support_menu_screen(has_tickets=has_tickets)
-            return MaxAdapterResponse(
-                text=(
-                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
-                    "Выберите другой вариант в разделе «Отдел заботы»."
-                ),
-                screen=support_screen,
-                parse_mode=support_screen.parse_mode,
-            )
+            if has_tickets:
+                # Показываем первую страницу тикетов с пагинацией
+                return self._show_user_tickets_page(max_user_id=max_user_id, page=1, per_page=5)
+            # тикетов нет — переходим в состояние ожидания вопроса
+            self._state_by_user_id[max_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+            screen = self._menu_adapter.build_support_question_screen()
+            return MaxAdapterResponse(text=screen.text, screen=screen)
+
+        if action == GuestMenuAction.SUPPORT_QUESTION_FROM_LIST:
+            # Всегда переходим к созданию нового тикета, независимо от наличия тикетов
+            self._state_by_user_id[max_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+            screen = self._menu_adapter.build_support_question_screen()
+            return MaxAdapterResponse(text=screen.text, screen=screen)
 
         if action == GuestMenuAction.MAIN_MENU:
             screen = self._menu_adapter.build_main_menu_screen(user_name=menu_user_name)
@@ -1548,8 +1576,70 @@ class MaxIdentityAdapter:
                     )
                 )
             )
-        lines.append(f"\n🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.")
         return "\n\n".join(lines)
+
+    def _show_user_tickets_page(
+        self,
+        max_user_id: int,
+        page: int = 1,
+        per_page: int = 5,
+    ) -> MaxAdapterResponse:
+        """Показывает страницу тикетов пользователя с пагинацией."""
+
+        if self._get_person_tickets_page_use_case is None:
+            # Fallback: используем старый метод без пагинации
+            tickets = self._list_user_tickets(
+                platform="max",
+                external_id=str(max_user_id),
+                limit=5,
+            )
+            if not tickets:
+                # Нет тикетов — показываем экран с предложением задать вопрос
+                screen = self._menu_adapter.build_support_question_screen()
+                return MaxAdapterResponse(text=screen.text, screen=screen)
+            return MaxAdapterResponse(text=self._format_person_tickets_message(tickets))
+
+        try:
+            page_result = self._get_person_tickets_page_use_case.execute(
+                platform="max",
+                external_id=str(max_user_id),
+                page=page,
+                per_page=per_page,
+            )
+        except ValueError:
+            return MaxAdapterResponse(
+                text="Произошла ошибка при загрузке обращений."
+            )
+
+        if not page_result.tickets:
+            # Нет тикетов — показываем экран с предложением задать вопрос
+            screen = self._menu_adapter.build_support_question_screen()
+            return MaxAdapterResponse(text=screen.text, screen=screen)
+
+        # Форматируем сообщение со страницей
+        message = self._format_person_tickets_page_message(page_result)
+        # Создаем экран пагинации
+        screen = self._menu_adapter.build_user_tickets_pagination_screen(
+            current_page=page_result.page,
+            total_pages=page_result.total_pages,
+            has_tickets=True,
+        )
+        return MaxAdapterResponse(text=message, screen=screen)
+
+    def _format_person_tickets_page_message(self, page_result: PersonTicketsPageResult) -> str:
+        """Форматирует страницу тикетов пользователя с пагинацией."""
+
+        lines = [f"📋 Ваши обращения (страница {page_result.page}/{page_result.total_pages}):"]
+        status_emoji = {"open": "🆕", "closed": "🔒"}
+        
+        for i, ticket in enumerate(page_result.tickets, 1):
+            created_at = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
+            short_status = "открыт" if ticket.status.value == "open" else "закрыт"
+            lines.append(
+                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{ticket.ticket_id} от {created_at}: {short_status}"
+            )
+        
+        return "\n".join(lines)
 
     def _build_profile_text_for_draft(self, max_user_id: int) -> str:
         """Формирует текст review-профиля на основании черновика onboarding и сохранённого Person."""

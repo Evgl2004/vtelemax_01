@@ -622,38 +622,38 @@ def test_max_invalid_phone_returns_validation_error() -> None:
     assert "только через кнопку" in response.text
 
 
-def test_max_support_question_flow_returns_to_main_menu() -> None:
-    """Проверяет, что пункт «Мне только спросить» помечен как неготовый для гостей."""
+def test_max_support_question_activates_question_input_when_no_tickets() -> None:
+    """Проверяет, что пункт «Мне только спросить» активирует ввод вопроса, если нет тикетов."""
 
     adapter = _build_adapter()
     _complete_max_registration(adapter)
 
     result = adapter.handle_incoming(
         max_user_id=1001,
-        text="❓ Мне только спросить (В разработке)",
+        text="❓ Мне только спросить",
         payload=None,
     )
 
-    assert "в разработке" in result.text.lower()
+    assert "введите ваш вопрос" in result.text.lower()
     assert result.screen is not None
-    assert result.screen.screen_id == "support_menu"
+    assert result.screen.screen_id == "support_question"
 
 
 def test_max_support_question_flow_allows_back_to_support_by_callback() -> None:
-    """После открытия неготового пункта callback «Назад в отдел заботы» оставляет в меню заботы."""
+    """После открытия экрана вопроса callback «Назад в отдел заботы» возвращает в меню заботы."""
 
     adapter = _build_adapter(with_support=True)
     _complete_max_registration(adapter)
 
     first = adapter.handle_incoming(
         max_user_id=1001,
-        text="❓ Мне только спросить (В разработке)",
+        text="❓ Мне только спросить",
         payload=None,
     )
     back = adapter.handle_incoming(max_user_id=1001, text="", payload="back_to_support")
 
     assert first.screen is not None
-    assert first.screen.screen_id == "support_menu"
+    assert first.screen.screen_id == "support_question"
     assert back.screen is not None
     assert back.screen.screen_id == "support_menu"
     assert "Отдел заботы" in back.text

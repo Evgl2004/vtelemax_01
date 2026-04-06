@@ -34,6 +34,7 @@ from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
+    GetPersonTicketsPageTransactionalUseCase,
     LoyaltyCustomerUpsertData,
     LoyaltyGateway,
     LoyaltyGatewayError,
@@ -46,6 +47,7 @@ from vtelemax.core import (
     OnboardingFlowService,
     OnboardingState,
     PersonSupportTicketSummary,
+    PersonTicketsPageResult,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     IdentityConflictError,
@@ -67,6 +69,7 @@ from vtelemax.core import (
     build_support_contacts_screen,
     build_support_feedback_screen,
     build_support_menu_screen,
+    build_support_question_screen,
     build_virtual_card_result_screen,
     build_vacancies_screen,
     normalize_email,
@@ -74,6 +77,13 @@ from vtelemax.core import (
     normalize_person_name,
     parse_birth_date,
     resolve_guest_menu_action,
+)
+
+from .menu import (
+    USER_TICKETS_PAGE_PREFIX,
+    USER_TICKETS_PREV_PAGE_PREFIX,
+    USER_TICKETS_NEXT_PAGE_PREFIX,
+    build_user_tickets_pagination_keyboard,
 )
 
 
@@ -100,6 +110,8 @@ class TelegramMenuActionResult:
     has_support_tickets: bool = False
     can_edit_birth_date: bool | None = None
     virtual_card_numbers: tuple[str, ...] = ()
+    current_page: int | None = None
+    total_pages: int | None = None
 
 
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
@@ -139,6 +151,7 @@ class TelegramIdentityAdapter:
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
         list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
+        get_person_tickets_page_use_case: GetPersonTicketsPageTransactionalUseCase | None = None,
         balance_use_case: GetLoyaltyBalanceUseCase | None = None,
         virtual_card_use_case: GetVirtualCardUseCase | None = None,
         loyalty_gateway: LoyaltyGateway | None = None,
@@ -157,6 +170,7 @@ class TelegramIdentityAdapter:
         self._ticket_details_use_case = ticket_details_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
         self._list_person_tickets_use_case = list_person_tickets_use_case
+        self._get_person_tickets_page_use_case = get_person_tickets_page_use_case
         self._balance_use_case = balance_use_case
         self._virtual_card_use_case = virtual_card_use_case
         self._loyalty_gateway = loyalty_gateway
@@ -617,19 +631,11 @@ class TelegramIdentityAdapter:
                 self._dialog_state_by_user_id.pop(telegram_user_id, None)
                 return self.handle_menu_action(telegram_user_id=telegram_user_id, action_text=action_text)
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
-            has_tickets = self._has_user_tickets(
-                platform="telegram",
-                external_id=str(telegram_user_id),
-            )
-            screen = build_support_menu_screen(has_tickets=has_tickets)
-            return TelegramMenuActionResult(
-                status="support_question_unavailable",
-                message=(
-                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
-                    "Выберите другой вариант в разделе «Отдел заботы»."
-                ),
-                parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
-                has_support_tickets=has_tickets,
+            # Если пользователь ввел что-то неожиданное в состоянии ожидания вопроса,
+            # обрабатываем это как вопрос
+            return self._handle_support_question_input(
+                telegram_user_id=telegram_user_id,
+                question_text=action_text,
             )
         if dialog_state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice_input(
@@ -660,6 +666,28 @@ class TelegramIdentityAdapter:
             return self._handle_profile_edit_email_input(
                 telegram_user_id=telegram_user_id,
                 action_text=action_text,
+            )
+
+        # Обработка callback'ов пагинации тикетов
+        if action_text.startswith(USER_TICKETS_PREV_PAGE_PREFIX):
+            try:
+                page = int(action_text[len(USER_TICKETS_PREV_PAGE_PREFIX):])
+            except ValueError:
+                page = 1
+            return self._show_user_tickets_page(
+                telegram_user_id=telegram_user_id,
+                page=page,
+                per_page=5,
+            )
+        if action_text.startswith(USER_TICKETS_NEXT_PAGE_PREFIX):
+            try:
+                page = int(action_text[len(USER_TICKETS_NEXT_PAGE_PREFIX):])
+            except ValueError:
+                page = 1
+            return self._show_user_tickets_page(
+                telegram_user_id=telegram_user_id,
+                page=page,
+                per_page=5,
             )
 
         action = resolve_guest_menu_action(action_text)
@@ -779,15 +807,34 @@ class TelegramIdentityAdapter:
                 platform="telegram",
                 external_id=str(telegram_user_id),
             )
-            screen = build_support_menu_screen(has_tickets=has_tickets)
+            
+            if not has_tickets:
+                # Если тикетов нет, переходим к созданию нового тикета
+                self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+                screen = build_support_question_screen()
+                return TelegramMenuActionResult(
+                    status="support_question_input",
+                    message=screen.text,
+                    parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+                    has_support_tickets=False,
+                )
+            else:
+                # Если тикеты есть, показываем первую страницу списка тикетов
+                return self._show_user_tickets_page(
+                    telegram_user_id=telegram_user_id,
+                    page=1,
+                    per_page=5,
+                )
+
+        if action == GuestMenuAction.SUPPORT_QUESTION_FROM_LIST:
+            # Всегда переходим к созданию нового тикета, независимо от наличия тикетов
+            self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+            screen = build_support_question_screen()
             return TelegramMenuActionResult(
-                status="support_question_unavailable",
-                message=(
-                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
-                    "Выберите другой вариант в разделе «Отдел заботы»."
-                ),
+                status="support_question_input",
+                message=screen.text,
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
-                has_support_tickets=has_tickets,
+                has_support_tickets=False,
             )
 
         if action == GuestMenuAction.SUPPORT_CONTACTS:
@@ -809,24 +856,11 @@ class TelegramIdentityAdapter:
             return self._handle_virtual_card_action(telegram_user_id=telegram_user_id)
 
         if action == GuestMenuAction.MY_TICKETS:
-            tickets = self._list_user_tickets(
-                platform="telegram",
-                external_id=str(telegram_user_id),
-                limit=10,
-            )
-            if not tickets:
-                return TelegramMenuActionResult(
-                    status="tickets_empty",
-                    message=(
-                        "📭 У вас пока нет обращений.\n\n"
-                        f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке."
-                    ),
-                    has_support_tickets=False,
-                )
-            return TelegramMenuActionResult(
-                status="tickets_list",
-                message=self._format_person_tickets_message(tickets),
-                has_support_tickets=True,
+            # Показываем первую страницу тикетов с пагинацией
+            return self._show_user_tickets_page(
+                telegram_user_id=telegram_user_id,
+                page=1,
+                per_page=5,
             )
 
         return TelegramMenuActionResult(
@@ -1798,27 +1832,110 @@ class TelegramIdentityAdapter:
         except ValueError:
             return ()
 
+    def _show_user_tickets_page(
+        self,
+        telegram_user_id: int,
+        page: int = 1,
+        per_page: int = 5,
+    ) -> TelegramMenuActionResult:
+        """Показывает страницу тикетов пользователя с пагинацией."""
+
+        if self._get_person_tickets_page_use_case is None:
+            # Fallback: используем старый метод без пагинации
+            tickets = self._list_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+                limit=10,
+            )
+            if not tickets:
+                return TelegramMenuActionResult(
+                    status="tickets_empty",
+                    message=(
+                        "📭 У вас пока нет обращений.\n\n"
+                        "Нажмите «❓ Мне только спросить», чтобы задать вопрос."
+                    ),
+                    has_support_tickets=False,
+                    current_page=1,
+                    total_pages=1,
+                )
+            return TelegramMenuActionResult(
+                status="tickets_list",
+                message=self._format_person_tickets_message(tickets),
+                has_support_tickets=True,
+                current_page=1,
+                total_pages=1,
+            )
+
+        try:
+            page_result = self._get_person_tickets_page_use_case.execute(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+                page=page,
+                per_page=per_page,
+            )
+        except ValueError:
+            return TelegramMenuActionResult(
+                status="tickets_error",
+                message="Произошла ошибка при загрузке обращений.",
+                has_support_tickets=False,
+            )
+
+        if not page_result.tickets:
+            return TelegramMenuActionResult(
+                status="tickets_empty",
+                message=(
+                    "📭 У вас пока нет обращений.\n\n"
+                    "Нажмите «❓ Мне только спросить», чтобы задать вопрос."
+                ),
+                has_support_tickets=False,
+                current_page=page,
+                total_pages=page_result.total_pages,
+            )
+
+        # Форматируем сообщение с пагинацией
+        message = self._format_person_tickets_page_message(page_result)
+        return TelegramMenuActionResult(
+            status="tickets_list",
+            message=message,
+            has_support_tickets=True,
+            current_page=page_result.page,
+            total_pages=page_result.total_pages,
+        )
+
+    def _format_person_tickets_page_message(self, page_result: PersonTicketsPageResult) -> str:
+        """Форматирует страницу тикетов пользователя с пагинацией."""
+
+        lines = [f"📋 Ваши обращения (страница {page_result.page}/{page_result.total_pages}):"]
+        status_emoji = {"open": "🆕", "closed": "🔒"}
+        
+        for i, ticket in enumerate(page_result.tickets, 1):
+            created_at = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
+            short_status = "открыт" if ticket.status.value == "open" else "закрыт"
+            lines.append(
+                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{ticket.ticket_id} от {created_at}: {short_status}"
+            )
+        
+        if page_result.total_pages > 1:
+            lines.append(f"\n📄 Страница {page_result.page} из {page_result.total_pages}")
+        
+        lines.append("\nℹ️ Для просмотра деталей тикета или ответа используйте кнопки ниже.")
+        return "\n".join(lines)
+
     @staticmethod
     def _format_person_tickets_message(tickets: tuple[PersonSupportTicketSummary, ...]) -> str:
         """Форматирует список тикетов пользователя в текстовое представление."""
 
         lines = ["📋 Ваши обращения:"]
         status_emoji = {"open": "🆕", "closed": "🔒"}
-        for ticket in tickets:
+        for i, ticket in enumerate(tickets, 1):
             created_at = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+            short_status = "открыт" if ticket.status.value == "open" else "закрыт"
             lines.append(
-                "\n".join(
-                    (
-                        f"{status_emoji.get(ticket.status.value, '❓')} Тикет #{ticket.ticket_id}",
-                        f"Статус: {ticket.status.value}",
-                        f"Канал создания: {ticket.source_platform}",
-                        f"Последняя платформа: {ticket.last_guest_platform or '—'}",
-                        f"Создан: {created_at}",
-                    )
-                )
+                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{ticket.ticket_id} от {created_at}: {short_status}"
             )
-        lines.append(f"\n🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.")
-        return "\n\n".join(lines)
+        
+        lines.append("\nℹ️ Для просмотра деталей тикета или ответа используйте кнопки ниже.")
+        return "\n".join(lines)
 
     @staticmethod
     def _normalize_first_name(raw_text: str) -> str | None:

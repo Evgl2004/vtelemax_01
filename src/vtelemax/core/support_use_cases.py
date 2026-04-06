@@ -338,6 +338,83 @@ class ListPersonSupportTicketsTransactionalUseCase:
 
 
 @dataclass(frozen=True, slots=True)
+class PersonTicketsPageResult:
+    """Результат страницы тикетов пользователя с пагинацией."""
+
+    tickets: tuple[PersonSupportTicketSummary, ...]
+    total_tickets: int
+    page: int
+    per_page: int
+    total_pages: int
+
+
+class GetPersonTicketsPageTransactionalUseCase:
+    """Возвращает страницу тикетов пользователя с пагинацией."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(
+        self,
+        *,
+        platform: PlatformName,
+        external_id: str,
+        page: int = 1,
+        per_page: int = 5,
+    ) -> PersonTicketsPageResult:
+        """Читает страницу тикетов пользователя по его аккаунту платформы."""
+
+        if platform not in SUPPORTED_PLATFORMS:
+            raise ValueError("Платформа не поддерживается.")
+
+        safe_external_id = str(external_id).strip()
+        if not safe_external_id:
+            raise ValueError("Внешний идентификатор аккаунта не может быть пустым.")
+
+        if page < 1:
+            page = 1
+        if per_page < 1:
+            per_page = 5
+
+        with self._unit_of_work_factory() as unit_of_work:
+            person = unit_of_work.identity_repository.get_person_by_account(platform, safe_external_id)
+            if person is None:
+                # Если пользователь не найден, возвращаем пустую страницу
+                return PersonTicketsPageResult(
+                    tickets=(),
+                    total_tickets=0,
+                    page=page,
+                    per_page=per_page,
+                    total_pages=0,
+                )
+            tickets, total = unit_of_work.support_repository.list_person_tickets_page(
+                person_id=person.person_id,
+                page=page,
+                per_page=per_page,
+            )
+
+            total_pages = (total + per_page - 1) // per_page if total > 0 else 0
+
+            summaries = tuple(
+                PersonSupportTicketSummary(
+                    ticket_id=ticket.ticket_id,
+                    status=ticket.status,
+                    source_platform=ticket.source_platform,
+                    last_guest_platform=ticket.last_guest_platform,
+                    created_at=ticket.created_at,
+                )
+                for ticket in tickets
+            )
+            return PersonTicketsPageResult(
+                tickets=summaries,
+                total_tickets=total,
+                page=page,
+                per_page=per_page,
+                total_pages=total_pages,
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class PendingModeratorDelivery:
     """Краткая карточка pending-сообщения модератора для доставки в мессенджер."""
 
