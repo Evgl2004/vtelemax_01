@@ -12,6 +12,8 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SUPPORT_QUESTION,
+    BUTTON_MY_TICKETS,
+    BUTTON_BACK_TO_SUPPORT,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
@@ -43,8 +45,8 @@ from vtelemax.core import (
     resolve_guest_menu_action,
 )
 
-from .menu_adapter import VkGuestMenuAdapter, VkScreen
-from .payloads import resolve_action_from_vk_payload
+from .menu_adapter import VkButton, VkGuestMenuAdapter, VkScreen
+from .payloads import build_vk_payload, resolve_action_from_vk_payload
 
 _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
@@ -1443,19 +1445,8 @@ class VkIdentityAdapter:
             return self._handle_virtual_card_action(person_phone_e164=person.phone_e164)
 
         if action == GuestMenuAction.MY_TICKETS:
-            tickets = self._list_user_tickets(
-                platform="vk",
-                external_id=str(vk_user_id),
-                limit=5,
-            )
-            if not tickets:
-                return VkAdapterResponse(
-                    text=(
-                        "📭 У вас пока нет обращений.\n\n"
-                        f"Нажмите «{BUTTON_SUPPORT_QUESTION}», чтобы задать вопрос."
-                    )
-                )
-            return VkAdapterResponse(text=self._format_person_tickets_message(tickets))
+            # Показываем первую страницу тикетов с пагинацией
+            return self._show_user_tickets_page(vk_user_id=vk_user_id, page=1, per_page=3)
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
             has_tickets = self._has_user_tickets(platform="vk", external_id=str(vk_user_id))
@@ -1845,8 +1836,20 @@ class VkIdentityAdapter:
         
         message = "\n".join(message_lines)
         
+        # Создаем экран с кнопкой "Назад к списку обращений"
+        back_button = VkButton(
+            label=BUTTON_MY_TICKETS,
+            payload=build_vk_payload(GuestMenuAction.MY_TICKETS),
+        )
+        screen = VkScreen(
+            screen_id="ticket_details",
+            text=message,
+            rows=((back_button,),),
+        )
+        
         return VkAdapterResponse(
             text=message,
+            screen=screen,
         )
 
     def _sync_registration_with_loyalty(

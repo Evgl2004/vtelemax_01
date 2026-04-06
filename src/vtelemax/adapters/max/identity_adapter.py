@@ -13,6 +13,8 @@ from vtelemax.core import (
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT_QUESTION,
+    BUTTON_MY_TICKETS,
+    BUTTON_BACK_TO_SUPPORT,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
@@ -44,8 +46,8 @@ from vtelemax.core import (
     resolve_guest_menu_action,
 )
 
-from .menu_adapter import MaxGuestMenuAdapter, MaxScreen
-from .payloads import resolve_action_from_max_payload
+from .menu_adapter import MaxGuestMenuAdapter, MaxScreen, MaxButton
+from .payloads import resolve_action_from_max_payload, build_max_payload
 
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
@@ -315,8 +317,14 @@ class MaxIdentityAdapter:
             return self._handle_moderator_state_input(max_user_id=max_user_id, text=text)
 
         # Обработка callback'ов пагинации тикетов
-        if payload and isinstance(payload, dict):
-            cmd = str(payload.get("cmd", "")).strip()
+        if payload:
+            cmd: str
+            if isinstance(payload, dict):
+                raw_cmd = payload.get("cmd", "")
+                cmd = str(raw_cmd).strip()
+            else:
+                cmd = str(payload).strip()
+
             if cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX):
                 try:
                     page = int(cmd[len(USER_TICKETS_PREV_PAGE_PREFIX):])
@@ -1434,19 +1442,8 @@ class MaxIdentityAdapter:
             return self._handle_virtual_card_action(person_phone_e164=person.phone_e164)
 
         if action == GuestMenuAction.MY_TICKETS:
-            tickets = self._list_user_tickets(
-                platform="max",
-                external_id=str(max_user_id),
-                limit=10,
-            )
-            if not tickets:
-                return MaxAdapterResponse(
-                    text=(
-                        "📭 У вас пока нет обращений.\n\n"
-                        f"Нажмите «{BUTTON_SUPPORT_QUESTION}», чтобы задать вопрос."
-                    )
-                )
-            return MaxAdapterResponse(text=self._format_person_tickets_message(tickets))
+            # Показываем первую страницу тикетов с пагинацией
+            return self._show_user_tickets_page(max_user_id=max_user_id, page=1, per_page=5)
 
         if action == GuestMenuAction.SUPPORT_QUESTION:
             has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
@@ -1836,8 +1833,20 @@ class MaxIdentityAdapter:
         
         message = "\n".join(message_lines)
         
+        # Создаем экран с кнопкой "Назад к списку обращений"
+        back_button = MaxButton(
+            label=BUTTON_MY_TICKETS,
+            payload=build_max_payload(GuestMenuAction.MY_TICKETS),
+        )
+        screen = MaxScreen(
+            screen_id="ticket_details",
+            text=message,
+            rows=((back_button,),),
+        )
+        
         return MaxAdapterResponse(
             text=message,
+            screen=screen,
         )
 
     def _sync_registration_with_loyalty(

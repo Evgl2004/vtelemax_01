@@ -9,6 +9,8 @@ from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
     PersonSupportTicketSummary,
+    BUTTON_MY_TICKETS,
+    BUTTON_BACK_TO_SUPPORT,
     build_about_screen,
     build_balance_screen,
     build_delivery_screen,

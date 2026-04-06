@@ -18,6 +18,7 @@ from vtelemax.core import (
     GetPersonByAccountTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
     GetVirtualCardUseCase,
+    GetPersonTicketsPageTransactionalUseCase,
     ListOpenSupportTicketsTransactionalUseCase,
     ListPersonSupportTicketsTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
@@ -123,6 +124,17 @@ def build_list_person_tickets_use_case(
     return ListPersonSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_get_person_tickets_page_use_case(
+    session_factory: sessionmaker[Session],
+) -> GetPersonTicketsPageTransactionalUseCase:
+    """Собирает транзакционный use-case страницы тикетов пользователя с пагинацией."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return GetPersonTicketsPageTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def build_pull_pending_messages_use_case(
     session_factory: sessionmaker[Session],
 ) -> PullPendingModeratorMessagesTransactionalUseCase:
@@ -172,6 +184,7 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
     list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)
     list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
+    get_person_tickets_page_use_case = build_get_person_tickets_page_use_case(session_factory)
     pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
     update_delivery_status_use_case = build_update_delivery_status_use_case(session_factory)
     iiko_gateway = build_iiko_gateway(settings)
@@ -185,6 +198,7 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
         ticket_details_use_case=ticket_details_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
+        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
         balance_use_case=balance_use_case,
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,

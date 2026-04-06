@@ -14,7 +14,7 @@ from vkbottle_types.events import GroupEventType
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
-from .identity_adapter import VkAdapterResponse, VkIdentityAdapter
+from .identity_adapter import VkAdapterResponse, VkIdentityAdapter, USER_TICKETS_PREV_PAGE_PREFIX, USER_TICKETS_NEXT_PAGE_PREFIX, USER_TICKET_DETAILS_PREFIX
 from .keyboard_renderer import render_vk_keyboard
 from .payloads import resolve_action_from_vk_payload
 
@@ -324,6 +324,23 @@ def register_vk_guest_handlers(
         event_logger = router_logger.bind(stage="callback", user_id=str(event.user_id))
         await _try_process_pending_deliveries()
         payload = event.get_payload_json() or {}
+        
+        # Проверка префиксов тикетов
+        cmd = ""
+        if isinstance(payload, dict):
+            cmd = str(payload.get("cmd", "")).strip()
+        if cmd.startswith(USER_TICKET_DETAILS_PREFIX) or cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX) or cmd.startswith(USER_TICKETS_NEXT_PAGE_PREFIX):
+            # Обрабатываем через адаптер
+            response = adapter.handle_incoming(
+                vk_user_id=int(event.user_id),
+                text="",
+                payload=payload,
+            )
+            event_logger.info("Callback тикета обработан. cmd={cmd}.", cmd=cmd)
+            await event.send_empty_answer()
+            await _send_event_response(event, response)
+            return
+        
         action = resolve_action_from_vk_payload(payload if isinstance(payload, dict) else None)
         if action is None:
             # Для no-op и неизвестных payload обязательно подтверждаем callback,

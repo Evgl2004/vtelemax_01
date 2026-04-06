@@ -930,11 +930,12 @@ class TelegramIdentityAdapter:
                 ),
             )
 
+        short_id = self._format_ticket_id_short(created.ticket_id)
         return TelegramMenuActionResult(
             status="support_question_submitted",
             message=(
                 "📨 Ваш вопрос принят!\n"
-                f"🎫 Создан тикет #{created.ticket_id}\n"
+                f"🎫 Создан тикет #{short_id}\n"
                 "Канал обращения: telegram\n"
                 "Модератор рассмотрит обращение в ближайшее время."
             ),
