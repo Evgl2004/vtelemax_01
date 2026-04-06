@@ -23,6 +23,7 @@ from vtelemax.core import (
     PullPendingModeratorMessagesTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    SetSupportTicketStatusTransactionalUseCase,
     UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
 )
 from vtelemax.infrastructure.postgres import (
@@ -121,6 +122,17 @@ def build_list_open_tickets_use_case(
     return ListOpenSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_set_ticket_status_use_case(
+    session_factory: sessionmaker[Session],
+) -> SetSupportTicketStatusTransactionalUseCase:
+    """Собирает транзакционный use-case изменения статуса тикета модератором."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return SetSupportTicketStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def build_list_person_tickets_use_case(
     session_factory: sessionmaker[Session],
 ) -> ListPersonSupportTicketsTransactionalUseCase:
@@ -192,6 +204,7 @@ def build_bot(settings: AppSettings) -> Bot:
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
     ticket_conversation_use_case = build_ticket_conversation_use_case(session_factory)
     list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)
+    set_ticket_status_use_case = build_set_ticket_status_use_case(session_factory)
     list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
     get_person_tickets_page_use_case = build_get_person_tickets_page_use_case(session_factory)
     pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
@@ -207,6 +220,7 @@ def build_bot(settings: AppSettings) -> Bot:
         ticket_details_use_case=ticket_details_use_case,
         ticket_conversation_use_case=ticket_conversation_use_case,
         list_open_tickets_use_case=list_open_tickets_use_case,
+        set_ticket_status_use_case=set_ticket_status_use_case,
         list_person_tickets_use_case=list_person_tickets_use_case,
         get_person_tickets_page_use_case=get_person_tickets_page_use_case,
         balance_use_case=balance_use_case,

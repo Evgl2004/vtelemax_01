@@ -867,7 +867,7 @@ def test_vk_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     details = adapter.handle_incoming(vk_user_id=9999, text=ticket_id, payload=None)
 
     assert "Меню модератора" in open_menu.text
-    assert "Открытые тикеты:" in open_tickets.text
+    assert "Новые обращения:" in open_tickets.text
     assert "Введите UUID тикета" in wait_ticket.text
     assert "Некорректный ticket_id" in dirty_ticket.text
     assert "Введите текст ответа модератора" in wait_reply.text

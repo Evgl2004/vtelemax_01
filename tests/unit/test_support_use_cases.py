@@ -23,6 +23,8 @@ from vtelemax.core import (
     PersonProfilePatch,
     PullPendingModeratorMessagesTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    SetSupportTicketStatusCommand,
+    SetSupportTicketStatusTransactionalUseCase,
     SupportDeliveryStatus,
     SupportMessage,
     SupportMessageAuthor,
@@ -690,3 +692,77 @@ def test_support_repository_add_message_is_idempotent_by_message_id() -> None:
     messages = support_repository.list_messages(ticket_id)
     assert len(messages) == 1
     assert messages[0].message_id == duplicate_message_id
+
+
+def test_set_support_ticket_status_updates_open_to_closed() -> None:
+    """Проверяет успешную смену статуса тикета из open в closed."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-9001",
+            raw_phone="+79123450901",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-9001",
+            question_text="Нужно закрыть обращение после проверки.",
+        )
+    )
+
+    set_status_use_case = SetSupportTicketStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
+    result = set_status_use_case.execute(
+        SetSupportTicketStatusCommand(
+            ticket_id=created.ticket_id,
+            status=SupportTicketStatus.CLOSED,
+        )
+    )
+
+    assert result.previous_status == SupportTicketStatus.OPEN
+    assert result.new_status == SupportTicketStatus.CLOSED
+    stored_ticket = support_repository.get_ticket(created.ticket_id)
+    assert stored_ticket is not None
+    assert stored_ticket.status == SupportTicketStatus.CLOSED
+
+
+def test_set_support_ticket_status_rejects_reopen_closed_ticket() -> None:
+    """Проверяет грязный сценарий: закрытый тикет нельзя перевести обратно в работу."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-9002",
+            raw_phone="+79123450902",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-9002",
+            question_text="Тестовая заявка для проверки смены статусов.",
+        )
+    )
+    support_repository.update_ticket_status(created.ticket_id, SupportTicketStatus.CLOSED)
+
+    set_status_use_case = SetSupportTicketStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
+    with pytest.raises(ValueError, match="Закрытый тикет"):
+        set_status_use_case.execute(
+            SetSupportTicketStatusCommand(
+                ticket_id=created.ticket_id,
+                status=SupportTicketStatus.IN_PROGRESS,
+            )
+        )

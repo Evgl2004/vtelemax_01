@@ -298,6 +298,61 @@ class RouteModeratorReplyTransactionalUseCase:
 
 
 @dataclass(frozen=True, slots=True)
+class SetSupportTicketStatusCommand:
+    """Команда изменения статуса тикета модератором."""
+
+    ticket_id: UUID
+    status: SupportTicketStatus
+
+
+@dataclass(frozen=True, slots=True)
+class SetSupportTicketStatusResult:
+    """Результат изменения статуса тикета."""
+
+    ticket_id: UUID
+    previous_status: SupportTicketStatus
+    new_status: SupportTicketStatus
+
+
+class SetSupportTicketStatusTransactionalUseCase:
+    """Изменяет статус тикета с валидацией допустимых переходов."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: SetSupportTicketStatusCommand) -> SetSupportTicketStatusResult:
+        """Обновляет статус тикета в рамках транзакции."""
+
+        with self._unit_of_work_factory() as unit_of_work:
+            ticket = unit_of_work.support_repository.get_ticket(command.ticket_id)
+            if ticket is None:
+                raise ValueError("Тикет не найден.")
+
+            previous_status = ticket.status
+            new_status = command.status
+            if previous_status == new_status:
+                return SetSupportTicketStatusResult(
+                    ticket_id=ticket.ticket_id,
+                    previous_status=previous_status,
+                    new_status=new_status,
+                )
+
+            if previous_status == SupportTicketStatus.CLOSED and new_status != SupportTicketStatus.CLOSED:
+                raise ValueError("Закрытый тикет нельзя перевести в другой статус.")
+
+            unit_of_work.support_repository.update_ticket_status(
+                ticket_id=ticket.ticket_id,
+                status=new_status,
+            )
+            unit_of_work.commit()
+            return SetSupportTicketStatusResult(
+                ticket_id=ticket.ticket_id,
+                previous_status=previous_status,
+                new_status=new_status,
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class SupportTicketDetails:
     """Карточка тикета для модератора."""
 

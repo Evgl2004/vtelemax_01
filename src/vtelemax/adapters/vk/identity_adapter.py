@@ -38,7 +38,10 @@ from vtelemax.core import (
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    SetSupportTicketStatusCommand,
+    SetSupportTicketStatusTransactionalUseCase,
     SUPPORTED_PLATFORMS,
+    SupportTicketStatus,
     normalize_email,
     normalize_menu_text,
     normalize_person_name,
@@ -66,6 +69,8 @@ _STATE_MOD_MENU = "moderation_menu"
 _STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
 _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
 _STATE_MOD_WAIT_TICKET_FOR_DETAILS = "moderation_wait_ticket_for_details"
+_STATE_MOD_WAIT_TICKET_FOR_CLOSE = "moderation_wait_ticket_for_close"
+_STATE_MOD_WAIT_TICKET_FOR_IN_PROGRESS = "moderation_wait_ticket_for_in_progress"
 
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
@@ -108,6 +113,7 @@ class VkIdentityAdapter:
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         ticket_conversation_use_case: GetSupportTicketConversationTransactionalUseCase | None = None,
         list_open_tickets_use_case: ListOpenSupportTicketsTransactionalUseCase | None = None,
+        set_ticket_status_use_case: SetSupportTicketStatusTransactionalUseCase | None = None,
         list_person_tickets_use_case: ListPersonSupportTicketsTransactionalUseCase | None = None,
         get_person_tickets_page_use_case: GetPersonTicketsPageTransactionalUseCase | None = None,
         balance_use_case: GetLoyaltyBalanceUseCase | None = None,
@@ -128,6 +134,7 @@ class VkIdentityAdapter:
         self._ticket_details_use_case = ticket_details_use_case
         self._ticket_conversation_use_case = ticket_conversation_use_case
         self._list_open_tickets_use_case = list_open_tickets_use_case
+        self._set_ticket_status_use_case = set_ticket_status_use_case
         self._list_person_tickets_use_case = list_person_tickets_use_case
         self._get_person_tickets_page_use_case = get_person_tickets_page_use_case
         self._balance_use_case = balance_use_case
@@ -1087,6 +1094,18 @@ class VkIdentityAdapter:
                 vk_user_id=vk_user_id,
                 raw_ticket_id=raw,
             )
+        if state == _STATE_MOD_WAIT_TICKET_FOR_CLOSE:
+            return self._handle_moderator_wait_ticket_for_status_change(
+                vk_user_id=vk_user_id,
+                raw_ticket_id=raw,
+                new_status=SupportTicketStatus.CLOSED,
+            )
+        if state == _STATE_MOD_WAIT_TICKET_FOR_IN_PROGRESS:
+            return self._handle_moderator_wait_ticket_for_status_change(
+                vk_user_id=vk_user_id,
+                raw_ticket_id=raw,
+                new_status=SupportTicketStatus.IN_PROGRESS,
+            )
 
         self._clear_moderator_state(vk_user_id)
         return VkAdapterResponse(
@@ -1097,7 +1116,11 @@ class VkIdentityAdapter:
         """Обрабатывает выбор пункта главного меню модератора."""
 
         if lowered_text in {"1", "тикеты", "список"}:
-            tickets_text = self._build_open_tickets_text(limit=5)
+            tickets_text = self._build_tickets_text_by_status(
+                title="Новые обращения:",
+                statuses=(SupportTicketStatus.OPEN,),
+                limit=10,
+            )
             return VkAdapterResponse(text=f"{tickets_text}\n\n{self._build_moderation_menu_text()}")
 
         if lowered_text in {"2", "ответ", "ответить"}:
@@ -1116,6 +1139,42 @@ class VkIdentityAdapter:
             return VkAdapterResponse(
                 text=(
                     "Введите UUID тикета, чтобы показать карточку обращения.\n"
+                    "Для отмены отправьте «Отмена»."
+                )
+            )
+
+        if lowered_text in {"4", "в работе", "работа", "активные"}:
+            tickets_text = self._build_tickets_text_by_status(
+                title="Обращения в работе:",
+                statuses=(SupportTicketStatus.IN_PROGRESS,),
+                limit=10,
+            )
+            return VkAdapterResponse(text=f"{tickets_text}\n\n{self._build_moderation_menu_text()}")
+
+        if lowered_text in {"5", "закрытые", "архив"}:
+            tickets_text = self._build_tickets_text_by_status(
+                title="Закрытые обращения:",
+                statuses=(SupportTicketStatus.CLOSED,),
+                limit=10,
+            )
+            return VkAdapterResponse(text=f"{tickets_text}\n\n{self._build_moderation_menu_text()}")
+
+        if lowered_text in {"6", "закрыть", "close"}:
+            self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_WAIT_TICKET_FOR_CLOSE
+            self._moderator_context_by_user_id.pop(vk_user_id, None)
+            return VkAdapterResponse(
+                text=(
+                    "Введите UUID тикета, который нужно закрыть.\n"
+                    "Для отмены отправьте «Отмена»."
+                )
+            )
+
+        if lowered_text in {"7", "вработу", "в_работу", "take"}:
+            self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_WAIT_TICKET_FOR_IN_PROGRESS
+            self._moderator_context_by_user_id.pop(vk_user_id, None)
+            return VkAdapterResponse(
+                text=(
+                    "Введите UUID тикета, который нужно перевести в статус «В работе».\n"
                     "Для отмены отправьте «Отмена»."
                 )
             )
@@ -1247,21 +1306,69 @@ class VkIdentityAdapter:
             text="\n".join(message_lines)
         )
 
-    def _build_open_tickets_text(self, *, limit: int) -> str:
-        """Формирует текст открытых тикетов для модераторского меню."""
+    def _handle_moderator_wait_ticket_for_status_change(
+        self,
+        *,
+        vk_user_id: int,
+        raw_ticket_id: str,
+        new_status: SupportTicketStatus,
+    ) -> VkAdapterResponse:
+        """Обрабатывает ввод ticket_id для смены статуса тикета."""
+
+        ticket_id = self._parse_ticket_id(raw_ticket_id)
+        if ticket_id is None:
+            return VkAdapterResponse(text="Некорректный ticket_id. Ожидается UUID.")
+
+        if self._set_ticket_status_use_case is None:
+            return VkAdapterResponse(text="Изменение статуса тикета временно недоступно.")
+
+        try:
+            result = self._set_ticket_status_use_case.execute(
+                SetSupportTicketStatusCommand(
+                    ticket_id=ticket_id,
+                    status=new_status,
+                )
+            )
+        except ValueError as error:
+            return VkAdapterResponse(text=f"Не удалось изменить статус тикета: {error}")
+
+        self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id.pop(vk_user_id, None)
+        _, previous_status_text = self._format_ticket_status(result.previous_status.value)
+        _, new_status_text = self._format_ticket_status(result.new_status.value)
+        short_id = self._format_ticket_id_short(result.ticket_id)
+        return VkAdapterResponse(
+            text=(
+                f"✅ Статус тикета #{short_id} обновлен: {previous_status_text} → {new_status_text}.\n\n"
+                f"{self._build_moderation_menu_text()}"
+            )
+        )
+
+    def _build_tickets_text_by_status(
+        self,
+        *,
+        title: str,
+        statuses: tuple[SupportTicketStatus, ...],
+        limit: int,
+    ) -> str:
+        """Формирует текст тикетов по выбранным статусам для меню модератора."""
 
         if self._list_open_tickets_use_case is None:
             return "Список тикетов недоступен: list-open-use-case не подключен."
 
-        tickets = self._list_open_tickets_use_case.execute(limit=limit)
+        tickets = self._list_open_tickets_use_case.execute(limit=limit, statuses=statuses)
         if not tickets:
-            return "Открытых тикетов сейчас нет."
+            return f"{title}\nСейчас обращений в этой категории нет."
 
-        lines = ["Открытые тикеты:"]
+        lines = [title]
         for index, ticket in enumerate(tickets, start=1):
+            status_emoji, status_text = self._format_ticket_status(ticket.status.value)
+            short_id = self._format_ticket_id_short(ticket.ticket_id)
             lines.append(
-                f"{index}. #{ticket.ticket_id} | канал={ticket.source_platform} | "
-                f"последний={ticket.last_guest_platform or '-'}"
+                f"{index}. {status_emoji} #{short_id} | "
+                f"канал={ticket.source_platform} | "
+                f"последний={ticket.last_guest_platform or '-'} | "
+                f"статус={status_text}"
             )
         return "\n".join(lines)
 
@@ -1271,9 +1378,13 @@ class VkIdentityAdapter:
 
         return (
             "🛠 Меню модератора\n"
-            "1 — Список открытых тикетов\n"
+            "1 — Новые обращения\n"
             "2 — Ответить на тикет\n"
             "3 — Показать карточку тикета\n"
+            "4 — Обращения в работе\n"
+            "5 — Закрытые обращения\n"
+            "6 — Закрыть тикет\n"
+            "7 — Перевести тикет в работу\n"
             "0 — Выйти из режима модератора"
         )
 
