@@ -639,26 +639,6 @@ def test_max_support_question_activates_question_input_when_no_tickets() -> None
     assert result.screen.screen_id == "support_question"
 
 
-def test_max_support_question_flow_allows_back_to_support_by_callback() -> None:
-    """После открытия экрана вопроса callback «Назад в отдел заботы» возвращает в меню заботы."""
-
-    adapter = _build_adapter(with_support=True)
-    _complete_max_registration(adapter)
-
-    first = adapter.handle_incoming(
-        max_user_id=1001,
-        text="❓ Мне только спросить",
-        payload=None,
-    )
-    back = adapter.handle_incoming(max_user_id=1001, text="", payload="back_to_support")
-
-    assert first.screen is not None
-    assert first.screen.screen_id == "support_question"
-    assert back.screen is not None
-    assert back.screen.screen_id == "support_menu"
-    assert "Отдел заботы" in back.text
-
-
 def test_max_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения»: после создания тикета возвращается список."""
 
@@ -675,7 +655,7 @@ def test_max_my_tickets_shows_created_tickets() -> None:
     tickets_response = adapter.handle_incoming(max_user_id=1001, text="📋 Мои обращения", payload=None)
 
     assert "Ваши обращения" in tickets_response.text
-    assert "Тикет #" in tickets_response.text
+    assert "#" in tickets_response.text  # Короткий идентификатор тикета
 
 
 def test_max_legacy_start_requests_phone_confirmation() -> None:

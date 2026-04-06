@@ -42,6 +42,7 @@ from vtelemax.core import (
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
     GuestMenuAction,
+    PersonSupportTicketSummary,
     build_delivery_screen,
 )
 
@@ -51,6 +52,7 @@ NOTIFY_NO_CALLBACK = "notify_no"
 USER_TICKETS_PAGE_PREFIX = "user_tickets_page_"
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
+USER_TICKET_DETAILS_PREFIX = "user_ticket_"
 PERSONAL_DATA_CONSENT_BUTTON_LABEL = "📄 Согласие на ПД"
 PRIVACY_POLICY_BUTTON_LABEL = "📄 Политика конфиденциальности"
 PERSONAL_DATA_CONSENT_URL = "https://sagur.24vds.ru/personal-data-consent/tg/"
@@ -297,38 +299,42 @@ def build_main_menu_keyboard() -> ReplyKeyboardMarkup:
 def build_user_tickets_pagination_keyboard(
     current_page: int,
     total_pages: int,
+    tickets: tuple[PersonSupportTicketSummary, ...] = (),
     has_tickets: bool = True,
 ) -> InlineKeyboardMarkup:
     """Создает inline-клавиатуру для пагинации списка тикетов пользователя."""
     
     buttons = []
     
-    # Кнопки навигации
-    nav_buttons = []
-    if current_page > 1:
-        nav_buttons.append(
+    # Кнопки тикетов (если есть)
+    for ticket in tickets:
+        # Эмодзи статуса
+        status_emoji = {
+            "open": "🆕",
+            "closed": "🔒",
+        }.get(ticket.status.value, "❓")
+        
+        # Короткий идентификатор (последние 4 символа UUID в верхнем регистре)
+        short_id = str(ticket.ticket_id)[-4:].upper()
+        
+        # Дата создания
+        date_str = ""
+        if ticket.created_at:
+            date_str = ticket.created_at.strftime("%d.%m")
+        
+        # Текст кнопки
+        label = f"{status_emoji} #{short_id}"
+        if date_str:
+            label += f" от {date_str}"
+        
+        buttons.append([
             InlineKeyboardButton(
-                text="◀️ Назад",
-                callback_data=f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}",
+                text=label,
+                callback_data=f"{USER_TICKET_DETAILS_PREFIX}{ticket.ticket_id}",
             )
-        )
+        ])
     
-    nav_buttons.append(
-        InlineKeyboardButton(
-            text=f"{current_page}/{total_pages}",
-            callback_data="noop",  # Неактивная кнопка
-        )
-    )
-    
-    if current_page < total_pages:
-        nav_buttons.append(
-            InlineKeyboardButton(
-                text="Вперед ▶️",
-                callback_data=f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}",
-            )
-        )
-    
-    # Кнопка создания нового тикета (первая позиция)
+    # Кнопка создания нового тикета (после списка тикетов)
     if has_tickets:
         buttons.append([
             InlineKeyboardButton(
@@ -337,11 +343,37 @@ def build_user_tickets_pagination_keyboard(
             )
         ])
     
-    # Навигация (вторая позиция)
+    # Кнопки навигации (только если больше одной страницы)
+    nav_buttons = []
+    if total_pages > 1:
+        if current_page > 1:
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="◀️ Назад",
+                    callback_data=f"{USER_TICKETS_PREV_PAGE_PREFIX}{current_page - 1}",
+                )
+            )
+        
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text=f"{current_page}/{total_pages}",
+                callback_data="noop",  # Неактивная кнопка
+            )
+        )
+        
+        if current_page < total_pages:
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="Вперед ▶️",
+                    callback_data=f"{USER_TICKETS_NEXT_PAGE_PREFIX}{current_page + 1}",
+                )
+            )
+    
+    # Навигация (после кнопки создания)
     if nav_buttons:
         buttons.append(nav_buttons)
     
-    # Кнопка возврата в главное меню (третья позиция)
+    # Кнопка возврата в главное меню
     buttons.append([
         InlineKeyboardButton(
             text=BUTTON_BACK_TO_MAIN,

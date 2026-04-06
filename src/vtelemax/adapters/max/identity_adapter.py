@@ -50,6 +50,7 @@ from .payloads import resolve_action_from_max_payload
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
+USER_TICKET_DETAILS_PREFIX = "user_ticket_"
 
 _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
@@ -282,7 +283,6 @@ class MaxIdentityAdapter:
             if action is None:
                 action = resolve_guest_menu_action(text)
             if action in {
-                GuestMenuAction.BACK_TO_SUPPORT,
                 GuestMenuAction.BACK_TO_MAIN,
                 GuestMenuAction.SUPPORT,
                 GuestMenuAction.MAIN_MENU,
@@ -290,16 +290,9 @@ class MaxIdentityAdapter:
                 self._state_by_user_id.pop(max_user_id, None)
                 return self._handle_action(max_user_id=max_user_id, action=action)
             self._state_by_user_id.pop(max_user_id, None)
-            has_tickets = self._has_user_tickets(platform="max", external_id=str(max_user_id))
-            support_screen = self._menu_adapter.build_support_menu_screen(has_tickets=has_tickets)
-            return MaxAdapterResponse(
-                text=(
-                    f"🚧 Пункт «{BUTTON_SUPPORT_QUESTION}» пока в разработке.\n"
-                    "Выберите другой вариант в разделе «Отдел заботы»."
-                ),
-                screen=support_screen,
-                parse_mode=support_screen.parse_mode,
-            )
+            # Если пользователь ввел что-то неожиданное в состоянии ожидания вопроса,
+            # обрабатываем это как вопрос
+            return self._handle_support_question(max_user_id=max_user_id, text=text)
         if state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice(max_user_id=max_user_id, text=text, payload=payload)
         if state == _STATE_PROFILE_EDIT_FIRST_NAME:
@@ -336,6 +329,15 @@ class MaxIdentityAdapter:
                 except ValueError:
                     page = 1
                 return self._show_user_tickets_page(max_user_id=max_user_id, page=page, per_page=5)
+            if cmd.startswith(USER_TICKET_DETAILS_PREFIX):
+                try:
+                    ticket_id_str = cmd[len(USER_TICKET_DETAILS_PREFIX):]
+                    ticket_id = UUID(ticket_id_str)
+                except ValueError:
+                    return MaxAdapterResponse(
+                        text="Неверный идентификатор тикета.",
+                    )
+                return self._handle_view_ticket_details(max_user_id=max_user_id, ticket_id=ticket_id)
 
         action = resolve_action_from_max_payload(payload)
         if action is None:
@@ -695,9 +697,9 @@ class MaxIdentityAdapter:
             )
 
         self._state_by_user_id.pop(max_user_id, None)
-        main_screen = self._menu_adapter.build_main_menu_screen(
-            user_name=self._resolve_menu_user_name(max_user_id=max_user_id)
-        )
+        
+        # Сообщение о создании тикета
+        ticket_message = ""
         if self._create_support_ticket_use_case is None:
             ticket_message = (
                 "📨 Ваш вопрос принят!\n"
@@ -719,20 +721,82 @@ class MaxIdentityAdapter:
                         f"Причина: {error}"
                     )
                 )
+            short_id = self._format_ticket_id_short(created.ticket_id)
             ticket_message = (
                 "📨 Ваш вопрос принят!\n"
-                f"🎫 Создан тикет #{created.ticket_id}\n"
+                f"🎫 Создан тикет #{short_id}\n"
                 "Канал обращения: max\n"
                 "Модератор рассмотрит обращение в ближайшее время."
             )
-
-        return MaxAdapterResponse(
-            text=(
-                f"{ticket_message}\n\n"
-                f"{main_screen.text}"
-            ),
-            screen=main_screen,
-        )
+        
+        # Показываем список тикетов (первую страницу)
+        if self._get_person_tickets_page_use_case is not None:
+            try:
+                page_result = self._get_person_tickets_page_use_case.execute(
+                    platform="max",
+                    external_id=str(max_user_id),
+                    page=1,
+                    per_page=5,
+                )
+            except ValueError:
+                # Fallback: используем старый метод без пагинации
+                tickets = self._list_user_tickets(
+                    platform="max",
+                    external_id=str(max_user_id),
+                    limit=5,
+                )
+                if not tickets:
+                    # Нет тикетов — показываем экран с предложением задать вопрос
+                    screen = self._menu_adapter.build_support_question_screen()
+                    return MaxAdapterResponse(
+                        text=f"{ticket_message}\n\n{screen.text}",
+                        screen=screen,
+                    )
+                # Форматируем список тикетов
+                message = self._format_person_tickets_message(tickets)
+                return MaxAdapterResponse(
+                    text=f"{ticket_message}\n\n{message}",
+                )
+        
+            if not page_result.tickets:
+                # Нет тикетов — показываем экран с предложением задать вопрос
+                screen = self._menu_adapter.build_support_question_screen()
+                return MaxAdapterResponse(
+                    text=f"{ticket_message}\n\n{screen.text}",
+                    screen=screen,
+                )
+            
+            # Форматируем сообщение со страницей
+            message = self._format_person_tickets_page_message(page_result)
+            # Создаем экран пагинации
+            screen = self._menu_adapter.build_user_tickets_pagination_screen(
+                current_page=page_result.page,
+                total_pages=page_result.total_pages,
+                has_tickets=True,
+            )
+            return MaxAdapterResponse(
+                text=f"{ticket_message}\n\n{message}",
+                screen=screen,
+            )
+        else:
+            # Fallback: используем старый метод без пагинации
+            tickets = self._list_user_tickets(
+                platform="max",
+                external_id=str(max_user_id),
+                limit=5,
+            )
+            if not tickets:
+                # Нет тикетов — показываем экран с предложением задать вопрос
+                screen = self._menu_adapter.build_support_question_screen()
+                return MaxAdapterResponse(
+                    text=f"{ticket_message}\n\n{screen.text}",
+                    screen=screen,
+                )
+            # Форматируем список тикетов
+            message = self._format_person_tickets_message(tickets)
+            return MaxAdapterResponse(
+                text=f"{ticket_message}\n\n{message}",
+            )
 
     def _render_profile_screen(self, *, max_user_id: int) -> MaxAdapterResponse:
         """Возвращает экран профиля с кнопками редактирования."""
@@ -1558,25 +1622,29 @@ class MaxIdentityAdapter:
             return ()
 
     @staticmethod
+    def _format_ticket_id_short(ticket_id: UUID) -> str:
+        """Возвращает короткое представление UUID (последние 4 символа в верхнем регистре)."""
+        full_str = str(ticket_id)
+        if len(full_str) >= 4:
+            return full_str[-4:].upper()
+        return full_str.upper()
+
+    @staticmethod
     def _format_person_tickets_message(tickets: tuple[PersonSupportTicketSummary, ...]) -> str:
         """Форматирует список тикетов пользователя в текстовое представление."""
 
         lines = ["📋 Ваши обращения:"]
         status_emoji = {"open": "🆕", "closed": "🔒"}
-        for ticket in tickets:
+        for i, ticket in enumerate(tickets, 1):
             created_at = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+            short_status = "открыт" if ticket.status.value == "open" else "закрыт"
+            short_id = MaxIdentityAdapter._format_ticket_id_short(ticket.ticket_id)
             lines.append(
-                "\n".join(
-                    (
-                        f"{status_emoji.get(ticket.status.value, '❓')} Тикет #{ticket.ticket_id}",
-                        f"Статус: {ticket.status.value}",
-                        f"Канал создания: {ticket.source_platform}",
-                        f"Последняя платформа: {ticket.last_guest_platform or '—'}",
-                        f"Создан: {created_at}",
-                    )
-                )
+                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{short_id} от {created_at}: {short_status}"
             )
-        return "\n\n".join(lines)
+        
+        lines.append("\nℹ️ Для просмотра деталей тикета или ответа используйте кнопки ниже.")
+        return "\n".join(lines)
 
     def _show_user_tickets_page(
         self,
@@ -1597,7 +1665,16 @@ class MaxIdentityAdapter:
                 # Нет тикетов — показываем экран с предложением задать вопрос
                 screen = self._menu_adapter.build_support_question_screen()
                 return MaxAdapterResponse(text=screen.text, screen=screen)
-            return MaxAdapterResponse(text=self._format_person_tickets_message(tickets))
+            # Форматируем сообщение с тикетами
+            message = self._format_person_tickets_message(tickets)
+            # Создаем экран пагинации с тикетами (без пагинации, т.к. total_pages = 1)
+            screen = self._menu_adapter.build_user_tickets_pagination_screen(
+                current_page=1,
+                total_pages=1,
+                tickets=tickets,
+                has_tickets=True,
+            )
+            return MaxAdapterResponse(text=message, screen=screen)
 
         try:
             page_result = self._get_person_tickets_page_use_case.execute(
@@ -1618,10 +1695,11 @@ class MaxIdentityAdapter:
 
         # Форматируем сообщение со страницей
         message = self._format_person_tickets_page_message(page_result)
-        # Создаем экран пагинации
+        # Создаем экран пагинации с тикетами
         screen = self._menu_adapter.build_user_tickets_pagination_screen(
             current_page=page_result.page,
             total_pages=page_result.total_pages,
+            tickets=page_result.tickets,
             has_tickets=True,
         )
         return MaxAdapterResponse(text=message, screen=screen)
@@ -1629,16 +1707,21 @@ class MaxIdentityAdapter:
     def _format_person_tickets_page_message(self, page_result: PersonTicketsPageResult) -> str:
         """Форматирует страницу тикетов пользователя с пагинацией."""
 
-        lines = [f"📋 Ваши обращения (страница {page_result.page}/{page_result.total_pages}):"]
+        lines = ["📋 Ваши обращения:"]
         status_emoji = {"open": "🆕", "closed": "🔒"}
         
         for i, ticket in enumerate(page_result.tickets, 1):
             created_at = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
             short_status = "открыт" if ticket.status.value == "open" else "закрыт"
+            short_id = self._format_ticket_id_short(ticket.ticket_id)
             lines.append(
-                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{ticket.ticket_id} от {created_at}: {short_status}"
+                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{short_id} от {created_at}: {short_status}"
             )
         
+        if page_result.total_pages > 1:
+            lines.append(f"\n📄 Страница {page_result.page} из {page_result.total_pages}")
+        
+        lines.append("\nℹ️ Для просмотра деталей тикета или ответа используйте кнопки ниже.")
         return "\n".join(lines)
 
     def _build_profile_text_for_draft(self, max_user_id: int) -> str:
@@ -1758,6 +1841,76 @@ class MaxIdentityAdapter:
             if getattr(account, "platform", None)
         }
         return tuple(sorted(platforms, key=lambda platform: sort_order.get(platform, 99)))
+
+    def _handle_view_ticket_details(
+        self,
+        max_user_id: int,
+        ticket_id: UUID,
+    ) -> MaxAdapterResponse:
+        """Показывает детали тикета (историю переписки) для пользователя."""
+        
+        method_logger = self._logger.bind(
+            stage="view_ticket_details",
+            user_id=str(max_user_id),
+            ticket_id=str(ticket_id),
+        )
+        
+        # Получаем информацию о тикете
+        if self._ticket_details_use_case is None:
+            method_logger.warning("Use-case деталей тикета недоступен.")
+            return MaxAdapterResponse(
+                text="Функционал просмотра деталей тикета временно недоступен.",
+            )
+        
+        try:
+            details = self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            method_logger.warning("Тикет не найден или недоступен. error={error}", error=str(error))
+            return MaxAdapterResponse(
+                text=f"Тикет не найден: {error}",
+            )
+        
+        # Проверяем, принадлежит ли тикет текущему пользователю
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
+        )
+        if person is None or person.person_id != details.person_id:
+            method_logger.warning(
+                "Попытка просмотра чужого тикета. user_person_id={user_person_id}, ticket_person_id={ticket_person_id}",
+                user_person_id=person.person_id if person else None,
+                ticket_person_id=details.person_id,
+            )
+            return MaxAdapterResponse(
+                text="У вас нет доступа к этому тикету.",
+            )
+        
+        # Форматируем сообщение с деталями тикета
+        status_emoji = {"open": "🆕", "closed": "🔒"}.get(details.status.value, "❓")
+        short_id = self._format_ticket_id_short(ticket_id)
+        
+        # TODO: Добавить получение истории сообщений, когда будет доступен use-case
+        message_lines = [
+            f"{status_emoji} Тикет #{short_id}",
+            f"Статус: {'открыт' if details.status.value == 'open' else 'закрыт'}",
+            f"Создан в: {details.source_platform}",
+        ]
+        
+        if details.last_guest_platform:
+            message_lines.append(f"Последний ответ из: {details.last_guest_platform}")
+        
+        message_lines.extend([
+            "",
+            "📨 История переписки:",
+            "Пока недоступна. Функционал будет добавлен в ближайшее время.",
+            "",
+            "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
+        ])
+        
+        message = "\n".join(message_lines)
+        
+        return MaxAdapterResponse(
+            text=message,
+        )
 
     def _sync_registration_with_loyalty(
         self,

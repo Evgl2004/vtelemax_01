@@ -83,6 +83,7 @@ from .menu import (
     USER_TICKETS_PAGE_PREFIX,
     USER_TICKETS_PREV_PAGE_PREFIX,
     USER_TICKETS_NEXT_PAGE_PREFIX,
+    USER_TICKET_DETAILS_PREFIX,
     build_user_tickets_pagination_keyboard,
 )
 
@@ -112,6 +113,7 @@ class TelegramMenuActionResult:
     virtual_card_numbers: tuple[str, ...] = ()
     current_page: int | None = None
     total_pages: int | None = None
+    tickets: tuple[PersonSupportTicketSummary, ...] = ()
 
 
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
@@ -623,7 +625,6 @@ class TelegramIdentityAdapter:
         if dialog_state == _STATE_WAITING_SUPPORT_QUESTION:
             action = resolve_guest_menu_action(action_text)
             if action in {
-                GuestMenuAction.BACK_TO_SUPPORT,
                 GuestMenuAction.BACK_TO_MAIN,
                 GuestMenuAction.SUPPORT,
                 GuestMenuAction.MAIN_MENU,
@@ -688,6 +689,21 @@ class TelegramIdentityAdapter:
                 telegram_user_id=telegram_user_id,
                 page=page,
                 per_page=5,
+            )
+        
+        # Обработка нажатия на конкретный тикет для просмотра деталей
+        if action_text.startswith(USER_TICKET_DETAILS_PREFIX):
+            try:
+                ticket_id_str = action_text[len(USER_TICKET_DETAILS_PREFIX):]
+                ticket_id = UUID(ticket_id_str)
+            except ValueError:
+                return TelegramMenuActionResult(
+                    status="ticket_details_error",
+                    message="Неверный идентификатор тикета.",
+                )
+            return self._handle_view_ticket_details(
+                telegram_user_id=telegram_user_id,
+                ticket_id=ticket_id,
             )
 
         action = resolve_guest_menu_action(action_text)
@@ -1857,6 +1873,7 @@ class TelegramIdentityAdapter:
                     has_support_tickets=False,
                     current_page=1,
                     total_pages=1,
+                    tickets=(),
                 )
             return TelegramMenuActionResult(
                 status="tickets_list",
@@ -1864,6 +1881,7 @@ class TelegramIdentityAdapter:
                 has_support_tickets=True,
                 current_page=1,
                 total_pages=1,
+                tickets=tickets,
             )
 
         try:
@@ -1878,6 +1896,7 @@ class TelegramIdentityAdapter:
                 status="tickets_error",
                 message="Произошла ошибка при загрузке обращений.",
                 has_support_tickets=False,
+                tickets=(),
             )
 
         if not page_result.tickets:
@@ -1890,6 +1909,7 @@ class TelegramIdentityAdapter:
                 has_support_tickets=False,
                 current_page=page,
                 total_pages=page_result.total_pages,
+                tickets=(),
             )
 
         # Форматируем сообщение с пагинацией
@@ -1900,19 +1920,21 @@ class TelegramIdentityAdapter:
             has_support_tickets=True,
             current_page=page_result.page,
             total_pages=page_result.total_pages,
+            tickets=page_result.tickets,
         )
 
     def _format_person_tickets_page_message(self, page_result: PersonTicketsPageResult) -> str:
         """Форматирует страницу тикетов пользователя с пагинацией."""
 
-        lines = [f"📋 Ваши обращения (страница {page_result.page}/{page_result.total_pages}):"]
+        lines = ["📋 Ваши обращения:"]
         status_emoji = {"open": "🆕", "closed": "🔒"}
         
         for i, ticket in enumerate(page_result.tickets, 1):
             created_at = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
             short_status = "открыт" if ticket.status.value == "open" else "закрыт"
+            short_id = self._format_ticket_id_short(ticket.ticket_id)
             lines.append(
-                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{ticket.ticket_id} от {created_at}: {short_status}"
+                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{short_id} от {created_at}: {short_status}"
             )
         
         if page_result.total_pages > 1:
@@ -1920,6 +1942,14 @@ class TelegramIdentityAdapter:
         
         lines.append("\nℹ️ Для просмотра деталей тикета или ответа используйте кнопки ниже.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_ticket_id_short(ticket_id: UUID) -> str:
+        """Возвращает короткое представление UUID (последние 4 символа в верхнем регистре)."""
+        full_str = str(ticket_id)
+        if len(full_str) >= 4:
+            return full_str[-4:].upper()
+        return full_str.upper()
 
     @staticmethod
     def _format_person_tickets_message(tickets: tuple[PersonSupportTicketSummary, ...]) -> str:
@@ -1930,8 +1960,9 @@ class TelegramIdentityAdapter:
         for i, ticket in enumerate(tickets, 1):
             created_at = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
             short_status = "открыт" if ticket.status.value == "open" else "закрыт"
+            short_id = TelegramIdentityAdapter._format_ticket_id_short(ticket.ticket_id)
             lines.append(
-                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{ticket.ticket_id} от {created_at}: {short_status}"
+                f"{i}. {status_emoji.get(ticket.status.value, '❓')} #{short_id} от {created_at}: {short_status}"
             )
         
         lines.append("\nℹ️ Для просмотра деталей тикета или ответа используйте кнопки ниже.")
@@ -2092,6 +2123,81 @@ class TelegramIdentityAdapter:
             notifications_allowed=person.notifications_allowed,
             rules_accepted_at=person.rules_accepted_at,
             notifications_allowed_at=person.notifications_allowed_at,
+        )
+
+    def _handle_view_ticket_details(
+        self,
+        telegram_user_id: int,
+        ticket_id: UUID,
+    ) -> TelegramMenuActionResult:
+        """Показывает детали тикета (историю переписки) для пользователя."""
+        
+        method_logger = self._logger.bind(
+            stage="view_ticket_details",
+            user_id=str(telegram_user_id),
+            ticket_id=str(ticket_id),
+        )
+        
+        # Получаем информацию о тикете
+        if self._ticket_details_use_case is None:
+            method_logger.warning("Use-case деталей тикета недоступен.")
+            return TelegramMenuActionResult(
+                status="ticket_details_error",
+                message="Функционал просмотра деталей тикета временно недоступен.",
+            )
+        
+        try:
+            details = self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            method_logger.warning("Тикет не найден или недоступен. error={error}", error=str(error))
+            return TelegramMenuActionResult(
+                status="ticket_details_error",
+                message=f"Тикет не найден: {error}",
+            )
+        
+        # Проверяем, принадлежит ли тикет текущему пользователю
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None or person.person_id != details.person_id:
+            method_logger.warning(
+                "Попытка просмотра чужого тикета. user_person_id={user_person_id}, ticket_person_id={ticket_person_id}",
+                user_person_id=person.person_id if person else None,
+                ticket_person_id=details.person_id,
+            )
+            return TelegramMenuActionResult(
+                status="ticket_details_error",
+                message="У вас нет доступа к этому тикету.",
+            )
+        
+        # Форматируем сообщение с деталями тикета
+        status_emoji = {"open": "🆕", "closed": "🔒"}.get(details.status.value, "❓")
+        short_id = self._format_ticket_id_short(ticket_id)
+        
+        # TODO: Добавить получение истории сообщений, когда будет доступен use-case
+        message_lines = [
+            f"{status_emoji} Тикет #{short_id}",
+            f"Статус: {'открыт' if details.status.value == 'open' else 'закрыт'}",
+            f"Создан в: {details.source_platform}",
+        ]
+        
+        if details.last_guest_platform:
+            message_lines.append(f"Последний ответ из: {details.last_guest_platform}")
+        
+        message_lines.extend([
+            "",
+            "📨 История переписки:",
+            "Пока недоступна. Функционал будет добавлен в ближайшее время.",
+            "",
+            "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
+        ])
+        
+        message = "\n".join(message_lines)
+        
+        return TelegramMenuActionResult(
+            status="ticket_details",
+            message=message,
+            has_support_tickets=True,
         )
 
     @staticmethod
