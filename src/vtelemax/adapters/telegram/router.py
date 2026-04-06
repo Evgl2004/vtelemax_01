@@ -48,7 +48,6 @@ from .menu import (
     BUTTON_SUPPORT_QUESTION,
     BUTTON_MY_TICKETS,
     build_back_to_main_inline_keyboard,
-    build_back_to_support_inline_keyboard,
     build_back_to_tickets_list_inline_keyboard,
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
@@ -110,9 +109,9 @@ def build_telegram_identity_router(
     router_logger = logger.bind(platform="telegram", component="router")
     main_menu_inline_keyboard = build_main_menu_inline_keyboard()
     back_to_main_keyboard = build_back_to_main_inline_keyboard()
-    back_to_support_keyboard = build_back_to_support_inline_keyboard()
     profile_keyboard = build_profile_inline_keyboard()
     delivery_lock = asyncio.Lock()
+    support_prompt_message_id_by_user_id: dict[int, int] = {}
 
     def _with_reply_keyboard_cleanup(
         reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None,
@@ -152,6 +151,31 @@ def build_telegram_identity_router(
                 photo=BufferedInputFile(qr_png, filename=f"virtual_card_qr_{index}.png"),
                 caption=f"💳 Карта: {card_number}",
             )
+
+    def _remember_support_prompt_message(*, user_id: int | None, message_id: int | None) -> None:
+        """Запоминает id последнего технического экрана ввода вопроса в Telegram."""
+
+        if user_id is None or message_id is None:
+            return
+        support_prompt_message_id_by_user_id[user_id] = message_id
+
+    async def _cleanup_support_prompt_message(
+        *,
+        bot: Bot,
+        chat_id: int,
+        user_id: int | None,
+    ) -> None:
+        """Удаляет ранее показанный экран «Введите ваш вопрос», чтобы не дублировать меню."""
+
+        if user_id is None:
+            return
+        message_id = support_prompt_message_id_by_user_id.pop(user_id, None)
+        if message_id is None:
+            return
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception:  # noqa: BLE001
+            router_logger.debug("Не удалось удалить техническое сообщение ввода вопроса.")
 
     async def _answer_with_result(
         *,
@@ -329,8 +353,10 @@ def build_telegram_identity_router(
             return build_support_menu_inline_keyboard(has_tickets=result.has_support_tickets)
         if result.status == "support_feedback":
             return build_support_feedback_inline_keyboard()
-        if result.status in {"support_question", "support_contacts", "support_question_empty", "support_question_unavailable", "support_question_input"}:
-            return back_to_support_keyboard
+        if result.status in {"support_question", "support_question_empty", "support_question_unavailable", "support_question_input"}:
+            return build_back_to_tickets_list_inline_keyboard()
+        if result.status == "support_contacts":
+            return back_to_main_keyboard
         if result.status in {"ticket_details", "ticket_details_error"}:
             # Для деталей тикета и ошибки показываем кнопку "Назад к списку обращений"
             return build_back_to_tickets_list_inline_keyboard()
@@ -403,6 +429,7 @@ def build_telegram_identity_router(
             return
 
         result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
+        support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
         event_logger.info("Ответ /start сформирован. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
@@ -426,6 +453,7 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             force_legacy_upgrade=True,
         )
+        support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
         event_logger.info("Legacy-flow запущен. status={status}.", status=result.status)
         await _answer_with_result(message=message, result=result, reply_markup=None)
 
@@ -492,6 +520,7 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             action_text="/menu",
         )
+        support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
         event_logger.info("Ответ /menu сформирован. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
@@ -518,6 +547,14 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             action_text=message.text,
         )
+        if result.status in {"support_question_submitted", "support_question_error"}:
+            await _cleanup_support_prompt_message(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                user_id=message.from_user.id,
+            )
+        elif result.status != "support_question_input":
+            support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
         event_logger.info("Текстовый ввод обработан. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
@@ -707,6 +744,10 @@ def build_telegram_identity_router(
                     event_logger.debug("Редактирование callback-сообщения не требуется: контент не изменился.")
                     return
                 event_logger.debug("Не удалось перерисовать сообщение по callback, отправляем новое.")
+                try:
+                    await callback.message.delete()
+                except Exception:  # noqa: BLE001
+                    event_logger.debug("Не удалось удалить callback-сообщение перед fallback-отправкой.")
 
         await _send_to_chat_with_result(
             bot=callback.bot,
@@ -782,6 +823,12 @@ def build_telegram_identity_router(
             return
 
         await callback.answer()
+        if (callback.data or "") not in {
+            GuestMenuAction.SUPPORT_QUESTION.value,
+            GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value,
+            BUTTON_SUPPORT_QUESTION,
+        }:
+            support_prompt_message_id_by_user_id.pop(callback.from_user.id, None)
         is_iiko_retry = (callback.data or "") in {
             GuestMenuAction.RETRY_IIKO_SYNC.value,
             BUTTON_RETRY_IIKO_SYNC,
@@ -860,6 +907,11 @@ def build_telegram_identity_router(
                     parse_mode=result.parse_mode,
                     reply_markup=reply_markup if isinstance(reply_markup, InlineKeyboardMarkup) else None,
                 )
+                if result.status in {"support_question", "support_question_empty", "support_question_unavailable", "support_question_input"}:
+                    _remember_support_prompt_message(
+                        user_id=callback.from_user.id,
+                        message_id=callback.message.message_id,
+                    )
                 return
             except Exception as error:  # noqa: BLE001
                 if _is_message_not_modified_error(error):
@@ -867,6 +919,10 @@ def build_telegram_identity_router(
                     return
                 # Не блокируем сценарий, если исходную клавиатуру уже нельзя изменить.
                 event_logger.debug("Не удалось перерисовать сообщение по callback, отправляем новое.")
+                try:
+                    await callback.message.delete()
+                except Exception:  # noqa: BLE001
+                    event_logger.debug("Не удалось удалить callback-сообщение перед fallback-отправкой.")
 
         await _send_to_chat_with_result(
             bot=callback.bot,
