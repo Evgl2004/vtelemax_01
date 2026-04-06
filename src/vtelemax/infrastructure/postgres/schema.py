@@ -58,6 +58,7 @@ class PersonRow(Base):
     notifications_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     notifications_allowed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_legacy: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    is_moderator: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     is_registered: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     first_name_input: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_name_input: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -184,7 +185,7 @@ class SupportTicketRow(Base):
 
     __tablename__ = "support_tickets"
     __table_args__ = (
-        CheckConstraint("status IN ('open', 'closed')", name="ck_support_tickets_status_allowed"),
+        CheckConstraint("status IN ('open', 'in_progress', 'closed')", name="ck_support_tickets_status_allowed"),
         CheckConstraint(
             "source_platform IN ('telegram', 'vk', 'max')",
             name="ck_support_tickets_source_platform_allowed",

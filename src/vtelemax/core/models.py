@@ -81,6 +81,7 @@ class Person:
     notifications_allowed: bool = False
     notifications_allowed_at: datetime | None = None
     is_legacy: bool = False
+    is_moderator: bool = False
     is_registered: bool = False
     first_name_input: str | None = None
     last_name_input: str | None = None
@@ -236,6 +237,7 @@ class PersonProfilePatch:
     notifications_allowed: bool | None = None
     notifications_allowed_at: datetime | None = None
     is_legacy: bool | None = None
+    is_moderator: bool | None = None
     is_registered: bool | None = None
     first_name_input: str | None = None
     last_name_input: str | None = None
@@ -275,6 +277,7 @@ class PersonProfilePatch:
                 self.notifications_allowed,
                 self.notifications_allowed_at,
                 self.is_legacy,
+                self.is_moderator,
                 self.is_registered,
                 self.first_name_input,
                 self.last_name_input,

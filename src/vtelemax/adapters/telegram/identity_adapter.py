@@ -1374,21 +1374,24 @@ class TelegramIdentityAdapter:
 
         raw = (action_text or "").strip()
         lowered = raw.lower()
-        if lowered.startswith("/modreply"):
-            return self._handle_modreply_command(raw)
-        if lowered.startswith("/modticket"):
-            return self._handle_modticket_command(raw)
-        if lowered in {"/mod", "модератор", "moderator"}:
+        if lowered == "/mod":
             return self._open_moderator_menu(telegram_user_id=telegram_user_id)
         return None
 
     def _open_moderator_menu(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
         """Открывает единое меню модератора."""
 
+        if not self._is_moderator_account(telegram_user_id=telegram_user_id):
+            self._clear_moderator_state(telegram_user_id)
+            return TelegramMenuActionResult(
+                status="moderation_forbidden",
+                message="Команда /mod доступна только модераторам.",
+            )
+
         if self._moderator_reply_use_case is None or self._ticket_details_use_case is None:
             return TelegramMenuActionResult(
                 status="moderation_unavailable",
-                message="Меню модератора недоступно: не подключены сценарии modreply/modticket.",
+                message="Меню модератора недоступно: не подключены сценарии модерации.",
             )
 
         self._moderator_state_by_user_id[telegram_user_id] = _STATE_MOD_MENU
@@ -1928,6 +1931,19 @@ class TelegramIdentityAdapter:
 
         self._moderator_state_by_user_id.pop(telegram_user_id, None)
         self._moderator_context_by_user_id.pop(telegram_user_id, None)
+
+    def _is_moderator_account(self, *, telegram_user_id: int) -> bool:
+        """Проверяет признак модератора по профилю strict identity в БД."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
+        )
+        if person is None:
+            return False
+        return bool(getattr(person, "is_moderator", False))
 
     def _has_user_tickets(self, *, platform: str, external_id: str) -> bool:
         """Проверяет, есть ли у пользователя хотя бы один тикет поддержки."""

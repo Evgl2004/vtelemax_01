@@ -1026,20 +1026,20 @@ class VkIdentityAdapter:
 
         raw = (text or "").strip()
         lowered = raw.lower()
-        if lowered.startswith("/modreply"):
-            return self._handle_modreply_command(raw)
-        if lowered.startswith("/modticket"):
-            return self._handle_modticket_command(raw)
-        if lowered in {"/mod", "модератор", "moderator"}:
+        if lowered == "/mod":
             return self._open_moderator_menu(vk_user_id=vk_user_id)
         return None
 
     def _open_moderator_menu(self, *, vk_user_id: int) -> VkAdapterResponse:
         """Открывает единое меню модератора."""
 
+        if not self._is_moderator_account(vk_user_id=vk_user_id):
+            self._clear_moderator_state(vk_user_id)
+            return VkAdapterResponse(text="Команда /mod доступна только модераторам.")
+
         if self._moderator_reply_use_case is None or self._ticket_details_use_case is None:
             return VkAdapterResponse(
-                text="Меню модератора недоступно: не подключены сценарии modreply/modticket."
+                text="Меню модератора недоступно: не подключены сценарии модерации."
             )
 
         self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
@@ -1392,6 +1392,19 @@ class VkIdentityAdapter:
 
         self._moderator_state_by_user_id.pop(vk_user_id, None)
         self._moderator_context_by_user_id.pop(vk_user_id, None)
+
+    def _is_moderator_account(self, *, vk_user_id: int) -> bool:
+        """Проверяет признак модератора по профилю strict identity в БД."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(
+                platform="vk",
+                external_id=str(vk_user_id),
+            )
+        )
+        if person is None:
+            return False
+        return bool(getattr(person, "is_moderator", False))
 
     def _resolve_menu_user_name(self, *, vk_user_id: int, person: object | None = None) -> str:
         """Возвращает имя для приветствия в главном меню."""

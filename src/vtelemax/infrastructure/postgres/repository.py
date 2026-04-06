@@ -90,6 +90,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                 notifications_allowed=person.notifications_allowed,
                 notifications_allowed_at=person.notifications_allowed_at,
                 is_legacy=person.is_legacy,
+                is_moderator=person.is_moderator,
                 is_registered=person.is_registered,
                 first_name_input=person.first_name_input,
                 last_name_input=person.last_name_input,
@@ -175,6 +176,8 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             person_row.notifications_allowed_at = patch.notifications_allowed_at
         if patch.is_legacy is not None:
             person_row.is_legacy = patch.is_legacy
+        if patch.is_moderator is not None:
+            person_row.is_moderator = patch.is_moderator
         if patch.is_registered is not None:
             person_row.is_registered = patch.is_registered
         if patch.first_name_input is not None:
@@ -276,6 +279,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             notifications_allowed=person_row.notifications_allowed,
             notifications_allowed_at=person_row.notifications_allowed_at,
             is_legacy=person_row.is_legacy,
+            is_moderator=person_row.is_moderator,
             is_registered=person_row.is_registered,
             first_name_input=person_row.first_name_input,
             last_name_input=person_row.last_name_input,

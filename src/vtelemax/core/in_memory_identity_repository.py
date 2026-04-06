@@ -73,6 +73,8 @@ class InMemoryIdentityRepository(IdentityRepository):
             person.notifications_allowed_at = patch.notifications_allowed_at
         if patch.is_legacy is not None:
             person.is_legacy = patch.is_legacy
+        if patch.is_moderator is not None:
+            person.is_moderator = patch.is_moderator
         if patch.is_registered is not None:
             person.is_registered = patch.is_registered
         if patch.first_name_input is not None:

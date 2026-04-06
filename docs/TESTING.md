@@ -77,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 tests/unit/test_
 14. VK onboarding/legacy-ветка на общем flow (включая dirty-сценарии согласия).
 15. MAX onboarding/legacy-ветка на общем flow (включая dirty-сценарии согласия).
 16. Core use-case поддержки/модерации (создание тикета, выбор канала доставки ответа, карточка тикета).
-17. Команды модератора `/modreply` и `/modticket` в Telegram/VK/MAX.
+17. Команда модератора `/mod` в Telegram/VK/MAX с проверкой `is_moderator` через БД.
 18. FSM-сценарий `/mod` (меню модератора, выбор тикета, ответ, карточка) в Telegram/VK/MAX, включая грязные входные данные (некорректный UUID).
 19. MVP-доставку pending-сообщений модератора (одна попытка) с фиксацией статусов `sent/failed`.
 20. Integration/live-сценарии кросс-мессенджерной маршрутизации ответа модератора.

@@ -29,6 +29,7 @@ from vtelemax.core import (
     LoyaltyIssueCardResult,
     LoyaltyRegisterCustomerResult,
     PersonTicketsPageResult,
+    PersonProfilePatch,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -876,8 +877,8 @@ def test_telegram_my_tickets_shows_created_tickets() -> None:
     assert "тикет" in result.message.lower()  # упоминание в пояснении
 
 
-def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> None:
-    """Проверяет `/modreply` и `/modticket` в Telegram-адаптере."""
+def test_telegram_mod_requires_moderator_flag_and_routes_reply_via_fsm() -> None:
+    """Проверяет доступ к `/mod` только для модератора и маршрутизацию ответа через FSM."""
 
     repository = InMemoryIdentityRepository()
     support_repository = InMemorySupportRepository()
@@ -923,14 +924,41 @@ def test_telegram_moderation_commands_route_reply_and_show_ticket_details() -> N
     )
     ticket_id = str(created_ticket.ticket_id)
 
-    reply = adapter.handle_menu_action(
-        telegram_user_id=9999,
-        action_text=f"/modreply {ticket_id} --to=vk Ответ отправлен.",
-    )
-    details = adapter.handle_menu_action(telegram_user_id=9999, action_text=f"/modticket {ticket_id}")
+    forbidden = adapter.handle_menu_action(telegram_user_id=9999, action_text="/mod")
+    assert forbidden.status == "moderation_forbidden"
 
-    assert "Маршрут доставки: vk" in reply.message
-    assert "Канал создания: telegram" in details.message
+    adapter.register_contact(telegram_user_id=9999, raw_phone="+79990009999")
+    moderator_person = lookup_use_case.execute(
+        GetPersonByAccountCommand(platform="telegram", external_id="9999")
+    )
+    assert moderator_person is not None
+
+    with InMemoryIdentityUnitOfWork(repository) as unit_of_work:
+        unit_of_work.identity_repository.update_person_profile(
+            moderator_person.person_id,
+            PersonProfilePatch(is_moderator=True),
+        )
+        unit_of_work.commit()
+
+    open_menu = adapter.handle_menu_action(telegram_user_id=9999, action_text="/mod")
+    wait_ticket = adapter.handle_menu_action(telegram_user_id=9999, action_text="2")
+    wait_reply = adapter.handle_menu_action(telegram_user_id=9999, action_text=ticket_id)
+    routed = adapter.handle_menu_action(telegram_user_id=9999, action_text="--to=vk Ответ отправлен.")
+    details_step = adapter.handle_menu_action(telegram_user_id=9999, action_text="3")
+    details = adapter.handle_menu_action(telegram_user_id=9999, action_text=ticket_id)
+    unsupported = adapter.handle_menu_action(
+        telegram_user_id=9999,
+        action_text=f"/modreply {ticket_id} --to=vk Тест",
+    )
+
+    assert open_menu.status == "moderation_menu"
+    assert wait_ticket.status == "moderation_wait_ticket_for_reply"
+    assert wait_reply.status == "moderation_wait_reply_text"
+    assert routed.status == "moderation_routed"
+    assert "Маршрут доставки: vk" in routed.message
+    assert details_step.status == "moderation_wait_ticket_for_details"
+    assert details.status == "moderation_details"
+    assert unsupported.status == "moderation_menu_unknown"
 
 
 def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
@@ -970,6 +998,18 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
             question_text="Нужна помощь с приложением",
         )
     )
+
+    adapter.register_contact(telegram_user_id=9999, raw_phone="+79990009999")
+    moderator_person = lookup_use_case.execute(
+        GetPersonByAccountCommand(platform="telegram", external_id="9999")
+    )
+    assert moderator_person is not None
+    with InMemoryIdentityUnitOfWork(repository) as unit_of_work:
+        unit_of_work.identity_repository.update_person_profile(
+            moderator_person.person_id,
+            PersonProfilePatch(is_moderator=True),
+        )
+        unit_of_work.commit()
 
     open_menu = adapter.handle_menu_action(telegram_user_id=9999, action_text="/mod")
     wait_ticket = adapter.handle_menu_action(telegram_user_id=9999, action_text="2")

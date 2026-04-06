@@ -21,6 +21,7 @@ class SupportTicketStatus(StrEnum):
     """Статусы тикета поддержки."""
 
     OPEN = "open"
+    IN_PROGRESS = "in_progress"
     CLOSED = "closed"
 
 
@@ -66,4 +67,3 @@ class SupportMessage:
     target_external_id: str | None = None
     delivery_status: SupportDeliveryStatus | None = None
     delivery_error: str | None = None
-

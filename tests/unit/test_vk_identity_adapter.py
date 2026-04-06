@@ -26,6 +26,7 @@ from vtelemax.core import (
     LoyaltyGatewayError,
     LoyaltyIssueCardResult,
     LoyaltyRegisterCustomerResult,
+    PersonProfilePatch,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -772,21 +773,52 @@ def test_vk_moderator_reply_can_route_to_another_messenger() -> None:
     )
     ticket_id = str(created_ticket.ticket_id)
 
-    reply = adapter.handle_incoming(
+    forbidden = adapter.handle_incoming(vk_user_id=9999, text="/mod", payload=None)
+    assert "Команда /mod доступна только модераторам." in forbidden.text
+
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="9999",
+            raw_phone="+79990009999",
+        )
+    )
+    moderator_person = adapter._person_lookup_use_case.execute(  # noqa: SLF001
+        GetPersonByAccountCommand(platform="vk", external_id="9999")
+    )
+    assert moderator_person is not None
+    with register_use_case._unit_of_work_factory() as unit_of_work:  # noqa: SLF001
+        unit_of_work.identity_repository.update_person_profile(
+            moderator_person.person_id,
+            PersonProfilePatch(is_moderator=True),
+        )
+        unit_of_work.commit()
+
+    open_menu = adapter.handle_incoming(vk_user_id=9999, text="/mod", payload=None)
+    wait_ticket = adapter.handle_incoming(vk_user_id=9999, text="2", payload=None)
+    wait_reply = adapter.handle_incoming(vk_user_id=9999, text=ticket_id, payload=None)
+    routed = adapter.handle_incoming(vk_user_id=9999, text="--to=telegram Ответ отправлен.", payload=None)
+    wait_details = adapter.handle_incoming(vk_user_id=9999, text="3", payload=None)
+    details = adapter.handle_incoming(vk_user_id=9999, text=ticket_id, payload=None)
+    unsupported = adapter.handle_incoming(
         vk_user_id=9999,
-        text=f"/modreply {ticket_id} --to=telegram Ответ отправлен.",
+        text=f"/modreply {ticket_id} --to=telegram Тест",
         payload=None,
     )
-    details = adapter.handle_incoming(vk_user_id=9999, text=f"/modticket {ticket_id}", payload=None)
 
-    assert "Маршрут доставки: telegram" in reply.text
+    assert "Меню модератора" in open_menu.text
+    assert "Введите UUID тикета" in wait_ticket.text
+    assert "Введите текст ответа модератора" in wait_reply.text
+    assert "Маршрут доставки: telegram" in routed.text
+    assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
     assert "Канал создания: vk" in details.text
+    assert "Не удалось распознать пункт меню модератора." in unsupported.text
 
 
 def test_vk_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     """Проверяет `/mod`-меню: список тикетов, грязный UUID и успешный ответ."""
 
-    adapter, _, create_ticket_use_case = _build_adapter_with_support_context()
+    adapter, register_use_case, create_ticket_use_case = _build_adapter_with_support_context()
     _complete_vk_registration(adapter, vk_user_id=1001)
 
     created_ticket = create_ticket_use_case.execute(
@@ -797,6 +829,24 @@ def test_vk_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
         )
     )
     ticket_id = str(created_ticket.ticket_id)
+
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="9999",
+            raw_phone="+79990009999",
+        )
+    )
+    moderator_person = adapter._person_lookup_use_case.execute(  # noqa: SLF001
+        GetPersonByAccountCommand(platform="vk", external_id="9999")
+    )
+    assert moderator_person is not None
+    with register_use_case._unit_of_work_factory() as unit_of_work:  # noqa: SLF001
+        unit_of_work.identity_repository.update_person_profile(
+            moderator_person.person_id,
+            PersonProfilePatch(is_moderator=True),
+        )
+        unit_of_work.commit()
 
     open_menu = adapter.handle_incoming(vk_user_id=9999, text="/mod", payload=None)
     open_tickets = adapter.handle_incoming(vk_user_id=9999, text="1", payload=None)
