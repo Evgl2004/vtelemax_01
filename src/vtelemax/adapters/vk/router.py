@@ -12,6 +12,7 @@ from vkbottle.bot import MessageEvent
 from vkbottle_types.events import GroupEventType
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.core import GuestMenuAction, build_iiko_sync_pending_screen
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import VkAdapterResponse, VkIdentityAdapter, USER_TICKETS_PREV_PAGE_PREFIX, USER_TICKETS_NEXT_PAGE_PREFIX, USER_TICKET_DETAILS_PREFIX
@@ -352,14 +353,24 @@ def register_vk_guest_handlers(
                 event_logger.debug("Неизвестный callback payload, ответ отправлен без сценарного перехода.")
             return
 
+        await event.send_empty_answer()
+        if action in {
+            GuestMenuAction.NOTIFY_YES,
+            GuestMenuAction.NOTIFY_NO,
+            GuestMenuAction.RETRY_IIKO_SYNC,
+        }:
+            pending_screen = build_iiko_sync_pending_screen()
+            await _send_event_response(
+                event,
+                VkAdapterResponse(text=pending_screen.text, screen=None),
+            )
+
         response = adapter.handle_incoming(
             vk_user_id=int(event.user_id),
             text="",
             payload=payload,
         )
         event_logger.info("Callback обработан. action={action}.", action=action.value)
-
-        await event.send_empty_answer()
         await _send_event_response(event, response)
 
 

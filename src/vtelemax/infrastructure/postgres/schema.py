@@ -80,6 +80,44 @@ class PersonRow(Base):
     notifications_allowed_max_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PersonPlatformStateRow(Base):
+    """Таблица `person_platform_states` — onboarding/согласия/регистрация по платформам."""
+
+    __tablename__ = "person_platform_states"
+    __table_args__ = (
+        CheckConstraint(
+            "platform IN ('telegram', 'vk', 'max')",
+            name="ck_person_platform_states_platform_allowed",
+        ),
+        Index("ix_person_platform_states_person_id", "person_id"),
+        Index("ix_person_platform_states_platform", "platform"),
+    )
+
+    person_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("persons.person_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    platform: Mapped[str] = mapped_column(String(16), primary_key=True)
+    rules_accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    rules_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notifications_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    notifications_allowed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_registered: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class PhoneRow(Base):
     """Таблица `phones` — канонический телефон человека.
 

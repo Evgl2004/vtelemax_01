@@ -154,7 +154,7 @@ class MaxIdentityAdapter:
             rules_screen = self._menu_adapter.build_start_rules_screen()
             return MaxAdapterResponse(text=transition.message, screen=rules_screen)
 
-        if not person.is_registered:
+        if not person.is_registered_for_platform("max"):
             method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
             draft = _OnboardingDraft(
                 rules_accepted_at=person.get_rules_accepted_at_for_platform("max"),
@@ -495,7 +495,7 @@ class MaxIdentityAdapter:
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "max_contact"
         legacy_flow_active = is_legacy or bool(person.is_legacy)
-        if person.is_registered and not legacy_flow_active:
+        if person.first_name_input and not legacy_flow_active:
             # Проверяем, собраны ли все согласия для платформы MAX
             platform_consents_complete = (
                 person.get_rules_accepted_for_platform("max") is True

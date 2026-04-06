@@ -153,7 +153,7 @@ class VkIdentityAdapter:
             rules_screen = self._menu_adapter.build_start_rules_screen()
             return VkAdapterResponse(text=transition.message, screen=rules_screen)
 
-        if not person.is_registered:
+        if not person.is_registered_for_platform("vk"):
             method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
             draft = _OnboardingDraft(
                 rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
@@ -461,7 +461,7 @@ class VkIdentityAdapter:
             person.get_rules_accepted_for_platform("vk") is True
             and person.get_notifications_allowed_at_for_platform("vk") is not None
         )
-        if person.is_registered and not legacy_flow_active and platform_consents_complete:
+        if person.first_name_input and not legacy_flow_active and platform_consents_complete:
             # Все согласия для VK уже собраны, можно открыть главное меню
             self._state_by_user_id.pop(vk_user_id, None)
             self._onboarding_draft_by_user_id.pop(vk_user_id, None)

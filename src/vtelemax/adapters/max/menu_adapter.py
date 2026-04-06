@@ -13,6 +13,7 @@ from vtelemax.core import (
     build_balance_screen,
     build_delivery_screen,
     build_notifications_consent_screen,
+    build_iiko_sync_pending_screen,
     build_iiko_sync_retry_screen,
     build_help_screen,
     build_main_menu_screen,
@@ -281,6 +282,12 @@ class MaxGuestMenuAdapter:
         screen = build_iiko_sync_retry_screen()
         rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
+    def build_iiko_sync_pending_screen(self) -> MaxScreen:
+        """Экран ожидания синхронизации с iiko."""
+
+        screen = build_iiko_sync_pending_screen()
+        return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=())
 
     def build_user_tickets_pagination_screen(
         self,

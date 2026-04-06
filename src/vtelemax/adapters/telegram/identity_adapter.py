@@ -232,7 +232,7 @@ class TelegramIdentityAdapter:
                 requires_contact_keyboard=transition.requires_contact_keyboard,
             )
 
-        if not person.is_registered:
+        if not person.is_registered_for_platform("telegram"):
             method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
             draft = _OnboardingDraft(
                 rules_accepted_at=person.get_rules_accepted_at_for_platform("telegram"),
@@ -373,7 +373,7 @@ class TelegramIdentityAdapter:
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "telegram_contact"
 
-        if previous_state == OnboardingState.WAITING_PHONE and person.is_registered and not person.is_legacy:
+        if previous_state == OnboardingState.WAITING_PHONE and person.first_name_input and not person.is_legacy:
             # Проверяем, собраны ли все согласия для платформы Telegram
             platform_consents_complete = (
                 person.get_rules_accepted_for_platform("telegram") is True

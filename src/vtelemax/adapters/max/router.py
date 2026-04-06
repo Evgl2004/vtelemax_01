@@ -10,6 +10,7 @@ import aiohttp
 from loguru import logger
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.core import GuestMenuAction, build_iiko_sync_pending_screen
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
@@ -233,6 +234,18 @@ def register_max_guest_handlers(
         if callback_payload is not None and callback_payload.strip() == "noop":
             event_logger.debug("Получен noop callback пагинации, игнорируем без изменения экрана.")
             return
+
+        normalized_payload = (callback_payload or "").strip()
+        if normalized_payload in {
+            GuestMenuAction.NOTIFY_YES.value,
+            GuestMenuAction.NOTIFY_NO.value,
+            GuestMenuAction.RETRY_IIKO_SYNC.value,
+        }:
+            pending_screen = build_iiko_sync_pending_screen()
+            await _send_response(
+                event,
+                MaxAdapterResponse(text=pending_screen.text, screen=None),
+            )
 
         response = adapter.handle_incoming(
             max_user_id=user_id,

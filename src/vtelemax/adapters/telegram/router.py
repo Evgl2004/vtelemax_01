@@ -18,7 +18,7 @@ from aiogram.types import (
 )
 from loguru import logger
 
-from vtelemax.core import BUTTON_ACCEPT_RULES, GuestMenuAction
+from vtelemax.core import BUTTON_ACCEPT_RULES, GuestMenuAction, build_iiko_sync_pending_screen
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
@@ -606,15 +606,12 @@ def build_telegram_identity_router(
             await callback.answer("Не удалось определить пользователя. Повторите /start.", show_alert=True)
             return
 
-        result = identity_adapter.handle_menu_action(
-            telegram_user_id=callback.from_user.id,
-            action_text=callback.data or "",
-        )
-        event_logger.info("Callback уведомлений обработан. status={status}.", status=result.status)
-
-        reply_markup = _choose_reply_markup(result)
-
         await callback.answer()
+        pending_screen = build_iiko_sync_pending_screen()
+        pending_result = TelegramMenuActionResult(
+            status="iiko_sync_pending",
+            message=pending_screen.text,
+        )
         if callback.message is not None:
             try:
                 await callback.message.edit_reply_markup(reply_markup=None)
@@ -623,9 +620,22 @@ def build_telegram_identity_router(
                     event_logger.debug("Inline-клавиатура уже очищена после callback уведомлений.")
                 else:
                     event_logger.debug("Не удалось убрать старую inline-клавиатуру после callback уведомлений.")
-            await _answer_with_result(message=callback.message, result=result, reply_markup=reply_markup)
-            return
+            await _answer_with_result(message=callback.message, result=pending_result, reply_markup=None)
+        else:
+            await _send_to_chat_with_result(
+                bot=callback.bot,
+                chat_id=callback.from_user.id,
+                result=pending_result,
+                reply_markup=None,
+            )
 
+        result = identity_adapter.handle_menu_action(
+            telegram_user_id=callback.from_user.id,
+            action_text=callback.data or "",
+        )
+        event_logger.info("Callback уведомлений обработан. status={status}.", status=result.status)
+
+        reply_markup = _choose_reply_markup(result)
         await _send_to_chat_with_result(
             bot=callback.bot,
             chat_id=callback.from_user.id,
@@ -771,6 +781,38 @@ def build_telegram_identity_router(
             await callback.answer("Не удалось определить пользователя. Повторите /start.", show_alert=True)
             return
 
+        await callback.answer()
+        is_iiko_retry = (callback.data or "") in {
+            GuestMenuAction.RETRY_IIKO_SYNC.value,
+            BUTTON_RETRY_IIKO_SYNC,
+        }
+        if is_iiko_retry:
+            pending_screen = build_iiko_sync_pending_screen()
+            pending_result = TelegramMenuActionResult(
+                status="iiko_sync_pending",
+                message=pending_screen.text,
+            )
+            if callback.message is not None:
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+                except Exception as error:  # noqa: BLE001
+                    if _is_message_not_modified_error(error):
+                        event_logger.debug("Inline-клавиатура уже очищена перед retry iiko.")
+                    else:
+                        event_logger.debug("Не удалось убрать inline-клавиатуру перед retry iiko.")
+                await _answer_with_result(
+                    message=callback.message,
+                    result=pending_result,
+                    reply_markup=None,
+                )
+            else:
+                await _send_to_chat_with_result(
+                    bot=callback.bot,
+                    chat_id=callback.from_user.id,
+                    result=pending_result,
+                    reply_markup=None,
+                )
+
         result = identity_adapter.handle_menu_action(
             telegram_user_id=callback.from_user.id,
             action_text=callback.data,
@@ -779,7 +821,6 @@ def build_telegram_identity_router(
 
         reply_markup = _choose_reply_markup(result)
 
-        await callback.answer()
         if result.status == "virtual_card" and result.virtual_card_numbers:
             if callback.message is not None:
                 try:

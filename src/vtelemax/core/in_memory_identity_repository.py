@@ -113,3 +113,19 @@ class InMemoryIdentityRepository(IdentityRepository):
             person.notifications_allowed_max = patch.notifications_allowed_max
         if patch.notifications_allowed_max_at is not None:
             person.notifications_allowed_max_at = patch.notifications_allowed_max_at
+
+        if patch.platform is not None:
+            state = person.get_platform_state(patch.platform)
+            if patch.platform_rules_accepted is not None:
+                state.rules_accepted = patch.platform_rules_accepted
+            if patch.platform_rules_accepted_at is not None:
+                state.rules_accepted_at = patch.platform_rules_accepted_at
+            if patch.platform_notifications_allowed is not None:
+                state.notifications_allowed = patch.platform_notifications_allowed
+            if patch.platform_notifications_allowed_at is not None:
+                state.notifications_allowed_at = patch.platform_notifications_allowed_at
+            if patch.platform_is_registered is not None:
+                state.is_registered = patch.platform_is_registered
+            if patch.platform_registered_at is not None:
+                state.registered_at = patch.platform_registered_at
+            person.set_platform_state(state)

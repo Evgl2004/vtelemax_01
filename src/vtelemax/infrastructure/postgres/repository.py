@@ -11,10 +11,17 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from vtelemax.core.models import Person, PersonProfilePatch, PlatformAccount, PlatformName
+from vtelemax.core.models import (
+    Person,
+    PersonProfilePatch,
+    PlatformAccount,
+    PlatformName,
+    PlatformRegistrationState,
+    SUPPORTED_PLATFORMS,
+)
 from vtelemax.core.ports import IdentityRepository
 
-from .schema import PersonRow, PhoneRow, PlatformAccountRow
+from .schema import PersonPlatformStateRow, PersonRow, PhoneRow, PlatformAccountRow
 
 
 class SQLAlchemyIdentityRepository(IdentityRepository):
@@ -105,6 +112,9 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                 notifications_allowed_max_at=person.notifications_allowed_max_at,
             )
         )
+        # В SQLite (интеграционные тесты) insertmany может нарушить ожидаемый порядок
+        # вставки без явного flush; фиксируем родительскую запись заранее.
+        self._session.flush()
         self._session.add(
             PhoneRow(
                 phone_id=uuid4(),
@@ -119,6 +129,20 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                     person_id=person.person_id,
                     platform=account.platform,
                     external_id=account.external_id,
+                )
+            )
+        for platform in SUPPORTED_PLATFORMS:
+            state = person.get_platform_state(platform)
+            self._session.add(
+                PersonPlatformStateRow(
+                    person_id=person.person_id,
+                    platform=platform,
+                    rules_accepted=state.rules_accepted,
+                    rules_accepted_at=state.rules_accepted_at,
+                    notifications_allowed=state.notifications_allowed,
+                    notifications_allowed_at=state.notifications_allowed_at,
+                    is_registered=state.is_registered,
+                    registered_at=state.registered_at,
                 )
             )
 
@@ -191,6 +215,28 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             person_row.notifications_allowed_max = patch.notifications_allowed_max
         if patch.notifications_allowed_max_at is not None:
             person_row.notifications_allowed_max_at = patch.notifications_allowed_max_at
+        if patch.platform is not None:
+            platform_row = self._session.get(PersonPlatformStateRow, (person_id, patch.platform))
+            if platform_row is None:
+                platform_row = PersonPlatformStateRow(
+                    person_id=person_id,
+                    platform=patch.platform,
+                )
+                self._session.add(platform_row)
+            if patch.platform_rules_accepted is not None:
+                platform_row.rules_accepted = patch.platform_rules_accepted
+            if patch.platform_rules_accepted_at is not None:
+                platform_row.rules_accepted_at = patch.platform_rules_accepted_at
+            if patch.platform_notifications_allowed is not None:
+                platform_row.notifications_allowed = patch.platform_notifications_allowed
+            if patch.platform_notifications_allowed_at is not None:
+                platform_row.notifications_allowed_at = patch.platform_notifications_allowed_at
+            if patch.platform_is_registered is not None:
+                platform_row.is_registered = patch.platform_is_registered
+            if patch.platform_registered_at is not None:
+                platform_row.registered_at = patch.platform_registered_at
+
+            self._sync_global_registration_flag(person_row=person_row, person_id=person_id)
 
     def _build_person(self, person_row: PersonRow, phone_e164: str) -> Person:
         """Собирает доменную модель человека с полным набором аккаунтов."""
@@ -204,7 +250,24 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             )
             for account_row in account_rows
         }
-        return Person(
+        state_statement = select(PersonPlatformStateRow).where(
+            PersonPlatformStateRow.person_id == person_row.person_id
+        )
+        state_rows = self._session.execute(state_statement).scalars().all()
+        platform_states = {
+            state_row.platform: PlatformRegistrationState(
+                platform=state_row.platform,  # type: ignore[arg-type]
+                rules_accepted=state_row.rules_accepted,
+                rules_accepted_at=state_row.rules_accepted_at,
+                notifications_allowed=state_row.notifications_allowed,
+                notifications_allowed_at=state_row.notifications_allowed_at,
+                is_registered=state_row.is_registered,
+                registered_at=state_row.registered_at,
+            )
+            for state_row in state_rows
+        }
+
+        person = Person(
             person_id=person_row.person_id,
             phone_e164=phone_e164,
             accounts=accounts,
@@ -233,4 +296,16 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             notifications_allowed_vk_at=person_row.notifications_allowed_vk_at,
             notifications_allowed_max=person_row.notifications_allowed_max,
             notifications_allowed_max_at=person_row.notifications_allowed_max_at,
+            platform_states=platform_states,
         )
+        person.is_registered = any(
+            person.get_platform_state(platform).is_registered for platform in SUPPORTED_PLATFORMS
+        )
+        return person
+
+    def _sync_global_registration_flag(self, *, person_row: PersonRow, person_id: UUID) -> None:
+        """Обновляет агрегированный флаг `persons.is_registered` из платформенных состояний."""
+
+        state_statement = select(PersonPlatformStateRow).where(PersonPlatformStateRow.person_id == person_id)
+        state_rows = self._session.execute(state_statement).scalars().all()
+        person_row.is_registered = any(state_row.is_registered for state_row in state_rows)

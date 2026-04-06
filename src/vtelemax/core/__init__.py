@@ -53,6 +53,7 @@ from .guest_content import (
     build_help_screen,
     build_main_menu_screen,
     build_notifications_consent_screen,
+    build_iiko_sync_pending_screen,
     build_iiko_sync_retry_screen,
     build_virtual_card_result_screen,
     build_profile_review_text,
@@ -91,7 +92,14 @@ from .loyalty_use_cases import (
     LoyaltyMenuResult,
 )
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
-from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
+from .models import (
+    Person,
+    PersonProfilePatch,
+    PlatformAccount,
+    PlatformName,
+    PlatformRegistrationState,
+    SUPPORTED_PLATFORMS,
+)
 from .phone import normalize_phone
 from .profile_validation import normalize_email, normalize_person_name, parse_birth_date
 from .ports import IdentityRepository, IdentityUnitOfWork
@@ -156,6 +164,7 @@ __all__ = [
     "Person",
     "PersonProfilePatch",
     "PlatformAccount",
+    "PlatformRegistrationState",
     "PlatformName",
     "SUPPORTED_PLATFORMS",
     "GetPersonByAccountCommand",
@@ -209,6 +218,7 @@ __all__ = [
     "build_main_menu_screen",
     "build_first_name_input_screen",
     "build_notifications_consent_screen",
+    "build_iiko_sync_pending_screen",
     "build_iiko_sync_retry_screen",
     "build_virtual_card_result_screen",
     "build_profile_review_text",

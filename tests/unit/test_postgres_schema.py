@@ -10,6 +10,7 @@ from sqlalchemy import CheckConstraint, UniqueConstraint
 
 from vtelemax.infrastructure.postgres.schema import (
     Base,
+    PersonPlatformStateRow,
     PersonRow,
     PhoneRow,
     PlatformAccountRow,
@@ -24,6 +25,7 @@ def test_metadata_contains_strict_identity_tables() -> None:
     table_names = set(Base.metadata.tables.keys())
     assert {
         "persons",
+        "person_platform_states",
         "phones",
         "platform_accounts",
         "support_tickets",
@@ -61,6 +63,17 @@ def test_platform_accounts_constraints_are_strict() -> None:
     assert "ck_platform_accounts_platform_allowed" in check_constraints
 
 
+def test_person_platform_states_constraints_are_strict() -> None:
+    """Проверяет платформенные ограничения в таблице `person_platform_states`."""
+
+    check_constraints = {
+        constraint.name
+        for constraint in PersonPlatformStateRow.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert "ck_person_platform_states_platform_allowed" in check_constraints
+
+
 def test_foreign_keys_point_to_persons_table() -> None:
     """Проверяет внешние ключи `phones` и `platform_accounts` на `persons`."""
 
@@ -68,9 +81,13 @@ def test_foreign_keys_point_to_persons_table() -> None:
     account_fk_targets = {
         foreign_key.target_fullname for foreign_key in PlatformAccountRow.__table__.foreign_keys
     }
+    platform_state_fk_targets = {
+        foreign_key.target_fullname for foreign_key in PersonPlatformStateRow.__table__.foreign_keys
+    }
 
     assert "persons.person_id" in phone_fk_targets
     assert "persons.person_id" in account_fk_targets
+    assert "persons.person_id" in platform_state_fk_targets
 
 
 def test_person_table_primary_key_name() -> None:

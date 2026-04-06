@@ -464,6 +464,19 @@ def build_iiko_sync_retry_screen() -> MenuScreenContract:
     )
 
 
+def build_iiko_sync_pending_screen() -> MenuScreenContract:
+    """Экран промежуточного шага синхронизации с iiko."""
+
+    return MenuScreenContract(
+        screen_id="iiko_sync_pending",
+        text=(
+            "⏳ Сохраняем ваши данные в бонусной системе iiko.\n\n"
+            "Пожалуйста, подождите несколько секунд. "
+            "Если связь нестабильна, мы предложим повторить синхронизацию."
+        ),
+    )
+
+
 def build_support_question_screen() -> MenuScreenContract:
     """Экран начала сценария обращения в поддержку."""
 
