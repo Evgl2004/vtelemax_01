@@ -1229,16 +1229,22 @@ class VkIdentityAdapter:
 
         self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
         self._moderator_context_by_user_id.pop(vk_user_id, None)
-        linked = ", ".join(details.linked_platforms)
+        status_value = getattr(details.status, "value", str(details.status))
+        status_emoji, status_text = self._format_ticket_status(status_value)
+        linked = ", ".join(details.linked_platforms) or "-"
+        message_lines = [
+            f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
+            f"ID: {details.ticket_id}",
+            f"Статус: {status_text}",
+            f"Канал создания: {details.source_platform}",
+            f"Последний канал гостя: {details.last_guest_platform or '-'}",
+            f"Каналы гостя: {linked}",
+            "",
+        ]
+        message_lines.extend(self._format_ticket_history_lines(messages))
+        message_lines.extend(["", self._build_moderation_menu_text()])
         return VkAdapterResponse(
-            text=(
-                f"Тикет: {details.ticket_id}\n"
-                f"Статус: {details.status}\n"
-                f"Канал создания: {details.source_platform}\n"
-                f"Последний канал гостя: {details.last_guest_platform or '-'}\n"
-                f"Каналы гостя: {linked}\n\n"
-                f"{self._build_moderation_menu_text()}"
-            )
+            text="\n".join(message_lines)
         )
 
     def _build_open_tickets_text(self, *, limit: int) -> str:
@@ -1687,13 +1693,14 @@ class VkIdentityAdapter:
 
         for message in messages:
             author_value = getattr(getattr(message, "author", None), "value", "")
-            author_label = "Гость" if author_value == "guest" else "Модератор"
+            author_label = "👤 Гость" if author_value == "guest" else "👨‍💼 Модератор"
             source_platform = str(getattr(message, "source_platform", "-"))
             created_at = getattr(message, "created_at", None)
             created_at_text = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "время не указано"
             body = str(getattr(message, "body", "")).strip() or "—"
-            lines.append(f"• {author_label} ({source_platform}, {created_at_text})")
-            lines.append(body)
+            lines.append(f"[{created_at_text}] {author_label} ({source_platform}):")
+            for line in body.splitlines():
+                lines.append(f"» {line}" if line.strip() else "»")
 
         return lines
 
@@ -1908,32 +1915,17 @@ class VkIdentityAdapter:
             )
         
         # Форматируем сообщение с деталями тикета
-        status_emoji = {"open": "🆕", "closed": "🔒"}.get(details.status.value, "❓")
         short_id = self._format_ticket_id_short(ticket_id)
         status_emoji, status_text = self._format_ticket_status(details.status.value)
-        
-        # TODO: Добавить получение истории сообщений, когда будет доступен use-case
         message_lines = [
             f"{status_emoji} Тикет #{short_id}",
-            f"Статус: {'открыт' if details.status.value == 'open' else 'закрыт'}",
+            f"Статус: {status_text}",
             f"Создан в: {details.source_platform}",
         ]
-        
-        message_lines[1] = f"Статус: {status_text}"
 
         if details.last_guest_platform:
             message_lines.append(f"Последний ответ из: {details.last_guest_platform}")
-        
-        message_lines.extend([
-            "",
-            "📨 История переписки:",
-            "Пока недоступна. Функционал будет добавлен в ближайшее время.",
-            "",
-            "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
-        ])
-        
-        header_size = 4 if details.last_guest_platform else 3
-        message_lines = message_lines[:header_size]
+
         message_lines.append("")
         message_lines.extend(self._format_ticket_history_lines(messages))
         message_lines.extend(

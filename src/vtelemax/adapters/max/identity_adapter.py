@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from uuid import UUID
@@ -1289,16 +1290,23 @@ class MaxIdentityAdapter:
 
         self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
         self._moderator_context_by_user_id.pop(max_user_id, None)
-        linked = ", ".join(details.linked_platforms)
+        status_value = getattr(details.status, "value", str(details.status))
+        status_emoji, status_text = self._format_ticket_status(status_value)
+        linked = ", ".join(details.linked_platforms) or "-"
+        message_lines = [
+            f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
+            f"🧾 <b>ID:</b> <code>{html.escape(str(details.ticket_id))}</code>",
+            f"📌 <b>Статус:</b> {html.escape(status_text)}",
+            f"🧭 <b>Канал создания:</b> {html.escape(details.source_platform)}",
+            f"🔁 <b>Последний канал гостя:</b> {html.escape(details.last_guest_platform or '-')}",
+            f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
+            "",
+        ]
+        message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
+        message_lines.extend(["", self._build_moderation_menu_text()])
         return MaxAdapterResponse(
-            text=(
-                f"Тикет: {details.ticket_id}\n"
-                f"Статус: {details.status}\n"
-                f"Канал создания: {details.source_platform}\n"
-                f"Последний канал гостя: {details.last_guest_platform or '-'}\n"
-                f"Каналы гостя: {linked}\n\n"
-                f"{self._build_moderation_menu_text()}"
-            )
+            text="\n".join(message_lines),
+            parse_mode="html",
         )
 
     def _build_open_tickets_text(self, *, limit: int) -> str:
@@ -1673,23 +1681,32 @@ class MaxIdentityAdapter:
         return "❓", status_value
 
     @staticmethod
-    def _format_ticket_history_lines(messages: tuple[object, ...]) -> list[str]:
+    def _format_ticket_history_lines(messages: tuple[object, ...], *, use_html: bool = False) -> list[str]:
         """Форматирует блок истории переписки тикета."""
 
-        lines: list[str] = ["📨 История переписки:"]
+        lines: list[str] = ["📨 <b>История переписки:</b>" if use_html else "📨 История переписки:"]
         if not messages:
             lines.append("Сообщений в тикете пока нет.")
             return lines
 
         for message in messages:
             author_value = getattr(getattr(message, "author", None), "value", "")
-            author_label = "Гость" if author_value == "guest" else "Модератор"
+            if use_html:
+                author_label = "👤 <b>Гость</b>" if author_value == "guest" else "👨‍💼 <b>Модератор</b>"
+            else:
+                author_label = "👤 Гость" if author_value == "guest" else "👨‍💼 Модератор"
             source_platform = str(getattr(message, "source_platform", "-"))
             created_at = getattr(message, "created_at", None)
             created_at_text = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "время не указано"
             body = str(getattr(message, "body", "")).strip() or "—"
-            lines.append(f"• {author_label} ({source_platform}, {created_at_text})")
-            lines.append(body)
+            if use_html:
+                lines.append(f"[{html.escape(created_at_text)}] {author_label} ({html.escape(source_platform)}):")
+                lines.append(f"<blockquote>{html.escape(body)}</blockquote>")
+                continue
+
+            lines.append(f"[{created_at_text}] {author_label} ({source_platform}):")
+            for line in body.splitlines():
+                lines.append(f"» {line}" if line.strip() else "»")
 
         return lines
 
@@ -1962,38 +1979,23 @@ class MaxIdentityAdapter:
             )
         
         # Форматируем сообщение с деталями тикета
-        status_emoji = {"open": "🆕", "closed": "🔒"}.get(details.status.value, "❓")
         short_id = self._format_ticket_id_short(ticket_id)
         status_emoji, status_text = self._format_ticket_status(details.status.value)
-        
-        # TODO: Добавить получение истории сообщений, когда будет доступен use-case
         message_lines = [
-            f"{status_emoji} Тикет #{short_id}",
-            f"Статус: {'открыт' if details.status.value == 'open' else 'закрыт'}",
-            f"Создан в: {details.source_platform}",
+            f"{status_emoji} <b>Тикет #{short_id}</b>",
+            f"📌 <b>Статус:</b> {html.escape(status_text)}",
+            f"🧭 <b>Создан в:</b> {html.escape(details.source_platform)}",
         ]
-        
-        message_lines[1] = f"Статус: {status_text}"
 
         if details.last_guest_platform:
-            message_lines.append(f"Последний ответ из: {details.last_guest_platform}")
-        
-        message_lines.extend([
-            "",
-            "📨 История переписки:",
-            "Пока недоступна. Функционал будет добавлен в ближайшее время.",
-            "",
-            "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
-        ])
-        
-        header_size = 4 if details.last_guest_platform else 3
-        message_lines = message_lines[:header_size]
+            message_lines.append(f"🔁 <b>Последний ответ из:</b> {html.escape(details.last_guest_platform)}")
+
         message_lines.append("")
-        message_lines.extend(self._format_ticket_history_lines(messages))
+        message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
         message_lines.extend(
             [
                 "",
-                "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
+                "✍️ <i>Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.</i>",
             ]
         )
         message = "\n".join(message_lines)
@@ -2012,6 +2014,7 @@ class MaxIdentityAdapter:
         return MaxAdapterResponse(
             text=message,
             screen=screen,
+            parse_mode="html",
         )
 
     def _sync_registration_with_loyalty(

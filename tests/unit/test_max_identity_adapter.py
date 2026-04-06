@@ -774,7 +774,8 @@ def test_max_moderator_reply_can_route_to_another_messenger() -> None:
     assert "Введите текст ответа модератора" in wait_reply.text
     assert "Маршрут доставки: vk" in routed.text
     assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
-    assert "Канал создания: max" in details.text
+    assert "Канал создания:" in details.text
+    assert "max" in details.text
     assert "Не удалось распознать пункт меню модератора." in unsupported.text
 
 
@@ -827,7 +828,8 @@ def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     assert "Введите текст ответа модератора" in wait_reply.text
     assert "Маршрут доставки: max" in routed.text
     assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
-    assert "Канал создания: max" in details.text
+    assert "Канал создания:" in details.text
+    assert "max" in details.text
 
 
 def test_max_ticket_details_screen_includes_ticket_history() -> None:
@@ -850,6 +852,9 @@ def test_max_ticket_details_screen_includes_ticket_history() -> None:
         payload={"cmd": f"user_ticket_{created_ticket.ticket_id}"},
     )
 
+    assert response.parse_mode == "html"
     assert "История переписки" in response.text
     assert "Нужна помощь с бонусами по карте" in response.text
+    assert "<blockquote>" in response.text
+    assert "Гость" in response.text
     assert "недоступн" not in response.text.lower()

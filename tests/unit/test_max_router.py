@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
+from vtelemax.adapters.max.identity_adapter import MaxAdapterResponse
 from vtelemax.adapters.max.router import (
     _extract_callback_message_id,
     _extract_max_upload_token,
     _extract_contact_attachment,
     _extract_phone_from_vcf,
     _is_message_not_modified_error,
+    _send_response,
 )
 
 
@@ -130,3 +134,24 @@ def test_extract_callback_message_id_returns_int_mid_without_conversion_errors()
     callback_mid = _extract_callback_message_id(event)
 
     assert callback_mid == 12345
+
+
+@pytest.mark.asyncio
+async def test_send_response_supports_html_parse_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проверяет, что MAX-роутер пробрасывает html parse mode в send_message."""
+
+    sent_calls: list[dict[str, object]] = []
+
+    class _BotStub:
+        async def send_message(self, **kwargs: object) -> None:
+            sent_calls.append(kwargs)
+
+    monkeypatch.setattr("vtelemax.adapters.max.router._resolve_html_parse_mode", lambda: "HTML_MODE")
+
+    event = SimpleNamespace(bot=_BotStub(), chat_id=188720157)
+    response = MaxAdapterResponse(text="<b>Тест</b>", parse_mode="html")
+
+    await _send_response(event, response)
+
+    assert len(sent_calls) == 1
+    assert sent_calls[0]["parse_mode"] == "HTML_MODE"

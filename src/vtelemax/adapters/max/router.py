@@ -311,6 +311,10 @@ async def _send_response(event: Any, response: MaxAdapterResponse) -> None:
         markdown_parse_mode = _resolve_markdown_parse_mode()
         if markdown_parse_mode is not None:
             kwargs["parse_mode"] = markdown_parse_mode
+    if parse_mode_key == "html":
+        html_parse_mode = _resolve_html_parse_mode()
+        if html_parse_mode is not None:
+            kwargs["parse_mode"] = html_parse_mode
 
     callback_mid = _extract_callback_message_id(event)
     if response.virtual_card_numbers:
@@ -350,6 +354,16 @@ def _resolve_markdown_parse_mode() -> Any | None:
     except Exception:
         return None
     return ParseMode.MARKDOWN
+
+
+def _resolve_html_parse_mode() -> Any | None:
+    """Возвращает `ParseMode.HTML`, если maxapi доступен."""
+
+    try:
+        from maxapi.enums.parse_mode import ParseMode
+    except Exception:
+        return None
+    return getattr(ParseMode, "HTML", None)
 
 
 def _extract_user_id(event: Any) -> int | None:

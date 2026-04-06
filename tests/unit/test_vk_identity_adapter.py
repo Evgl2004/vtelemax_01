@@ -898,4 +898,6 @@ def test_vk_ticket_details_screen_includes_ticket_history() -> None:
 
     assert "История переписки" in response.text
     assert "Нужна помощь с бонусами по карте" in response.text
+    assert "Гость" in response.text
+    assert "» Нужна помощь с бонусами по карте" in response.text
     assert "недоступн" not in response.text.lower()

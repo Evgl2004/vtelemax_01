@@ -1036,7 +1036,8 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
     assert "Маршрут доставки: telegram" in routed.message
     assert wait_details.status == "moderation_wait_ticket_for_details"
     assert details.status == "moderation_details"
-    assert "Канал создания: telegram" in details.message
+    assert "Канал создания:" in details.message
+    assert "telegram" in details.message
 
 
 def test_telegram_ticket_details_screen_includes_ticket_history() -> None:
@@ -1082,6 +1083,9 @@ def test_telegram_ticket_details_screen_includes_ticket_history() -> None:
     )
 
     assert response.status == "ticket_details"
+    assert response.parse_mode == "HTML"
     assert "История переписки" in response.message
     assert "Нужна помощь с бонусами по карте" in response.message
+    assert "<blockquote>" in response.message
+    assert "Гость" in response.message
     assert "недоступн" not in response.message.lower()
