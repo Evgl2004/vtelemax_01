@@ -156,7 +156,7 @@ class VkIdentityAdapter:
         if not person.is_registered:
             method_logger.info("Найден незавершенный профиль, восстанавливаем onboarding.")
             draft = _OnboardingDraft(
-                rules_accepted_at=person.rules_accepted_at,
+                rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
                 phone_e164=person.phone_e164,
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
@@ -165,7 +165,7 @@ class VkIdentityAdapter:
             )
             self._onboarding_draft_by_user_id[vk_user_id] = draft
             self._clear_moderator_state(vk_user_id)
-            if not person.rules_accepted:
+            if not person.get_rules_accepted_for_platform("vk"):
                 transition = self._onboarding_flow.begin_new_user()
                 self._state_by_user_id[vk_user_id] = transition.state.value
                 return VkAdapterResponse(
@@ -188,17 +188,17 @@ class VkIdentityAdapter:
                 screen=self._menu_adapter.build_notifications_consent_screen(),
             )
 
-        # Для текущей модели Person согласия хранятся на уровне профиля (без разреза по платформам).
+        # Проверяем, собраны ли все согласия для платформы VK.
         platform_consents_complete = (
-            person.rules_accepted is True
-            and person.notifications_allowed_at is not None
+            person.get_rules_accepted_for_platform("vk") is True
+            and person.get_notifications_allowed_at_for_platform("vk") is not None
         )
         if not platform_consents_complete:
             method_logger.info(
                 "Пользователь зарегистрирован, но согласия для VK неполные, продолжаем onboarding."
             )
             draft = _OnboardingDraft(
-                rules_accepted_at=person.rules_accepted_at,
+                rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
                 phone_e164=person.phone_e164,
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
@@ -208,7 +208,7 @@ class VkIdentityAdapter:
             self._onboarding_draft_by_user_id[vk_user_id] = draft
             self._clear_moderator_state(vk_user_id)
 
-            if not person.rules_accepted:
+            if not person.get_rules_accepted_for_platform("vk"):
                 transition = self._onboarding_flow.begin_new_user()
                 self._state_by_user_id[vk_user_id] = transition.state.value
                 return VkAdapterResponse(
@@ -456,7 +456,13 @@ class VkIdentityAdapter:
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = "vk_text_input"
         legacy_flow_active = is_legacy or bool(person.is_legacy)
-        if person.is_registered and not legacy_flow_active:
+        # Проверяем, нужно ли собирать согласия для этой платформы
+        platform_consents_complete = (
+            person.get_rules_accepted_for_platform("vk") is True
+            and person.get_notifications_allowed_at_for_platform("vk") is not None
+        )
+        if person.is_registered and not legacy_flow_active and platform_consents_complete:
+            # Все согласия для VK уже собраны, можно открыть главное меню
             self._state_by_user_id.pop(vk_user_id, None)
             self._onboarding_draft_by_user_id.pop(vk_user_id, None)
             self._clear_moderator_state(vk_user_id)
@@ -507,10 +513,32 @@ class VkIdentityAdapter:
             )
             return VkAdapterResponse(text=transition.message, screen=None)
 
-        transition = self._onboarding_flow.begin_first_name_step()
-        self._state_by_user_id[vk_user_id] = transition.state.value
-        method_logger.info("Телефон подтвержден, переходим к шагу имени. person_id={person_id}.", person_id=person.person_id)
-        return VkAdapterResponse(text=transition.message, screen=None)
+        # Определяем следующий шаг onboarding
+        if person.first_name_input:
+            # Имя уже есть, переходим к шагу согласия на рассылку
+            transition = self._onboarding_flow.begin_notifications_consent_step(
+                phone_e164=draft.phone_e164,
+                accounts_count=len(person.accounts),
+                first_name_input=person.first_name_input,
+            )
+            self._state_by_user_id[vk_user_id] = transition.state.value
+            method_logger.info(
+                "Телефон подтвержден, переходим к шагу согласия на рассылку. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return VkAdapterResponse(
+                text=transition.message,
+                screen=self._menu_adapter.build_notifications_consent_screen(),
+            )
+        else:
+            # Имя отсутствует, запрашиваем его
+            transition = self._onboarding_flow.begin_first_name_step()
+            self._state_by_user_id[vk_user_id] = transition.state.value
+            method_logger.info(
+                "Телефон подтвержден, переходим к шагу имени. person_id={person_id}.",
+                person_id=person.person_id,
+            )
+            return VkAdapterResponse(text=transition.message, screen=None)
 
     def _handle_first_name_input(self, vk_user_id: int, text: str) -> VkAdapterResponse:
         """Обрабатывает шаг ввода имени в сокращенной регистрации."""
@@ -584,14 +612,17 @@ class VkIdentityAdapter:
             )
 
         notifications_fixed_at = datetime.now(timezone.utc)
+        # Определяем, давал ли пользователь согласие с правилами для VK
+        rules_accepted = True if draft.rules_accepted_at is not None else None
+        rules_accepted_at = draft.rules_accepted_at
         try:
             person = self._registration_use_case.execute(
                 RegisterOrAttachAccountCommand(
                     platform="vk",
                     external_id=str(vk_user_id),
                     raw_phone=draft.phone_e164,
-                    rules_accepted=True,
-                    rules_accepted_at=draft.rules_accepted_at or notifications_fixed_at,
+                    rules_accepted=rules_accepted,
+                    rules_accepted_at=rules_accepted_at,
                     notifications_allowed=notifications_choice,
                     notifications_allowed_at=notifications_fixed_at,
                     first_name_input=draft.first_name_input,
@@ -755,10 +786,10 @@ class VkIdentityAdapter:
             gender=person.gender,
             birth_date=person.birth_date,
             email=person.email,
-            rules_accepted=person.rules_accepted,
-            rules_accepted_at=person.rules_accepted_at,
-            notifications_allowed=person.notifications_allowed,
-            notifications_allowed_at=person.notifications_allowed_at,
+            rules_accepted=person.get_rules_accepted_for_platform("vk"),
+            rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
+            notifications_allowed=person.get_notifications_allowed_for_platform("vk"),
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("vk"),
         )
         return VkAdapterResponse(text=screen.text, screen=screen, parse_mode=screen.parse_mode)
 
@@ -1670,11 +1701,11 @@ class VkIdentityAdapter:
         )
         rules_accepted_at = (
             (draft.rules_accepted_at if draft is not None else None)
-            or (person.rules_accepted_at if person is not None else None)
+            or (person.get_rules_accepted_at_for_platform("vk") if person is not None else None)
         )
         rules_accepted = bool(
             (draft is not None and draft.rules_accepted_at is not None)
-            or (person is not None and person.rules_accepted)
+            or (person is not None and person.get_rules_accepted_for_platform("vk"))
         )
         accounts_count = len(person.accounts) if person is not None else 1
         accounts_platforms = (
@@ -1694,8 +1725,8 @@ class VkIdentityAdapter:
             email=person.email if person is not None else None,
             rules_accepted=rules_accepted,
             rules_accepted_at=rules_accepted_at,
-            notifications_allowed=person.notifications_allowed if person is not None else None,
-            notifications_allowed_at=person.notifications_allowed_at if person is not None else None,
+            notifications_allowed=person.get_notifications_allowed_for_platform("vk") if person is not None else None,
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("vk") if person is not None else None,
         ).text
 
     @staticmethod
@@ -1894,8 +1925,8 @@ class VkIdentityAdapter:
             gender=person.gender,
             birth_date=person.birth_date,
             email=person.email,
-            rules_accepted=person.rules_accepted,
-            notifications_allowed=person.notifications_allowed,
-            rules_accepted_at=person.rules_accepted_at,
-            notifications_allowed_at=person.notifications_allowed_at,
+            rules_accepted=person.get_rules_accepted_for_platform("vk"),
+            notifications_allowed=person.get_notifications_allowed_for_platform("vk"),
+            rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
+            notifications_allowed_at=person.get_notifications_allowed_at_for_platform("vk"),
         )

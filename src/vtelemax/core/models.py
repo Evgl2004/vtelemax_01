@@ -71,6 +71,62 @@ class Person:
     email: str | None = None
     phone_verified_at: datetime | None = None
     phone_verification_method: str | None = None
+    rules_accepted_tg: bool = False
+    rules_accepted_tg_at: datetime | None = None
+    rules_accepted_vk: bool = False
+    rules_accepted_vk_at: datetime | None = None
+    rules_accepted_max: bool = False
+    rules_accepted_max_at: datetime | None = None
+    notifications_allowed_tg: bool = False
+    notifications_allowed_tg_at: datetime | None = None
+    notifications_allowed_vk: bool = False
+    notifications_allowed_vk_at: datetime | None = None
+    notifications_allowed_max: bool = False
+    notifications_allowed_max_at: datetime | None = None
+
+    def get_rules_accepted_for_platform(self, platform: PlatformName) -> bool:
+        """Возвращает признак согласия с правилами для указанной платформы."""
+        if platform == "telegram":
+            return self.rules_accepted_tg
+        elif platform == "vk":
+            return self.rules_accepted_vk
+        elif platform == "max":
+            return self.rules_accepted_max
+        else:
+            raise ValueError(f"Неподдерживаемая платформа: {platform}")
+
+    def get_rules_accepted_at_for_platform(self, platform: PlatformName) -> datetime | None:
+        """Возвращает дату согласия с правилами для указанной платформы."""
+        if platform == "telegram":
+            return self.rules_accepted_tg_at
+        elif platform == "vk":
+            return self.rules_accepted_vk_at
+        elif platform == "max":
+            return self.rules_accepted_max_at
+        else:
+            raise ValueError(f"Неподдерживаемая платформа: {platform}")
+
+    def get_notifications_allowed_for_platform(self, platform: PlatformName) -> bool:
+        """Возвращает признак разрешения уведомлений для указанной платформы."""
+        if platform == "telegram":
+            return self.notifications_allowed_tg
+        elif platform == "vk":
+            return self.notifications_allowed_vk
+        elif platform == "max":
+            return self.notifications_allowed_max
+        else:
+            raise ValueError(f"Неподдерживаемая платформа: {platform}")
+
+    def get_notifications_allowed_at_for_platform(self, platform: PlatformName) -> datetime | None:
+        """Возвращает дату разрешения уведомлений для указанной платформы."""
+        if platform == "telegram":
+            return self.notifications_allowed_tg_at
+        elif platform == "vk":
+            return self.notifications_allowed_vk_at
+        elif platform == "max":
+            return self.notifications_allowed_max_at
+        else:
+            raise ValueError(f"Неподдерживаемая платформа: {platform}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +150,18 @@ class PersonProfilePatch:
     email: str | None = None
     phone_verified_at: datetime | None = None
     phone_verification_method: str | None = None
+    rules_accepted_tg: bool | None = None
+    rules_accepted_tg_at: datetime | None = None
+    rules_accepted_vk: bool | None = None
+    rules_accepted_vk_at: datetime | None = None
+    rules_accepted_max: bool | None = None
+    rules_accepted_max_at: datetime | None = None
+    notifications_allowed_tg: bool | None = None
+    notifications_allowed_tg_at: datetime | None = None
+    notifications_allowed_vk: bool | None = None
+    notifications_allowed_vk_at: datetime | None = None
+    notifications_allowed_max: bool | None = None
+    notifications_allowed_max_at: datetime | None = None
 
     def has_updates(self) -> bool:
         """Проверяет, есть ли хотя бы одно поле для изменения."""
@@ -114,5 +182,17 @@ class PersonProfilePatch:
                 self.email,
                 self.phone_verified_at,
                 self.phone_verification_method,
+                self.rules_accepted_tg,
+                self.rules_accepted_tg_at,
+                self.rules_accepted_vk,
+                self.rules_accepted_vk_at,
+                self.rules_accepted_max,
+                self.rules_accepted_max_at,
+                self.notifications_allowed_tg,
+                self.notifications_allowed_tg_at,
+                self.notifications_allowed_vk,
+                self.notifications_allowed_vk_at,
+                self.notifications_allowed_max,
+                self.notifications_allowed_max_at,
             )
         )

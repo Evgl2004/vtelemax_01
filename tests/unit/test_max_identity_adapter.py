@@ -389,7 +389,7 @@ def test_max_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
 
 
 def test_max_phone_match_with_registered_profile_opens_menu_without_reasking_name() -> None:
-    """Проверяет, что при привязке к уже зарегистрированному профилю MAX сразу открывает меню."""
+    """Проверяет, что при привязке к уже зарегистрированному профилю MAX запрашивает согласие на рассылку."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -427,9 +427,9 @@ def test_max_phone_match_with_registered_profile_opens_menu_without_reasking_nam
     )
 
     assert response.screen is not None
-    assert response.screen.screen_id == "main_menu"
-    assert "Андрей" in response.text
+    assert response.screen.screen_id == "notifications_consent"
     assert attached_person is not None
+    assert attached_person.first_name_input == "Андрей"
     assert len(attached_person.accounts) == 2
 
 

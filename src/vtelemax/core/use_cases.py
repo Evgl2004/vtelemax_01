@@ -56,21 +56,44 @@ class RegisterOrAttachAccountCommand:
     def to_profile_patch(self) -> PersonProfilePatch:
         """Преобразует команду в объект частичного обновления профиля."""
 
-        return PersonProfilePatch(
-            rules_accepted=self.rules_accepted,
-            rules_accepted_at=self.rules_accepted_at,
-            notifications_allowed=self.notifications_allowed,
-            notifications_allowed_at=self.notifications_allowed_at,
-            is_legacy=self.is_legacy,
-            is_registered=self.is_registered,
-            first_name_input=self.first_name_input,
-            last_name_input=self.last_name_input,
-            gender=self.gender,
-            birth_date=self.birth_date,
-            email=self.email,
-            phone_verified_at=self.phone_verified_at,
-            phone_verification_method=self.phone_verification_method,
-        )
+        # Инициализируем все поля как None
+        patch_kwargs = {
+            "rules_accepted": self.rules_accepted,
+            "rules_accepted_at": self.rules_accepted_at,
+            "notifications_allowed": self.notifications_allowed,
+            "notifications_allowed_at": self.notifications_allowed_at,
+            "is_legacy": self.is_legacy,
+            "is_registered": self.is_registered,
+            "first_name_input": self.first_name_input,
+            "last_name_input": self.last_name_input,
+            "gender": self.gender,
+            "birth_date": self.birth_date,
+            "email": self.email,
+            "phone_verified_at": self.phone_verified_at,
+            "phone_verification_method": self.phone_verification_method,
+        }
+
+        # Добавляем платформо-специфичные поля на основе self.platform
+        if self.platform == "telegram":
+            patch_kwargs["rules_accepted_tg"] = self.rules_accepted
+            patch_kwargs["rules_accepted_tg_at"] = self.rules_accepted_at
+            patch_kwargs["notifications_allowed_tg"] = self.notifications_allowed
+            patch_kwargs["notifications_allowed_tg_at"] = self.notifications_allowed_at
+        elif self.platform == "vk":
+            patch_kwargs["rules_accepted_vk"] = self.rules_accepted
+            patch_kwargs["rules_accepted_vk_at"] = self.rules_accepted_at
+            patch_kwargs["notifications_allowed_vk"] = self.notifications_allowed
+            patch_kwargs["notifications_allowed_vk_at"] = self.notifications_allowed_at
+        elif self.platform == "max":
+            patch_kwargs["rules_accepted_max"] = self.rules_accepted
+            patch_kwargs["rules_accepted_max_at"] = self.rules_accepted_at
+            patch_kwargs["notifications_allowed_max"] = self.notifications_allowed
+            patch_kwargs["notifications_allowed_max_at"] = self.notifications_allowed_at
+        else:
+            # Это не должно происходить, т.к. platform валидируется
+            pass
+
+        return PersonProfilePatch(**patch_kwargs)
 
 
 class RegisterOrAttachAccountUseCase:
@@ -213,6 +236,37 @@ def _apply_profile_patch(person: Person, patch: PersonProfilePatch) -> None:
         person.notifications_allowed = patch.notifications_allowed
     if patch.notifications_allowed_at is not None:
         person.notifications_allowed_at = patch.notifications_allowed_at
+
+    # Платформо-специфичные согласия Telegram
+    if patch.rules_accepted_tg is not None:
+        person.rules_accepted_tg = patch.rules_accepted_tg
+    if patch.rules_accepted_tg_at is not None:
+        person.rules_accepted_tg_at = patch.rules_accepted_tg_at
+    if patch.notifications_allowed_tg is not None:
+        person.notifications_allowed_tg = patch.notifications_allowed_tg
+    if patch.notifications_allowed_tg_at is not None:
+        person.notifications_allowed_tg_at = patch.notifications_allowed_tg_at
+
+    # Платформо-специфичные согласия VK
+    if patch.rules_accepted_vk is not None:
+        person.rules_accepted_vk = patch.rules_accepted_vk
+    if patch.rules_accepted_vk_at is not None:
+        person.rules_accepted_vk_at = patch.rules_accepted_vk_at
+    if patch.notifications_allowed_vk is not None:
+        person.notifications_allowed_vk = patch.notifications_allowed_vk
+    if patch.notifications_allowed_vk_at is not None:
+        person.notifications_allowed_vk_at = patch.notifications_allowed_vk_at
+
+    # Платформо-специфичные согласия MAX
+    if patch.rules_accepted_max is not None:
+        person.rules_accepted_max = patch.rules_accepted_max
+    if patch.rules_accepted_max_at is not None:
+        person.rules_accepted_max_at = patch.rules_accepted_max_at
+    if patch.notifications_allowed_max is not None:
+        person.notifications_allowed_max = patch.notifications_allowed_max
+    if patch.notifications_allowed_max_at is not None:
+        person.notifications_allowed_max_at = patch.notifications_allowed_max_at
+
     if patch.is_legacy is not None:
         person.is_legacy = patch.is_legacy
     if patch.is_registered is not None:

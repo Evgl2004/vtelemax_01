@@ -374,7 +374,7 @@ def test_vk_phone_match_with_telegram_legacy_switches_to_legacy_flow() -> None:
 
 
 def test_vk_phone_match_with_registered_profile_opens_menu_without_reasking_name() -> None:
-    """Проверяет, что при привязке к уже зарегистрированному профилю VK сразу открывает меню."""
+    """Проверяет, что при привязке к уже зарегистрированному профилю VK запрашивает согласие на рассылку."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
@@ -407,10 +407,48 @@ def test_vk_phone_match_with_registered_profile_opens_menu_without_reasking_name
     )
 
     assert response.screen is not None
-    assert response.screen.screen_id == "main_menu"
-    assert "Андрей" in response.text
+    assert response.screen.screen_id == "notifications_consent"
     assert attached_person is not None
+    assert attached_person.first_name_input == "Андрей"
     assert len(attached_person.accounts) == 2
+
+
+def test_vk_start_for_registered_profile_without_vk_consents_continues_onboarding() -> None:
+    """Проверяет, что `/start` в VK не пропускает обязательные платформенные согласия."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="ready-tg-for-vk-start",
+            raw_phone="+79129990011",
+            first_name_input="Андрей",
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_registered=True,
+        )
+    )
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="4901",
+            raw_phone="+79129990011",
+        )
+    )
+
+    start_response = adapter.handle_start(vk_user_id=4901)
+
+    assert start_response.screen is not None
+    assert start_response.screen.screen_id == "start_rules"
+    assert "Согласен" in start_response.text
 
 
 def test_vk_dirty_input_on_rules_step_keeps_consent_pending() -> None:

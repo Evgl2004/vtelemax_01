@@ -91,6 +91,18 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                 email=person.email,
                 phone_verified_at=person.phone_verified_at,
                 phone_verification_method=person.phone_verification_method,
+                rules_accepted_tg=person.rules_accepted_tg,
+                rules_accepted_tg_at=person.rules_accepted_tg_at,
+                rules_accepted_vk=person.rules_accepted_vk,
+                rules_accepted_vk_at=person.rules_accepted_vk_at,
+                rules_accepted_max=person.rules_accepted_max,
+                rules_accepted_max_at=person.rules_accepted_max_at,
+                notifications_allowed_tg=person.notifications_allowed_tg,
+                notifications_allowed_tg_at=person.notifications_allowed_tg_at,
+                notifications_allowed_vk=person.notifications_allowed_vk,
+                notifications_allowed_vk_at=person.notifications_allowed_vk_at,
+                notifications_allowed_max=person.notifications_allowed_max,
+                notifications_allowed_max_at=person.notifications_allowed_max_at,
             )
         )
         self._session.add(
@@ -155,6 +167,30 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             person_row.phone_verified_at = patch.phone_verified_at
         if patch.phone_verification_method is not None:
             person_row.phone_verification_method = patch.phone_verification_method
+        if patch.rules_accepted_tg is not None:
+            person_row.rules_accepted_tg = patch.rules_accepted_tg
+        if patch.rules_accepted_tg_at is not None:
+            person_row.rules_accepted_tg_at = patch.rules_accepted_tg_at
+        if patch.rules_accepted_vk is not None:
+            person_row.rules_accepted_vk = patch.rules_accepted_vk
+        if patch.rules_accepted_vk_at is not None:
+            person_row.rules_accepted_vk_at = patch.rules_accepted_vk_at
+        if patch.rules_accepted_max is not None:
+            person_row.rules_accepted_max = patch.rules_accepted_max
+        if patch.rules_accepted_max_at is not None:
+            person_row.rules_accepted_max_at = patch.rules_accepted_max_at
+        if patch.notifications_allowed_tg is not None:
+            person_row.notifications_allowed_tg = patch.notifications_allowed_tg
+        if patch.notifications_allowed_tg_at is not None:
+            person_row.notifications_allowed_tg_at = patch.notifications_allowed_tg_at
+        if patch.notifications_allowed_vk is not None:
+            person_row.notifications_allowed_vk = patch.notifications_allowed_vk
+        if patch.notifications_allowed_vk_at is not None:
+            person_row.notifications_allowed_vk_at = patch.notifications_allowed_vk_at
+        if patch.notifications_allowed_max is not None:
+            person_row.notifications_allowed_max = patch.notifications_allowed_max
+        if patch.notifications_allowed_max_at is not None:
+            person_row.notifications_allowed_max_at = patch.notifications_allowed_max_at
 
     def _build_person(self, person_row: PersonRow, phone_e164: str) -> Person:
         """Собирает доменную модель человека с полным набором аккаунтов."""
@@ -185,4 +221,16 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             email=person_row.email,
             phone_verified_at=person_row.phone_verified_at,
             phone_verification_method=person_row.phone_verification_method,
+            rules_accepted_tg=person_row.rules_accepted_tg,
+            rules_accepted_tg_at=person_row.rules_accepted_tg_at,
+            rules_accepted_vk=person_row.rules_accepted_vk,
+            rules_accepted_vk_at=person_row.rules_accepted_vk_at,
+            rules_accepted_max=person_row.rules_accepted_max,
+            rules_accepted_max_at=person_row.rules_accepted_max_at,
+            notifications_allowed_tg=person_row.notifications_allowed_tg,
+            notifications_allowed_tg_at=person_row.notifications_allowed_tg_at,
+            notifications_allowed_vk=person_row.notifications_allowed_vk,
+            notifications_allowed_vk_at=person_row.notifications_allowed_vk_at,
+            notifications_allowed_max=person_row.notifications_allowed_max,
+            notifications_allowed_max_at=person_row.notifications_allowed_max_at,
         )
