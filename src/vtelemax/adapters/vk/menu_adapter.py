@@ -256,7 +256,14 @@ class VkGuestMenuAdapter:
         """Экран создания обращения."""
 
         screen = build_support_question_screen()
-        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = (
+            (
+                VkButton(
+                    label=BUTTON_MY_TICKETS,
+                    payload=build_vk_payload(GuestMenuAction.MY_TICKETS),
+                ),
+            ),
+        )
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,

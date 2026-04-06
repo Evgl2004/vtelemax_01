@@ -9,6 +9,7 @@ from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
     PersonSupportTicketSummary,
+    BUTTON_MY_TICKETS,
     build_about_screen,
     build_balance_screen,
     build_delivery_screen,
@@ -242,7 +243,14 @@ class MaxGuestMenuAdapter:
         """Экран создания обращения."""
 
         screen = build_support_question_screen()
-        rows = ((_to_max_button(screen.buttons[0]),),) if screen.buttons else ()
+        rows = (
+            (
+                MaxButton(
+                    label=BUTTON_MY_TICKETS,
+                    payload=build_max_payload(GuestMenuAction.MY_TICKETS),
+                ),
+            ),
+        )
         return MaxScreen(
             screen_id=screen.screen_id,
             text=screen.text,

@@ -196,11 +196,21 @@ async def _try_delete_callback_message(event: MessageEvent) -> None:
     if ctx_api is None or peer_id is None or cmid is None:
         return
 
+    await _try_delete_message_by_cmid(
+        ctx_api=ctx_api,
+        peer_id=int(peer_id),
+        cmid=int(cmid),
+    )
+
+
+async def _try_delete_message_by_cmid(*, ctx_api: Any, peer_id: int, cmid: int) -> bool:
+    """Пытается удалить конкретное сообщение VK по `conversation_message_id`."""
+
     delete_variants: tuple[dict[str, object], ...] = (
-        {"peer_id": peer_id, "conversation_message_ids": [int(cmid)], "delete_for_all": 1},
-        {"peer_id": peer_id, "conversation_message_ids": str(int(cmid)), "delete_for_all": 1},
-        {"peer_id": peer_id, "cmids": [int(cmid)], "delete_for_all": 1},
-        {"peer_id": peer_id, "cmids": str(int(cmid)), "delete_for_all": 1},
+        {"peer_id": peer_id, "conversation_message_ids": [cmid], "delete_for_all": 1},
+        {"peer_id": peer_id, "conversation_message_ids": str(cmid), "delete_for_all": 1},
+        {"peer_id": peer_id, "cmids": [cmid], "delete_for_all": 1},
+        {"peer_id": peer_id, "cmids": str(cmid), "delete_for_all": 1},
     )
     for payload in delete_variants:
         try:
@@ -208,9 +218,10 @@ async def _try_delete_callback_message(event: MessageEvent) -> None:
                 await ctx_api.request("messages.delete", payload)
             else:
                 await ctx_api.messages.delete(**payload)
-            return
+            return True
         except Exception:  # noqa: BLE001
             continue
+    return False
 
 
 def register_vk_guest_handlers(
@@ -222,6 +233,27 @@ def register_vk_guest_handlers(
 
     router_logger = logger.bind(platform="vk", component="router")
     delivery_lock = asyncio.Lock()
+    support_prompt_cmid_by_user_id: dict[int, int] = {}
+
+    def _remember_support_prompt(*, vk_user_id: int, cmid: int | None) -> None:
+        """Запоминает cmid технического экрана ввода вопроса."""
+
+        if cmid is None:
+            return
+        support_prompt_cmid_by_user_id[vk_user_id] = int(cmid)
+
+    async def _cleanup_support_prompt(
+        *,
+        vk_user_id: int,
+        ctx_api: Any | None,
+        peer_id: int | None,
+    ) -> None:
+        """Удаляет технический экран «Введите ваш вопрос» после создания тикета."""
+
+        cmid = support_prompt_cmid_by_user_id.pop(vk_user_id, None)
+        if cmid is None or ctx_api is None or peer_id is None:
+            return
+        await _try_delete_message_by_cmid(ctx_api=ctx_api, peer_id=int(peer_id), cmid=cmid)
 
     async def _try_process_pending_deliveries() -> None:
         """Пытается доставить pending-сообщения модератора без влияния на UX пользователя."""
@@ -258,6 +290,7 @@ def register_vk_guest_handlers(
         event_logger = router_logger.bind(stage="start_command", user_id=str(message.from_id))
         event_logger.debug("Получена стартовая команда.")
         await _try_process_pending_deliveries()
+        support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
         response = adapter.handle_start(vk_user_id=int(message.from_id))
         event_logger.info("Стартовый ответ сформирован.")
         await _send_response(message, response)
@@ -267,6 +300,7 @@ def register_vk_guest_handlers(
         event_logger = router_logger.bind(stage="menu_command", user_id=str(message.from_id))
         event_logger.debug("Получена команда меню.")
         await _try_process_pending_deliveries()
+        support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
         response = adapter.handle_incoming(
             vk_user_id=int(message.from_id),
             text="/menu",
@@ -280,6 +314,7 @@ def register_vk_guest_handlers(
         event_logger = router_logger.bind(stage="legacy_command", user_id=str(message.from_id))
         event_logger.debug("Получена команда legacy.")
         await _try_process_pending_deliveries()
+        support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
         response = adapter.handle_legacy_start(vk_user_id=int(message.from_id))
         event_logger.info("Legacy-команда обработана.")
         await _send_response(message, response)
@@ -315,6 +350,15 @@ def register_vk_guest_handlers(
             text=text,
             payload=parsed_payload,
         )
+        screen_id = response.screen.screen_id if response.screen is not None else None
+        if screen_id == "support_question_confirmation":
+            await _cleanup_support_prompt(
+                vk_user_id=int(message.from_id),
+                ctx_api=getattr(message, "ctx_api", None),
+                peer_id=getattr(message, "peer_id", None),
+            )
+        elif screen_id != "support_question":
+            support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
         event_logger.info("Входящее сообщение обработано.")
         await _send_response(message, response)
 
@@ -337,6 +381,14 @@ def register_vk_guest_handlers(
                 text="",
                 payload=payload,
             )
+            screen_id = response.screen.screen_id if response.screen is not None else None
+            if screen_id == "support_question" and event.conversation_message_id is not None:
+                _remember_support_prompt(
+                    vk_user_id=int(event.user_id),
+                    cmid=int(event.conversation_message_id),
+                )
+            elif cmd != GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value:
+                support_prompt_cmid_by_user_id.pop(int(event.user_id), None)
             event_logger.info("Callback тикета обработан. cmd={cmd}.", cmd=cmd)
             await event.send_empty_answer()
             await _send_event_response(event, response)
@@ -370,6 +422,14 @@ def register_vk_guest_handlers(
             text="",
             payload=payload,
         )
+        screen_id = response.screen.screen_id if response.screen is not None else None
+        if screen_id == "support_question" and event.conversation_message_id is not None:
+            _remember_support_prompt(
+                vk_user_id=int(event.user_id),
+                cmid=int(event.conversation_message_id),
+            )
+        elif action not in {GuestMenuAction.SUPPORT_QUESTION, GuestMenuAction.SUPPORT_QUESTION_FROM_LIST}:
+            support_prompt_cmid_by_user_id.pop(int(event.user_id), None)
         event_logger.info("Callback обработан. action={action}.", action=action.value)
         await _send_event_response(event, response)
 

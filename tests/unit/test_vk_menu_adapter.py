@@ -92,3 +92,15 @@ def test_vk_support_feedback_screen_contains_link_and_back_button() -> None:
     assert len(screen.rows) == 2
     assert screen.rows[0][0].url == "https://rdata.one/Nyyl"
     assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.BACK_TO_SUPPORT.value
+
+
+def test_vk_support_question_screen_has_back_to_tickets_button() -> None:
+    """Проверяет, что экран «Мне только спросить» содержит возврат в «Мои обращения»."""
+
+    adapter = VkGuestMenuAdapter()
+    screen = adapter.build_support_question_screen()
+
+    assert len(screen.rows) == 1
+    assert len(screen.rows[0]) == 1
+    assert screen.rows[0][0].label == "📋 Мои обращения"
+    assert screen.rows[0][0].payload.get("cmd") == GuestMenuAction.MY_TICKETS.value

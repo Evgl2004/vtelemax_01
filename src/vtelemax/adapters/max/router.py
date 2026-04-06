@@ -150,6 +150,25 @@ def register_max_guest_handlers(
 
     router_logger = logger.bind(platform="max", component="router")
     delivery_lock = asyncio.Lock()
+    support_prompt_message_id_by_user_id: dict[int, str | int] = {}
+
+    def _remember_support_prompt(*, max_user_id: int, message_id: str | int | None) -> None:
+        """Запоминает id технического экрана ввода вопроса."""
+
+        if message_id is None:
+            return
+        support_prompt_message_id_by_user_id[max_user_id] = message_id
+
+    async def _cleanup_support_prompt(*, bot: Any | None, max_user_id: int) -> None:
+        """Удаляет технический экран «Введите ваш вопрос» после создания тикета."""
+
+        message_id = support_prompt_message_id_by_user_id.pop(max_user_id, None)
+        if bot is None or message_id is None:
+            return
+        try:
+            await bot.delete_message(message_id=message_id)
+        except Exception:  # noqa: BLE001
+            router_logger.debug("Не удалось удалить технический экран ввода вопроса в MAX.")
 
     async def _try_process_pending_deliveries(bot: Any | None) -> None:
         """Пытается доставить pending-сообщения модератора без влияния на UX пользователя."""
@@ -194,8 +213,10 @@ def register_max_guest_handlers(
         )
 
         if lowered in _START_COMMANDS:
+            support_prompt_message_id_by_user_id.pop(user_id, None)
             response = adapter.handle_start(max_user_id=user_id)
         elif lowered in _LEGACY_COMMANDS:
+            support_prompt_message_id_by_user_id.pop(user_id, None)
             response = adapter.handle_legacy_start(max_user_id=user_id)
         else:
             response = adapter.handle_incoming(
@@ -204,6 +225,11 @@ def register_max_guest_handlers(
                 payload=None,
                 contact_phone=contact_phone,
             )
+            screen_id = response.screen.screen_id if response.screen is not None else None
+            if screen_id == "support_question_confirmation":
+                await _cleanup_support_prompt(bot=getattr(event, "bot", None), max_user_id=user_id)
+            elif screen_id != "support_question":
+                support_prompt_message_id_by_user_id.pop(user_id, None)
         event_logger.info("Входящее сообщение обработано.")
         await _send_response(event, response)
 
@@ -252,6 +278,15 @@ def register_max_guest_handlers(
             text="",
             payload=callback_payload,
         )
+        screen_id = response.screen.screen_id if response.screen is not None else None
+        callback_mid = _extract_callback_message_id(event)
+        if screen_id == "support_question":
+            _remember_support_prompt(max_user_id=user_id, message_id=callback_mid)
+        elif normalized_payload not in {
+            GuestMenuAction.SUPPORT_QUESTION.value,
+            GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value,
+        }:
+            support_prompt_message_id_by_user_id.pop(user_id, None)
         event_logger.info("Callback обработан.")
         await _send_response(event, response)
 
