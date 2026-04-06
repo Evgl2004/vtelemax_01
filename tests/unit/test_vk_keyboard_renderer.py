@@ -44,4 +44,4 @@ def test_render_vk_start_rules_keyboard_contains_inline_buttons() -> None:
     assert keyboard_json is not None
     parsed = json.loads(keyboard_json)
     assert parsed["inline"] is True
-    assert len(parsed["buttons"]) == 2
+    assert len(parsed["buttons"]) == 3

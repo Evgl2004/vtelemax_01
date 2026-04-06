@@ -65,7 +65,7 @@ class VkGuestMenuAdapter:
     def build_start_rules_screen(self) -> VkScreen:
         """Стартовый экран правил."""
 
-        screen = build_start_rules_screen()
+        screen = build_start_rules_screen(platform="vk")
         rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
@@ -160,7 +160,7 @@ class VkGuestMenuAdapter:
     def build_notifications_consent_screen(self, profile_text: str | None = None) -> VkScreen:
         """Экран согласия на рассылку после review-анкеты."""
 
-        screen = build_notifications_consent_screen(profile_text=profile_text)
+        screen = build_notifications_consent_screen(profile_text=profile_text, platform="vk")
         rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 

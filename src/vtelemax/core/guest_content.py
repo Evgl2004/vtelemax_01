@@ -50,6 +50,23 @@ BUTTON_NOTIFICATIONS_YES = "✅ О да, кидай всё, что есть! �
 BUTTON_NOTIFICATIONS_NO = "❌ Нет, останусь без подарков… 🙁"
 BUTTON_RETRY_IIKO_SYNC = "🔄 Повторить синхронизацию"
 FEEDBACK_FORM_URL = "https://rdata.one/Nyyl"
+PERSONAL_DATA_CONSENT_URLS = {
+    "telegram": "https://sagur.24vds.ru/personal-data-consent/tg/",
+    "vk": "https://sagur.24vds.ru/personal-data-consent/vk/",
+    "max": "https://sagur.24vds.ru/personal-data-consent/max/",
+}
+PRIVACY_POLICY_URLS = {
+    "telegram": "https://sagur.24vds.ru/privacy-policy/tg/",
+    "vk": "https://sagur.24vds.ru/privacy-policy/vk/",
+    "max": "https://sagur.24vds.ru/privacy-policy/max/",
+}
+MAILING_CONSENT_URLS = {
+    "telegram": "https://sagur.24vds.ru/mailing-consent/tg/",
+    "vk": "https://sagur.24vds.ru/mailing-consent/vk/",
+    "max": "https://sagur.24vds.ru/mailing-consent/max/",
+}
+BUTTON_PERSONAL_DATA_CONSENT_LINK = "📄 Согласие на ПД"
+BUTTON_PRIVACY_POLICY_LINK = "📄 Политика конфиденциальности"
 BUTTON_DELIVERY_GRUZIKA_NANI = "Грузика Нани"
 BUTTON_DELIVERY_SUSAMI = "Сами Сусами"
 BUTTON_DELIVERY_CHINA = "Чина"
@@ -137,6 +154,8 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_BACK_TO_MAIN.lower(): GuestMenuAction.BACK_TO_MAIN,
         BUTTON_BACK_TO_SUPPORT.lower(): GuestMenuAction.BACK_TO_SUPPORT,
         BUTTON_DOCS_LINK.lower(): GuestMenuAction.OPEN_DOCS,
+        BUTTON_PERSONAL_DATA_CONSENT_LINK.lower(): GuestMenuAction.OPEN_DOCS,
+        BUTTON_PRIVACY_POLICY_LINK.lower(): GuestMenuAction.OPEN_DOCS,
         BUTTON_ACCEPT_RULES.lower(): GuestMenuAction.ACCEPT_RULES,
         BUTTON_NOTIFICATIONS_YES.lower(): GuestMenuAction.NOTIFY_YES,
         BUTTON_NOTIFICATIONS_NO.lower(): GuestMenuAction.NOTIFY_NO,
@@ -151,7 +170,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         return None
 
 
-def build_start_rules_screen() -> MenuScreenContract:
+def build_start_rules_screen(platform: str = "telegram") -> MenuScreenContract:
     """Экран приветствия гостя с запросом согласия (эталонный текст)."""
 
     return MenuScreenContract(
@@ -167,8 +186,13 @@ def build_start_rules_screen() -> MenuScreenContract:
         buttons=(
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_DOCS_LINK,
-                url="https://sagur.24vds.ru/agreement/#",
+                label=BUTTON_PERSONAL_DATA_CONSENT_LINK,
+                url=PERSONAL_DATA_CONSENT_URLS[platform],
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_PRIVACY_POLICY_LINK,
+                url=PRIVACY_POLICY_URLS[platform],
             ),
             MenuButtonContract(action=GuestMenuAction.ACCEPT_RULES, label=BUTTON_ACCEPT_RULES),
         ),
@@ -203,7 +227,10 @@ def build_first_name_input_screen() -> MenuScreenContract:
     )
 
 
-def build_notifications_consent_screen(profile_text: str | None = None) -> MenuScreenContract:
+def build_notifications_consent_screen(
+    profile_text: str | None = None,
+    platform: str = "telegram",
+) -> MenuScreenContract:
     """Экран обязательного выбора по уведомлениям.
 
     Параметр `profile_text` оставлен для обратной совместимости:
@@ -223,7 +250,7 @@ def build_notifications_consent_screen(profile_text: str | None = None) -> MenuS
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_NOTIFICATIONS_DOCS,
-                url="https://sagur.24vds.ru/notifications/#",
+                url=MAILING_CONSENT_URLS[platform],
             ),
             MenuButtonContract(action=GuestMenuAction.NOTIFY_YES, label=BUTTON_NOTIFICATIONS_YES),
             MenuButtonContract(action=GuestMenuAction.NOTIFY_NO, label=BUTTON_NOTIFICATIONS_NO),

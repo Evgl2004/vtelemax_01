@@ -51,9 +51,10 @@ def test_vk_start_rules_screen_has_rules_and_consent_buttons() -> None:
     adapter = VkGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
 
-    assert len(screen.rows) == 2
+    assert len(screen.rows) == 3
     assert screen.rows[0][0].url is not None
-    assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
+    assert screen.rows[1][0].url is not None
+    assert screen.rows[2][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
 
 
 def test_vk_start_contact_screen_has_no_buttons_for_manual_input() -> None:

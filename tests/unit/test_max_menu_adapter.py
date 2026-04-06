@@ -55,9 +55,10 @@ def test_max_start_rules_screen_has_rules_and_consent_buttons() -> None:
     adapter = MaxGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
 
-    assert len(screen.rows) == 2
+    assert len(screen.rows) == 3
     assert screen.rows[0][0].url is not None
-    assert screen.rows[1][0].payload == GuestMenuAction.ACCEPT_RULES.value
+    assert screen.rows[1][0].url is not None
+    assert screen.rows[2][0].payload == GuestMenuAction.ACCEPT_RULES.value
 
 
 def test_max_start_contact_screen_has_request_contact_button() -> None:

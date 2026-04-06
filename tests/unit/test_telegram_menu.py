@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from vtelemax.adapters.telegram.menu import (
     DOCS_URL,
+    PERSONAL_DATA_CONSENT_BUTTON_LABEL,
+    PRIVACY_POLICY_BUTTON_LABEL,
+    PRIVACY_POLICY_URL,
     RULES_ACCEPT_CALLBACK,
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
@@ -17,7 +20,6 @@ from vtelemax.adapters.telegram.menu import (
 )
 from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
-    BUTTON_DOCS_LINK,
     BUTTON_RETRY_IIKO_SYNC,
     GuestMenuAction,
 )
@@ -29,18 +31,23 @@ def test_build_rules_consent_keyboard_contains_docs_and_accept_buttons() -> None
     keyboard = build_rules_consent_inline_keyboard()
 
     assert keyboard.inline_keyboard
-    assert len(keyboard.inline_keyboard) == 2
+    assert len(keyboard.inline_keyboard) == 3
 
     docs_row = keyboard.inline_keyboard[0]
-    accept_row = keyboard.inline_keyboard[1]
+    policy_row = keyboard.inline_keyboard[1]
+    accept_row = keyboard.inline_keyboard[2]
     assert len(docs_row) == 1
+    assert len(policy_row) == 1
     assert len(accept_row) == 1
 
     docs_button = docs_row[0]
+    policy_button = policy_row[0]
     accept_button = accept_row[0]
 
-    assert docs_button.text == BUTTON_DOCS_LINK
+    assert docs_button.text == PERSONAL_DATA_CONSENT_BUTTON_LABEL
     assert docs_button.url == DOCS_URL
+    assert policy_button.text == PRIVACY_POLICY_BUTTON_LABEL
+    assert policy_button.url == PRIVACY_POLICY_URL
 
     assert accept_button.text == BUTTON_ACCEPT_RULES
     assert accept_button.callback_data == RULES_ACCEPT_CALLBACK

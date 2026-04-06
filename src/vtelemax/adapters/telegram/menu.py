@@ -48,8 +48,12 @@ from vtelemax.core import (
 RULES_ACCEPT_CALLBACK = "rules_accept"
 NOTIFY_YES_CALLBACK = "notify_yes"
 NOTIFY_NO_CALLBACK = "notify_no"
-DOCS_URL = "https://sagur.24vds.ru/agreement/#"
-NOTIFICATIONS_DOCS_URL = "https://sagur.24vds.ru/notifications/#"
+PERSONAL_DATA_CONSENT_BUTTON_LABEL = "📄 Согласие на ПД"
+PRIVACY_POLICY_BUTTON_LABEL = "📄 Политика конфиденциальности"
+PERSONAL_DATA_CONSENT_URL = "https://sagur.24vds.ru/personal-data-consent/tg/"
+PRIVACY_POLICY_URL = "https://sagur.24vds.ru/privacy-policy/tg/"
+DOCS_URL = PERSONAL_DATA_CONSENT_URL
+NOTIFICATIONS_DOCS_URL = "https://sagur.24vds.ru/mailing-consent/tg/"
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
 SUPPORT_FEEDBACK_BUTTON_LABEL = "✍️ Оставить отзыв!"
 
@@ -82,7 +86,8 @@ def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=BUTTON_DOCS_LINK, url=DOCS_URL)],
+            [InlineKeyboardButton(text=PERSONAL_DATA_CONSENT_BUTTON_LABEL, url=PERSONAL_DATA_CONSENT_URL)],
+            [InlineKeyboardButton(text=PRIVACY_POLICY_BUTTON_LABEL, url=PRIVACY_POLICY_URL)],
             [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)],
         ]
     )
