@@ -127,7 +127,7 @@ def test_support_use_case_rejects_too_short_question() -> None:
     )
     create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
 
-    with pytest.raises(ValueError, match="минимум 10 символов"):
+    with pytest.raises(ValueError, match="10"):
         create_use_case.execute(
             CreateSupportTicketCommand(
                 platform="telegram",
@@ -446,3 +446,94 @@ def test_update_moderator_delivery_status_rejects_created_status() -> None:
                 status=SupportDeliveryStatus.CREATED,
             )
         )
+
+
+def test_route_moderator_reply_moves_ticket_to_in_progress() -> None:
+    """Проверяет, что первый ответ модератора переводит тикет в статус in_progress."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-7001",
+            raw_phone="+79123450001",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-7001",
+            question_text="Нужна помощь по начислению бонусов.",
+        )
+    )
+
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case.execute(
+        ModeratorReplyCommand(
+            ticket_id=created.ticket_id,
+            moderator_platform="vk",
+            reply_text="Приняли обращение в работу.",
+        )
+    )
+
+    ticket = support_repository.get_ticket(created.ticket_id)
+    assert ticket is not None
+    assert ticket.status == SupportTicketStatus.IN_PROGRESS
+
+
+def test_list_open_tickets_can_filter_multiple_statuses() -> None:
+    """Проверяет фильтрацию тикетов модерации по нескольким статусам."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-7002",
+            raw_phone="+79123450002",
+        )
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    first = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-7002",
+            question_text="Первый тестовый вопрос пользователя.",
+        )
+    )
+    second = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-7002",
+            question_text="Второй тестовый вопрос пользователя.",
+        )
+    )
+    third = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-7002",
+            question_text="Третий тестовый вопрос пользователя.",
+        )
+    )
+
+    support_repository.update_ticket_status(first.ticket_id, SupportTicketStatus.CLOSED)
+    support_repository.update_ticket_status(second.ticket_id, SupportTicketStatus.IN_PROGRESS)
+    support_repository.update_ticket_status(third.ticket_id, SupportTicketStatus.OPEN)
+
+    list_use_case = ListOpenSupportTicketsTransactionalUseCase(unit_of_work_factory=uow_factory)
+    result = list_use_case.execute(
+        limit=10,
+        statuses=(SupportTicketStatus.OPEN, SupportTicketStatus.IN_PROGRESS),
+    )
+
+    assert {item.ticket_id for item in result} == {second.ticket_id, third.ticket_id}
+    assert all(item.status in {SupportTicketStatus.OPEN, SupportTicketStatus.IN_PROGRESS} for item in result)

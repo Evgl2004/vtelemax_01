@@ -32,8 +32,16 @@ class InMemorySupportRepository(SupportRepository):
         return self._tickets_by_id.get(ticket_id)
 
     def list_open_tickets(self, limit: int = 20) -> list[SupportTicket]:
-        tickets = [ticket for ticket in self._tickets_by_id.values() if ticket.status == SupportTicketStatus.OPEN]
-        tickets.sort(key=lambda item: item.created_at or datetime.fromtimestamp(0, tz=timezone.utc))
+        return self.list_tickets_by_status((SupportTicketStatus.OPEN,), limit=limit)
+
+    def list_tickets_by_status(
+        self,
+        statuses: tuple[SupportTicketStatus, ...],
+        limit: int = 20,
+    ) -> list[SupportTicket]:
+        status_set = set(statuses)
+        tickets = [ticket for ticket in self._tickets_by_id.values() if ticket.status in status_set]
+        tickets.sort(key=lambda item: item.created_at or datetime.fromtimestamp(0, tz=timezone.utc), reverse=True)
         return tickets[:limit]
 
     def list_person_tickets(self, person_id: UUID, limit: int = 20) -> list[SupportTicket]:
@@ -44,6 +52,14 @@ class InMemorySupportRepository(SupportRepository):
     def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
         ticket = self._tickets_by_id[ticket_id]
         ticket.last_guest_platform = platform
+
+    def update_ticket_status(self, ticket_id: UUID, status: SupportTicketStatus) -> None:
+        ticket = self._tickets_by_id[ticket_id]
+        ticket.status = status
+        if status == SupportTicketStatus.CLOSED:
+            ticket.closed_at = datetime.now(tz=timezone.utc)
+        else:
+            ticket.closed_at = None
 
     def add_message(self, message: SupportMessage) -> None:
         self._messages_by_ticket.setdefault(message.ticket_id, []).append(message)

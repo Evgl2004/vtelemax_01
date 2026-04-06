@@ -144,7 +144,7 @@ class RouteModeratorReplyTransactionalUseCase:
             ticket = unit_of_work.support_repository.get_ticket(command.ticket_id)
             if ticket is None:
                 raise ValueError("Тикет не найден.")
-            if ticket.status != SupportTicketStatus.OPEN:
+            if ticket.status == SupportTicketStatus.CLOSED:
                 raise ValueError("Нельзя ответить: тикет уже закрыт.")
 
             person = unit_of_work.identity_repository.get_person_by_id(ticket.person_id)
@@ -175,6 +175,11 @@ class RouteModeratorReplyTransactionalUseCase:
                     delivery_status=SupportDeliveryStatus.CREATED,
                 )
             )
+            if ticket.status == SupportTicketStatus.OPEN:
+                unit_of_work.support_repository.update_ticket_status(
+                    ticket_id=ticket.ticket_id,
+                    status=SupportTicketStatus.IN_PROGRESS,
+                )
             unit_of_work.commit()
 
             guest_source = ticket.last_guest_platform or ticket.source_platform
@@ -261,12 +266,23 @@ class ListOpenSupportTicketsTransactionalUseCase:
     def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
-    def execute(self, *, limit: int = 10) -> tuple[OpenSupportTicketSummary, ...]:
+    def execute(
+        self,
+        *,
+        limit: int = 10,
+        statuses: tuple[SupportTicketStatus, ...] | None = None,
+    ) -> tuple[OpenSupportTicketSummary, ...]:
         """Читает открытые тикеты с ограничением по количеству."""
 
         safe_limit = max(int(limit), 1)
+        safe_statuses = tuple(dict.fromkeys(statuses or (SupportTicketStatus.OPEN,)))
+        if not safe_statuses:
+            raise ValueError("Набор статусов для фильтрации тикетов не может быть пустым.")
         with self._unit_of_work_factory() as unit_of_work:
-            tickets = unit_of_work.support_repository.list_open_tickets(limit=safe_limit)
+            tickets = unit_of_work.support_repository.list_tickets_by_status(
+                statuses=safe_statuses,
+                limit=safe_limit,
+            )
 
         # Нормализуем сортировку по дате по убыванию, чтобы интерфейс
         # модератора всегда показывал самые свежие тикеты вверху.

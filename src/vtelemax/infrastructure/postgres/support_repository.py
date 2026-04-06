@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select, func
-from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 from uuid import UUID
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from vtelemax.core.models import PlatformName
 from vtelemax.core.support_models import (
@@ -36,9 +38,7 @@ class SQLAlchemySupportRepository(SupportRepository):
                 closed_at=ticket.closed_at,
             )
         )
-        # Явный flush фиксирует порядок INSERT:
-        # сначала ticket, затем связанные messages в рамках одной транзакции.
-        # Это важно для PostgreSQL с реальной проверкой FK.
+        # Явный flush фиксирует порядок INSERT в рамках транзакции.
         self._session.flush()
 
     def get_ticket(self, ticket_id: UUID) -> SupportTicket | None:
@@ -48,9 +48,20 @@ class SQLAlchemySupportRepository(SupportRepository):
         return self._to_ticket(row)
 
     def list_open_tickets(self, limit: int = 20) -> list[SupportTicket]:
+        return self.list_tickets_by_status((SupportTicketStatus.OPEN,), limit=limit)
+
+    def list_tickets_by_status(
+        self,
+        statuses: tuple[SupportTicketStatus, ...],
+        limit: int = 20,
+    ) -> list[SupportTicket]:
+        normalized_statuses = tuple(dict.fromkeys(statuses))
+        if not normalized_statuses:
+            return []
+
         statement = (
             select(SupportTicketRow)
-            .where(SupportTicketRow.status == SupportTicketStatus.OPEN.value)
+            .where(SupportTicketRow.status.in_(tuple(status.value for status in normalized_statuses)))
             .order_by(SupportTicketRow.created_at.desc())
             .limit(limit)
         )
@@ -73,29 +84,14 @@ class SQLAlchemySupportRepository(SupportRepository):
         page: int,
         per_page: int,
     ) -> tuple[list[SupportTicket], int]:
-        """
-        Возвращает страницу тикетов пользователя и общее количество тикетов.
-        
-        Args:
-            person_id: идентификатор пользователя
-            page: номер страницы (начиная с 1)
-            per_page: количество тикетов на странице
-            
-        Returns:
-            Кортеж (список тикетов, общее количество тикетов)
-        """
+        """Возвращает страницу тикетов пользователя и общее количество тикетов."""
         if page < 1:
             page = 1
         offset = (page - 1) * per_page
-        
-        # Подсчёт общего количества тикетов
-        count_stmt = (
-            select(func.count(SupportTicketRow.ticket_id))
-            .where(SupportTicketRow.person_id == person_id)
-        )
+
+        count_stmt = select(func.count(SupportTicketRow.ticket_id)).where(SupportTicketRow.person_id == person_id)
         total = self._session.execute(count_stmt).scalar_one()
-        
-        # Получение страницы тикетов
+
         tickets_stmt = (
             select(SupportTicketRow)
             .where(SupportTicketRow.person_id == person_id)
@@ -105,7 +101,6 @@ class SQLAlchemySupportRepository(SupportRepository):
         )
         rows = self._session.execute(tickets_stmt).scalars().all()
         tickets = [self._to_ticket(row) for row in rows]
-        
         return tickets, total
 
     def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
@@ -113,6 +108,16 @@ class SQLAlchemySupportRepository(SupportRepository):
         if row is None:
             raise ValueError("Тикет не найден.")
         row.last_guest_platform = platform
+
+    def update_ticket_status(self, ticket_id: UUID, status: SupportTicketStatus) -> None:
+        row = self._session.get(SupportTicketRow, ticket_id)
+        if row is None:
+            raise ValueError("Тикет не найден.")
+        row.status = status.value
+        if status == SupportTicketStatus.CLOSED:
+            row.closed_at = datetime.now(tz=timezone.utc)
+        else:
+            row.closed_at = None
 
     def add_message(self, message: SupportMessage) -> None:
         self._session.add(

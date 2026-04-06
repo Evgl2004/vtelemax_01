@@ -8,7 +8,12 @@ from uuid import UUID
 
 from .models import PlatformName
 from .ports import IdentityRepository
-from .support_models import SupportDeliveryStatus, SupportMessage, SupportTicket
+from .support_models import (
+    SupportDeliveryStatus,
+    SupportMessage,
+    SupportTicket,
+    SupportTicketStatus,
+)
 
 
 class SupportRepository(Protocol):
@@ -23,6 +28,13 @@ class SupportRepository(Protocol):
     def list_open_tickets(self, limit: int = 20) -> list[SupportTicket]:
         """Возвращает список открытых тикетов."""
 
+    def list_tickets_by_status(
+        self,
+        statuses: tuple[SupportTicketStatus, ...],
+        limit: int = 20,
+    ) -> list[SupportTicket]:
+        """Возвращает список тикетов по набору статусов."""
+
     def list_person_tickets(self, person_id: UUID, limit: int = 20) -> list[SupportTicket]:
         """Возвращает список тикетов конкретного пользователя."""
 
@@ -32,20 +44,13 @@ class SupportRepository(Protocol):
         page: int,
         per_page: int,
     ) -> tuple[list[SupportTicket], int]:
-        """
-        Возвращает страницу тикетов пользователя и общее количество тикетов.
-        
-        Args:
-            person_id: идентификатор пользователя
-            page: номер страницы (начиная с 1)
-            per_page: количество тикетов на странице
-            
-        Returns:
-            Кортеж (список тикетов, общее количество тикетов)
-        """
+        """Возвращает страницу тикетов пользователя и общее количество тикетов."""
 
     def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
         """Обновляет канал последней активности гостя."""
+
+    def update_ticket_status(self, ticket_id: UUID, status: SupportTicketStatus) -> None:
+        """Обновляет статус тикета."""
 
     def add_message(self, message: SupportMessage) -> None:
         """Сохраняет сообщение тикета."""

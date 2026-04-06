@@ -15,6 +15,7 @@ from vtelemax.core import (
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    SupportTicketStatus,
 )
 from vtelemax.infrastructure.postgres import Base, SQLAlchemyIdentityUnitOfWork, build_session_factory
 
@@ -89,6 +90,7 @@ def test_support_ticket_and_cross_platform_route_are_persisted(
     details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=uow_factory)
     details = details_use_case.execute(created.ticket_id)
     assert details.linked_platforms == ("telegram", "vk")
+    assert details.status == SupportTicketStatus.IN_PROGRESS
 
 
 def test_support_ticket_creation_requires_registered_account(
