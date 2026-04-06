@@ -111,6 +111,20 @@ def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
     assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value
 
 
+def test_build_main_menu_keyboard_contains_support_question_and_feedback_link() -> None:
+    """Проверяет, что главное inline-меню содержит вопрос и ссылку на отзыв напрямую."""
+
+    keyboard = build_main_menu_inline_keyboard()
+    labels = [row[0].text for row in keyboard.inline_keyboard]
+    buttons = [row[0] for row in keyboard.inline_keyboard]
+
+    assert "❓ Мне только спросить (В разработке)" in labels
+    assert "✍️ Оставить отзыв" in labels
+    feedback_button = next(button for button in buttons if button.text == "✍️ Оставить отзыв")
+    assert feedback_button.url == "https://rdata.one/Nyyl"
+    assert feedback_button.callback_data is None
+
+
 def test_all_telegram_callback_data_fit_telegram_limits() -> None:
     """Проверяет, что callback_data не превышает лимит Telegram (64 байта)."""
 

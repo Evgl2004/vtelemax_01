@@ -313,8 +313,13 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
             MenuButtonContract(action=GuestMenuAction.BALANCE, label=BUTTON_BALANCE),
             MenuButtonContract(action=GuestMenuAction.VIRTUAL_CARD, label=BUTTON_VIRTUAL_CARD),
             MenuButtonContract(action=GuestMenuAction.DELIVERY, label=BUTTON_DELIVERY),
-            MenuButtonContract(action=GuestMenuAction.SUPPORT, label=BUTTON_SUPPORT),
+            MenuButtonContract(action=GuestMenuAction.SUPPORT_QUESTION, label=BUTTON_SUPPORT_QUESTION),
             MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
+            MenuButtonContract(
+                action=GuestMenuAction.SUPPORT_FEEDBACK,
+                label=BUTTON_SUPPORT_FEEDBACK,
+                url=FEEDBACK_FORM_URL,
+            ),
             MenuButtonContract(action=GuestMenuAction.PROFILE, label=BUTTON_PROFILE),
         ),
     )

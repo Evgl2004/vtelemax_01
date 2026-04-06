@@ -128,8 +128,9 @@ def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=BUTTON_BALANCE, callback_data=_action_callback(GuestMenuAction.BALANCE))],
             [InlineKeyboardButton(text=BUTTON_VIRTUAL_CARD, callback_data=_action_callback(GuestMenuAction.VIRTUAL_CARD))],
             [InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY))],
-            [InlineKeyboardButton(text=BUTTON_SUPPORT, callback_data=_action_callback(GuestMenuAction.SUPPORT))],
+            [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION))],
             [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
+            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, url=SUPPORT_FEEDBACK_URL)],
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
         ]
     )
@@ -281,8 +282,9 @@ def build_main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BUTTON_BALANCE)],
             [KeyboardButton(text=BUTTON_VIRTUAL_CARD)],
             [KeyboardButton(text=BUTTON_DELIVERY)],
-            [KeyboardButton(text=BUTTON_SUPPORT)],
+            [KeyboardButton(text=BUTTON_SUPPORT_QUESTION)],
             [KeyboardButton(text=BUTTON_VACANCIES)],
+            [KeyboardButton(text=BUTTON_SUPPORT_FEEDBACK)],
             [KeyboardButton(text=BUTTON_PROFILE)],
         ],
         resize_keyboard=True,

@@ -80,7 +80,21 @@ class VkGuestMenuAdapter:
         """Главное меню гостя (пять разделов, вертикальный список)."""
 
         screen = build_main_menu_screen(user_name=user_name)
-        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
+        vk_buttons = [_to_vk_button(button) for button in screen.buttons]
+        # Специальная группировка для соответствия лимитам VK inline-клавиатуры.
+        # Ожидаемый порядок core-кнопок:
+        # 0: Баланс, 1: Виртуальная карта, 2: Доставка, 3: Мне только спросить,
+        # 4: Вакансии, 5: Оставить отзыв, 6: Профиль.
+        if len(vk_buttons) >= 7:
+            rows: tuple[tuple[VkButton, ...], ...] = (
+                (vk_buttons[0], vk_buttons[1]),  # Баланс | Виртуальная карта
+                (vk_buttons[3],),  # Мне только спросить
+                (vk_buttons[5],),  # Оставить отзыв
+                (vk_buttons[2], vk_buttons[4]),  # Доставка | Вакансии
+                (vk_buttons[6],),  # Профиль
+            )
+        else:
+            rows = tuple((button,) for button in vk_buttons)
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_support_menu_screen(self, has_tickets: bool) -> VkScreen:
