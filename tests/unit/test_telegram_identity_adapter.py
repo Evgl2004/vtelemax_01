@@ -790,6 +790,49 @@ def test_telegram_support_question_activates_question_input_when_no_tickets() ->
     assert "введите ваш вопрос" in result.message.lower() or "задайте вопрос" in result.message.lower()
 
 
+def test_telegram_support_back_does_not_create_ticket_while_waiting_question() -> None:
+    """Проверяет, что callback `back_to_support` не превращается в текст тикета."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    get_person_tickets_page_use_case = GetPersonTicketsPageTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
+        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1002, raw_phone="+79125550102")
+    adapter.handle_menu_action(
+        telegram_user_id=1002,
+        action_text="❓ Мне только спросить (В разработке)",
+    )
+    back_result = adapter.handle_menu_action(
+        telegram_user_id=1002,
+        action_text="back_to_support",
+    )
+    tickets = list_person_tickets_use_case.execute(platform="telegram", external_id="1002", limit=10)
+
+    assert back_result.status == "support"
+    assert "Отдел заботы" in back_result.message
+    assert tickets == ()
+
+
 def test_telegram_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения» после создания обращения пользователем."""
 

@@ -639,6 +639,28 @@ def test_max_support_question_activates_question_input_when_no_tickets() -> None
     assert result.screen.screen_id == "support_question"
 
 
+def test_max_support_back_does_not_create_ticket_while_waiting_question() -> None:
+    """Проверяет, что callback `back_to_support` не создает тикет в MAX."""
+
+    adapter, _, _ = _build_adapter_with_support_context()
+    _complete_max_registration(adapter, max_user_id=1002)
+
+    adapter.handle_incoming(
+        max_user_id=1002,
+        text="❓ Мне только спросить",
+        payload=None,
+    )
+    back_result = adapter.handle_incoming(
+        max_user_id=1002,
+        text="",
+        payload="back_to_support",
+    )
+
+    assert back_result.screen is not None
+    assert back_result.screen.screen_id == "support_menu"
+    assert "Ваш вопрос принят" not in back_result.text
+
+
 def test_max_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения»: после создания тикета возвращается список."""
 

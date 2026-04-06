@@ -17,6 +17,8 @@ from .support_models import (
 )
 from .support_ports import SupportUnitOfWork
 
+MIN_SUPPORT_QUESTION_LENGTH = 10
+
 
 @dataclass(frozen=True, slots=True)
 class CreateSupportTicketCommand:
@@ -56,6 +58,10 @@ class CreateSupportTicketTransactionalUseCase:
         question_text = str(command.question_text).strip()
         if not question_text:
             raise ValueError("Текст обращения не может быть пустым.")
+        if len(question_text) < MIN_SUPPORT_QUESTION_LENGTH:
+            raise ValueError(
+                f"Текст обращения должен содержать минимум {MIN_SUPPORT_QUESTION_LENGTH} символов."
+            )
 
         with self._unit_of_work_factory() as unit_of_work:
             person = unit_of_work.identity_repository.get_person_by_account(command.platform, external_id)

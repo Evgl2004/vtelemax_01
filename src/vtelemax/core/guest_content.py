@@ -485,6 +485,7 @@ def build_support_question_screen() -> MenuScreenContract:
         text=(
             "❓ *Мне только спросить*\n\n"
             "Пожалуйста, отправьте ваш вопрос, и наш модератор свяжется с вами в ближайшее время.\n\n"
+            "Минимальная длина обращения: 10 символов.\n\n"
             "Введите ваш вопрос:"
         ),
         buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),),

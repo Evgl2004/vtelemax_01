@@ -294,6 +294,7 @@ class VkIdentityAdapter:
                 action = resolve_guest_menu_action(text)
             if action in {
                 GuestMenuAction.BACK_TO_MAIN,
+                GuestMenuAction.BACK_TO_SUPPORT,
                 GuestMenuAction.SUPPORT,
                 GuestMenuAction.MAIN_MENU,
             }:

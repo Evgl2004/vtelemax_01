@@ -179,7 +179,7 @@ def build_telegram_identity_router(
                     )
                     return
                 if _is_message_cant_be_edited_error(error):
-                    router_logger.warning(
+                    router_logger.info(
                         "Telegram не дал отредактировать сообщение для inline-клавиатуры. Применяем fallback отправкой нового сообщения."
                     )
                     try:
@@ -256,7 +256,7 @@ def build_telegram_identity_router(
                     )
                     return
                 if _is_message_cant_be_edited_error(error):
-                    router_logger.warning(
+                    router_logger.info(
                         "Telegram не дал отредактировать сообщение для inline-клавиатуры (send_to_chat). Применяем fallback отправкой нового сообщения."
                     )
                     try:

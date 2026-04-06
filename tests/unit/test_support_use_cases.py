@@ -110,6 +110,33 @@ def test_support_use_case_rejects_unregistered_account() -> None:
         )
 
 
+def test_support_use_case_rejects_too_short_question() -> None:
+    """Проверяет, что обращение короче минимальной длины отклоняется."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="1001",
+            raw_phone="+79123456789",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+    with pytest.raises(ValueError, match="минимум 10 символов"):
+        create_use_case.execute(
+            CreateSupportTicketCommand(
+                platform="telegram",
+                external_id="1001",
+                question_text="коротко",
+            )
+        )
+
+
 def test_route_moderator_reply_prefers_last_guest_platform() -> None:
     """Проверяет автоматический выбор канала доставки по последней активности гостя."""
 
