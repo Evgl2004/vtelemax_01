@@ -516,6 +516,7 @@ class VkIdentityAdapter:
         # Определяем следующий шаг onboarding
         if person.first_name_input:
             # Имя уже есть, переходим к шагу согласия на рассылку
+            draft.first_name_input = person.first_name_input
             transition = self._onboarding_flow.begin_notifications_consent_step(
                 phone_e164=draft.phone_e164,
                 accounts_count=len(person.accounts),

@@ -413,6 +413,43 @@ def test_vk_phone_match_with_registered_profile_opens_menu_without_reasking_name
     assert len(attached_person.accounts) == 2
 
 
+def test_vk_phone_match_with_registered_profile_allows_notifications_step_without_draft_loss() -> None:
+    """Проверяет, что на шаге согласия на рассылку не теряется имя из черновика onboarding."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(registration_use_case, lookup_use_case)
+
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="ready-tg-2",
+            raw_phone="+79124445567",
+            first_name_input="Андрей",
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_legacy=False,
+            is_registered=True,
+        )
+    )
+
+    adapter.handle_start(vk_user_id=4602)
+    adapter.handle_incoming(vk_user_id=4602, text="✅ Согласен", payload=None)
+    phone_response = adapter.handle_incoming(vk_user_id=4602, text="+79124445567", payload=None)
+    notify_response = adapter.handle_incoming(vk_user_id=4602, text="", payload={"cmd": "notify_yes"})
+
+    assert phone_response.screen is not None
+    assert phone_response.screen.screen_id == "notifications_consent"
+    assert "Потеряны промежуточные данные регистрации" not in notify_response.text
+    assert notify_response.screen is not None
+    assert notify_response.screen.screen_id == "main_menu"
+
+
 def test_vk_start_for_registered_profile_without_vk_consents_continues_onboarding() -> None:
     """Проверяет, что `/start` в VK не пропускает обязательные платформенные согласия."""
 
