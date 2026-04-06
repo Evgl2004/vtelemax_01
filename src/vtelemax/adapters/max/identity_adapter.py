@@ -698,18 +698,15 @@ class MaxIdentityAdapter:
 
         self._state_by_user_id.pop(max_user_id, None)
         
-        # Сообщение о создании тикета
-        ticket_message = ""
+        platform = "max"
         if self._create_support_ticket_use_case is None:
-            ticket_message = (
-                "📨 Ваш вопрос принят!\n"
-                "Модератор рассмотрит обращение в ближайшее время."
-            )
+            # Тестовый режим без use-case
+            pass
         else:
             try:
-                created = self._create_support_ticket_use_case.execute(
+                self._create_support_ticket_use_case.execute(
                     CreateSupportTicketCommand(
-                        platform="max",
+                        platform=platform,
                         external_id=str(max_user_id),
                         question_text=question,
                     )
@@ -721,82 +718,13 @@ class MaxIdentityAdapter:
                         f"Причина: {error}"
                     )
                 )
-            short_id = self._format_ticket_id_short(created.ticket_id)
-            ticket_message = (
-                "📨 Ваш вопрос принят!\n"
-                f"🎫 Создан тикет #{short_id}\n"
-                "Канал обращения: max\n"
-                "Модератор рассмотрит обращение в ближайшее время."
-            )
         
-        # Показываем список тикетов (первую страницу)
-        if self._get_person_tickets_page_use_case is not None:
-            try:
-                page_result = self._get_person_tickets_page_use_case.execute(
-                    platform="max",
-                    external_id=str(max_user_id),
-                    page=1,
-                    per_page=5,
-                )
-            except ValueError:
-                # Fallback: используем старый метод без пагинации
-                tickets = self._list_user_tickets(
-                    platform="max",
-                    external_id=str(max_user_id),
-                    limit=5,
-                )
-                if not tickets:
-                    # Нет тикетов — показываем экран с предложением задать вопрос
-                    screen = self._menu_adapter.build_support_question_screen()
-                    return MaxAdapterResponse(
-                        text=f"{ticket_message}\n\n{screen.text}",
-                        screen=screen,
-                    )
-                # Форматируем список тикетов
-                message = self._format_person_tickets_message(tickets)
-                return MaxAdapterResponse(
-                    text=f"{ticket_message}\n\n{message}",
-                )
-        
-            if not page_result.tickets:
-                # Нет тикетов — показываем экран с предложением задать вопрос
-                screen = self._menu_adapter.build_support_question_screen()
-                return MaxAdapterResponse(
-                    text=f"{ticket_message}\n\n{screen.text}",
-                    screen=screen,
-                )
-            
-            # Форматируем сообщение со страницей
-            message = self._format_person_tickets_page_message(page_result)
-            # Создаем экран пагинации
-            screen = self._menu_adapter.build_user_tickets_pagination_screen(
-                current_page=page_result.page,
-                total_pages=page_result.total_pages,
-                has_tickets=True,
-            )
-            return MaxAdapterResponse(
-                text=f"{ticket_message}\n\n{message}",
-                screen=screen,
-            )
-        else:
-            # Fallback: используем старый метод без пагинации
-            tickets = self._list_user_tickets(
-                platform="max",
-                external_id=str(max_user_id),
-                limit=5,
-            )
-            if not tickets:
-                # Нет тикетов — показываем экран с предложением задать вопрос
-                screen = self._menu_adapter.build_support_question_screen()
-                return MaxAdapterResponse(
-                    text=f"{ticket_message}\n\n{screen.text}",
-                    screen=screen,
-                )
-            # Форматируем список тикетов
-            message = self._format_person_tickets_message(tickets)
-            return MaxAdapterResponse(
-                text=f"{ticket_message}\n\n{message}",
-            )
+        # После создания тикета показываем экран подтверждения с кнопкой "Назад в меню"
+        screen = self._menu_adapter.build_support_question_confirmation_screen()
+        return MaxAdapterResponse(
+            text=screen.text,
+            screen=screen,
+        )
 
     def _render_profile_screen(self, *, max_user_id: int) -> MaxAdapterResponse:
         """Возвращает экран профиля с кнопками редактирования."""
@@ -1636,7 +1564,7 @@ class MaxIdentityAdapter:
         lines = ["📋 Ваши обращения:"]
         status_emoji = {"open": "🆕", "closed": "🔒"}
         for i, ticket in enumerate(tickets, 1):
-            created_at = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+            created_at = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
             short_status = "открыт" if ticket.status.value == "open" else "закрыт"
             short_id = MaxIdentityAdapter._format_ticket_id_short(ticket.ticket_id)
             lines.append(

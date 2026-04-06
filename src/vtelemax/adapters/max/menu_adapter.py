@@ -27,6 +27,7 @@ from vtelemax.core import (
     build_support_feedback_screen,
     build_support_menu_screen,
     build_support_question_screen,
+    build_support_question_confirmation_screen,
     build_vacancies_screen,
 )
 
@@ -241,6 +242,18 @@ class MaxGuestMenuAdapter:
 
         screen = build_support_question_screen()
         rows = ((_to_max_button(screen.buttons[0]),),) if screen.buttons else ()
+        return MaxScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def build_support_question_confirmation_screen(self) -> MaxScreen:
+        """Экран подтверждения создания тикета (после отправки вопроса)."""
+
+        screen = build_support_question_confirmation_screen()
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(
             screen_id=screen.screen_id,
             text=screen.text,
