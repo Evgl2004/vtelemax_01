@@ -97,9 +97,9 @@ class VkGuestMenuAdapter:
         # 4: Вакансии, 5: Обратная связь, 6: Профиль
         rows: list[tuple[VkButton, ...]] = [
             (vk_buttons[0], vk_buttons[1]),                     # Баланс | Виртуальная карта
-            (vk_buttons[3], vk_buttons[5]),                     # Мне только спросить | Обратная связь
-            (vk_buttons[2],),                                   # Доставка
-            (vk_buttons[4],),                                   # Вакансии
+            (vk_buttons[3],),                                   # Мне только спросить
+            (vk_buttons[5],),                                   # Обратная связь
+            (vk_buttons[2], vk_buttons[4]),                     # Доставка | Вакансии
             (vk_buttons[6],),                                   # Профиль
         ]
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=tuple(rows))

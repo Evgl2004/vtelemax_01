@@ -27,16 +27,16 @@ def test_vk_main_menu_contains_expected_first_buttons() -> None:
     assert len(screen.rows[0]) == 2
     assert screen.rows[0][0].label == "💰 Мой баланс"
     assert screen.rows[0][1].label == "🪪 Виртуальная карта"
-    # Вторая строка: "Мне только спросить" и обратная связь
-    assert len(screen.rows[1]) == 2
+    # Вторая строка: "Мне только спросить" (одна кнопка)
+    assert len(screen.rows[1]) == 1
     assert screen.rows[1][0].label == "❓ Мне только спросить"
-    assert screen.rows[1][1].label == "✍️ Оставить отзыв"
-    # Третья строка: доставка (одна кнопка)
+    # Третья строка: обратная связь (одна кнопка)
     assert len(screen.rows[2]) == 1
-    assert screen.rows[2][0].label == "🚚 Доставка"
-    # Четвертая строка: вакансии (одна кнопка)
-    assert len(screen.rows[3]) == 1
-    assert screen.rows[3][0].label == "💼 Вакансии"
+    assert screen.rows[2][0].label == "✍️ Оставить отзыв"
+    # Четвертая строка: доставка и вакансии (две кнопки)
+    assert len(screen.rows[3]) == 2
+    assert screen.rows[3][0].label == "🚚 Доставка"
+    assert screen.rows[3][1].label == "💼 Вакансии"
     # Пятая строка: профиль (одна кнопка)
     assert len(screen.rows[4]) == 1
     assert screen.rows[4][0].label == "👤 Профиль"
@@ -57,14 +57,20 @@ def test_vk_support_menu_respects_my_tickets_flag() -> None:
 
 
 def test_vk_start_rules_screen_has_rules_and_consent_buttons() -> None:
-    """Проверяет, что на экране правил есть кнопка документов и кнопка согласия."""
+    """Проверяет, что на экране правил есть две кнопки документов и кнопка согласия."""
 
     adapter = VkGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
 
     assert len(screen.rows) == 3
-    assert screen.rows[0][0].url is not None
-    assert screen.rows[1][0].url is not None
+    # Первая кнопка - согласие на ПД
+    assert screen.rows[0][0].url == "https://sagur.24vds.ru/personal-data-consent/vk/"
+    assert screen.rows[0][0].payload.get("cmd") == GuestMenuAction.OPEN_DOCS.value
+    # Вторая кнопка - политика конфиденциальности
+    assert screen.rows[1][0].url == "https://sagur.24vds.ru/privacy-policy/vk/"
+    assert screen.rows[1][0].payload.get("cmd") == GuestMenuAction.OPEN_DOCS.value
+    # Третья кнопка - согласие
+    assert screen.rows[2][0].url is None
     assert screen.rows[2][0].payload.get("cmd") == GuestMenuAction.ACCEPT_RULES.value
 
 

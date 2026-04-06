@@ -124,7 +124,7 @@ class OnboardingFlowService:
             state=OnboardingState.WAITING_RULES_CONSENT,
             status="rules_consent_pending",
             message=(
-                "Чтобы продолжить регистрацию, отправьте сообщение «✅ Согласен» "
+                "Чтобы продолжить регистрацию, нажмите кнопку «✅ Согласен» "
                 "после ознакомления с условиями."
             ),
         )

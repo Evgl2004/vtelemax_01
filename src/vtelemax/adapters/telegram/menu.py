@@ -23,6 +23,8 @@ from vtelemax.core import (
     BUTTON_NOTIFICATIONS_DOCS,
     BUTTON_NOTIFICATIONS_NO,
     BUTTON_NOTIFICATIONS_YES,
+    BUTTON_PERSONAL_DATA_CONSENT_LINK,
+    BUTTON_PRIVACY_POLICY_LINK,
     BUTTON_PROFILE,
     BUTTON_PROFILE_EDIT,
     BUTTON_PROFILE_EDIT_BIRTH_DATE,
@@ -42,7 +44,10 @@ from vtelemax.core import (
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
     GuestMenuAction,
+    MAILING_CONSENT_URLS,
+    PERSONAL_DATA_CONSENT_URLS,
     PersonSupportTicketSummary,
+    PRIVACY_POLICY_URLS,
     build_delivery_screen,
 )
 
@@ -53,12 +58,8 @@ USER_TICKETS_PAGE_PREFIX = "user_tickets_page_"
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
-PERSONAL_DATA_CONSENT_BUTTON_LABEL = "📄 Согласие на ПД"
-PRIVACY_POLICY_BUTTON_LABEL = "📄 Политика конфиденциальности"
-PERSONAL_DATA_CONSENT_URL = "https://sagur.24vds.ru/personal-data-consent/tg/"
-PRIVACY_POLICY_URL = "https://sagur.24vds.ru/privacy-policy/tg/"
-DOCS_URL = PERSONAL_DATA_CONSENT_URL
-NOTIFICATIONS_DOCS_URL = "https://sagur.24vds.ru/mailing-consent/tg/"
+DOCS_URL = PERSONAL_DATA_CONSENT_URLS["telegram"]
+NOTIFICATIONS_DOCS_URL = MAILING_CONSENT_URLS["telegram"]
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
 SUPPORT_FEEDBACK_BUTTON_LABEL = "✍️ Оставить отзыв!"
 
@@ -91,8 +92,18 @@ def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=PERSONAL_DATA_CONSENT_BUTTON_LABEL, url=PERSONAL_DATA_CONSENT_URL)],
-            [InlineKeyboardButton(text=PRIVACY_POLICY_BUTTON_LABEL, url=PRIVACY_POLICY_URL)],
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PERSONAL_DATA_CONSENT_LINK,
+                    url=PERSONAL_DATA_CONSENT_URLS["telegram"],
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PRIVACY_POLICY_LINK,
+                    url=PRIVACY_POLICY_URLS["telegram"],
+                )
+            ],
             [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)],
         ]
     )
