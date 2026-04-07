@@ -59,12 +59,12 @@ SELECT
 FROM persons
 ON CONFLICT (person_id, platform) DO UPDATE
 SET
-    rules_accepted = EXCLUDED.rules_accepted,
-    rules_accepted_at = EXCLUDED.rules_accepted_at,
-    notifications_allowed = EXCLUDED.notifications_allowed,
-    notifications_allowed_at = EXCLUDED.notifications_allowed_at,
-    is_registered = EXCLUDED.is_registered,
-    registered_at = EXCLUDED.registered_at;
+    rules_accepted = CASE WHEN EXCLUDED.rules_accepted = TRUE THEN TRUE ELSE person_platform_states.rules_accepted END,
+    rules_accepted_at = COALESCE(person_platform_states.rules_accepted_at, EXCLUDED.rules_accepted_at),
+    notifications_allowed = CASE WHEN EXCLUDED.notifications_allowed = TRUE THEN TRUE ELSE person_platform_states.notifications_allowed END,
+    notifications_allowed_at = COALESCE(person_platform_states.notifications_allowed_at, EXCLUDED.notifications_allowed_at),
+    is_registered = CASE WHEN EXCLUDED.is_registered = TRUE THEN TRUE ELSE person_platform_states.is_registered END,
+    registered_at = COALESCE(person_platform_states.registered_at, EXCLUDED.registered_at);
 
 INSERT INTO person_platform_states (
     person_id,
@@ -100,12 +100,12 @@ SELECT
 FROM persons
 ON CONFLICT (person_id, platform) DO UPDATE
 SET
-    rules_accepted = EXCLUDED.rules_accepted,
-    rules_accepted_at = EXCLUDED.rules_accepted_at,
-    notifications_allowed = EXCLUDED.notifications_allowed,
-    notifications_allowed_at = EXCLUDED.notifications_allowed_at,
-    is_registered = EXCLUDED.is_registered,
-    registered_at = EXCLUDED.registered_at;
+    rules_accepted = CASE WHEN EXCLUDED.rules_accepted = TRUE THEN TRUE ELSE person_platform_states.rules_accepted END,
+    rules_accepted_at = COALESCE(person_platform_states.rules_accepted_at, EXCLUDED.rules_accepted_at),
+    notifications_allowed = CASE WHEN EXCLUDED.notifications_allowed = TRUE THEN TRUE ELSE person_platform_states.notifications_allowed END,
+    notifications_allowed_at = COALESCE(person_platform_states.notifications_allowed_at, EXCLUDED.notifications_allowed_at),
+    is_registered = CASE WHEN EXCLUDED.is_registered = TRUE THEN TRUE ELSE person_platform_states.is_registered END,
+    registered_at = COALESCE(person_platform_states.registered_at, EXCLUDED.registered_at);
 
 INSERT INTO person_platform_states (
     person_id,
@@ -141,11 +141,11 @@ SELECT
 FROM persons
 ON CONFLICT (person_id, platform) DO UPDATE
 SET
-    rules_accepted = EXCLUDED.rules_accepted,
-    rules_accepted_at = EXCLUDED.rules_accepted_at,
-    notifications_allowed = EXCLUDED.notifications_allowed,
-    notifications_allowed_at = EXCLUDED.notifications_allowed_at,
-    is_registered = EXCLUDED.is_registered,
-    registered_at = EXCLUDED.registered_at;
+    rules_accepted = CASE WHEN EXCLUDED.rules_accepted = TRUE THEN TRUE ELSE person_platform_states.rules_accepted END,
+    rules_accepted_at = COALESCE(person_platform_states.rules_accepted_at, EXCLUDED.rules_accepted_at),
+    notifications_allowed = CASE WHEN EXCLUDED.notifications_allowed = TRUE THEN TRUE ELSE person_platform_states.notifications_allowed END,
+    notifications_allowed_at = COALESCE(person_platform_states.notifications_allowed_at, EXCLUDED.notifications_allowed_at),
+    is_registered = CASE WHEN EXCLUDED.is_registered = TRUE THEN TRUE ELSE person_platform_states.is_registered END,
+    registered_at = COALESCE(person_platform_states.registered_at, EXCLUDED.registered_at);
 
 COMMIT;
