@@ -1015,13 +1015,17 @@ class TelegramIdentityAdapter:
 
         if action == GuestMenuAction.SUPPORT_QUESTION_FROM_LIST:
             # Всегда переходим к созданию нового тикета, независимо от наличия тикетов
+            has_tickets = self._has_user_tickets(
+                platform="telegram",
+                external_id=str(telegram_user_id),
+            )
             self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
             screen = build_support_question_screen()
             return TelegramMenuActionResult(
                 status="support_question_input",
                 message=screen.text,
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
-                has_support_tickets=False,
+                has_support_tickets=has_tickets,
             )
 
         if action == GuestMenuAction.SUPPORT_CONTACTS:
@@ -1068,9 +1072,14 @@ class TelegramIdentityAdapter:
         """Обрабатывает текст вопроса после шага `SUPPORT_QUESTION`."""
 
         question = str(question_text).strip()
+        has_tickets = self._has_user_tickets(
+            platform="telegram",
+            external_id=str(telegram_user_id),
+        )
         if not question:
             return TelegramMenuActionResult(
                 status="support_question_empty",
+                has_support_tickets=has_tickets,
                 message="Пожалуйста, введите вопрос текстом, чтобы мы передали его модератору.",
             )
 
@@ -1095,6 +1104,7 @@ class TelegramIdentityAdapter:
         except ValueError as error:
             return TelegramMenuActionResult(
                 status="support_question_error",
+                has_support_tickets=has_tickets,
                 message=(
                     "Не удалось зарегистрировать обращение в системе модерации.\n"
                     f"Причина: {error}"

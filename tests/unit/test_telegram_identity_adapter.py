@@ -904,6 +904,46 @@ def test_telegram_my_tickets_does_not_create_ticket_while_waiting_question() -> 
     assert tickets == ()
 
 
+def test_telegram_support_question_from_list_marks_has_tickets_true() -> None:
+    """Проверяет, что создание нового тикета из списка сохраняет контекст возврата к списку."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    get_person_tickets_page_use_case = GetPersonTicketsPageTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
+        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1200, raw_phone="+79125550120")
+    adapter.handle_menu_action(telegram_user_id=1200, action_text="❓ Мне только спросить")
+    adapter.handle_menu_action(telegram_user_id=1200, action_text="Тестовый вопрос для создания тикета")
+
+    result = adapter.handle_menu_action(
+        telegram_user_id=1200,
+        action_text=GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value,
+    )
+
+    assert result.status == "support_question_input"
+    assert result.has_support_tickets is True
+
+
 def test_telegram_my_tickets_shows_created_tickets() -> None:
     """Проверяет раздел «Мои обращения» после создания обращения пользователем."""
 

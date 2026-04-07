@@ -403,7 +403,9 @@ def build_telegram_identity_router(
         if result.status == "support_feedback":
             return build_support_feedback_inline_keyboard()
         if result.status in {"support_question", "support_question_empty", "support_question_unavailable", "support_question_input"}:
-            return build_back_to_tickets_list_inline_keyboard()
+            if result.has_support_tickets:
+                return build_back_to_tickets_list_inline_keyboard()
+            return back_to_main_keyboard
         if result.status == "support_contacts":
             return back_to_main_keyboard
         if result.status in {"ticket_details", "ticket_details_error"}:
