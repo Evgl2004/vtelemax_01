@@ -29,6 +29,11 @@ from .legacy_telegram_migration import (
     prepare_legacy_source_records,
     read_legacy_source_records,
 )
+from .guest_info import (
+    GuestInfo,
+    GuestPlatformInfo,
+    get_guest_info_by_phone,
+)
 
 __all__ = [
     "PersonResetAccount",
@@ -49,4 +54,7 @@ __all__ = [
     "prepare_legacy_source_records",
     "migrate_prepared_legacy_records",
     "build_report_lines",
+    "GuestInfo",
+    "GuestPlatformInfo",
+    "get_guest_info_by_phone",
 ]
