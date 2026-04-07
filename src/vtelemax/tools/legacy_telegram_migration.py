@@ -266,18 +266,30 @@ def migrate_prepared_legacy_records(
                     # чтобы не деградировать уже активные профили из других каналов.
                     rules_accepted_value: bool | None
                     rules_accepted_at_value: datetime | None
+                    notifications_allowed_value: bool | None
+                    notifications_allowed_at_value: datetime | None
                     is_legacy_value: bool | None
                     is_registered_value: bool | None
+                    phone_verified_at_value: datetime | None
+                    phone_verification_method_value: str | None
                     if predicted_action == "create":
                         rules_accepted_value = False
                         rules_accepted_at_value = None
+                        notifications_allowed_value = False
+                        notifications_allowed_at_value = None
                         is_legacy_value = True
                         is_registered_value = False
+                        phone_verified_at_value = fixed_at
+                        phone_verification_method_value = LEGACY_PHONE_VERIFICATION_METHOD
                     else:
                         rules_accepted_value = None
                         rules_accepted_at_value = None
+                        notifications_allowed_value = None
+                        notifications_allowed_at_value = None
                         is_legacy_value = None
                         is_registered_value = None
+                        phone_verified_at_value = None
+                        phone_verification_method_value = None
 
                     command = RegisterOrAttachAccountCommand(
                         platform="telegram",
@@ -285,10 +297,12 @@ def migrate_prepared_legacy_records(
                         raw_phone=record.phone_e164,
                         rules_accepted=rules_accepted_value,
                         rules_accepted_at=rules_accepted_at_value,
+                        notifications_allowed=notifications_allowed_value,
+                        notifications_allowed_at=notifications_allowed_at_value,
                         is_legacy=is_legacy_value,
                         is_registered=is_registered_value,
-                        phone_verified_at=fixed_at,
-                        phone_verification_method=LEGACY_PHONE_VERIFICATION_METHOD,
+                        phone_verified_at=phone_verified_at_value,
+                        phone_verification_method=phone_verification_method_value,
                     )
                     try:
                         use_case.execute(command)

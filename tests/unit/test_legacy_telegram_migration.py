@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import sqlite3
 from types import TracebackType
 from pathlib import Path
@@ -251,7 +252,11 @@ def test_migrate_prepared_legacy_records_applies_changes_for_create_and_attach()
     assert person_101.is_legacy is True
     assert person_101.is_registered is False
     assert person_101.rules_accepted is False
+    assert person_101.notifications_allowed is False
     assert person_101.phone_verification_method == LEGACY_PHONE_VERIFICATION_METHOD
+    assert person_101.get_rules_accepted_for_platform("telegram") is False
+    assert person_101.get_notifications_allowed_for_platform("telegram") is False
+    assert person_101.is_registered_for_platform("telegram") is False
 
 
 def test_migrate_attach_does_not_degrade_registered_non_legacy_profile() -> None:
@@ -269,6 +274,8 @@ def test_migrate_attach_does_not_degrade_registered_non_legacy_profile() -> None
             rules_accepted=True,
             is_registered=True,
             is_legacy=False,
+            phone_verified_at=datetime(2026, 4, 7, 1, 0, tzinfo=timezone.utc),
+            phone_verification_method="vk_contact",
         )
     )
 
@@ -293,3 +300,10 @@ def test_migrate_attach_does_not_degrade_registered_non_legacy_profile() -> None
     assert person.rules_accepted is True
     assert person.is_registered is True
     assert person.is_legacy is False
+    assert person.phone_verification_method == "vk_contact"
+    assert person.get_rules_accepted_for_platform("vk") is True
+    assert person.is_registered_for_platform("vk") is True
+    # Для Telegram-канала при attach из legacy профиль создается незавершенным.
+    assert person.get_rules_accepted_for_platform("telegram") is False
+    assert person.get_notifications_allowed_for_platform("telegram") is False
+    assert person.is_registered_for_platform("telegram") is False
