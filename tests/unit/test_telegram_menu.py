@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from vtelemax.adapters.telegram.menu import (
+    MOD_CLOSE_PREFIX,
+    MOD_LIST_PREFIX,
+    MOD_PAGE_PREFIX,
+    MOD_REPLY_PREFIX,
+    MOD_TAKE_PREFIX,
+    MOD_TICKET_PREFIX,
     RULES_ACCEPT_CALLBACK,
     USER_TICKETS_PREV_PAGE_PREFIX,
     USER_TICKETS_NEXT_PAGE_PREFIX,
@@ -11,6 +17,9 @@ from vtelemax.adapters.telegram.menu import (
     build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
+    build_moderation_main_inline_keyboard,
+    build_moderation_ticket_details_inline_keyboard,
+    build_moderation_tickets_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
     build_rules_consent_inline_keyboard,
@@ -23,8 +32,10 @@ from vtelemax.core import (
     BUTTON_PERSONAL_DATA_CONSENT_LINK,
     BUTTON_PRIVACY_POLICY_LINK,
     BUTTON_RETRY_IIKO_SYNC,
+    OpenSupportTicketSummary,
     PERSONAL_DATA_CONSENT_URLS,
     PRIVACY_POLICY_URLS,
+    SupportTicketStatus,
     GuestMenuAction,
 )
 
@@ -132,7 +143,19 @@ def test_build_main_menu_keyboard_contains_support_question_and_feedback_link() 
 
 def test_all_telegram_callback_data_fit_telegram_limits() -> None:
     """Проверяет, что callback_data не превышает лимит Telegram (64 байта)."""
+    from datetime import datetime, timezone
+    from uuid import uuid4
 
+    sample_ticket_id = uuid4()
+    moderation_tickets = (
+        OpenSupportTicketSummary(
+            ticket_id=sample_ticket_id,
+            status=SupportTicketStatus.OPEN,
+            source_platform="telegram",
+            last_guest_platform="telegram",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+    )
     keyboards = [
         build_main_menu_inline_keyboard(),
         build_delivery_inline_keyboard(),
@@ -143,6 +166,19 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
         build_profile_edit_inline_keyboard(can_edit_birth_date=False),
         build_profile_gender_inline_keyboard(),
         build_iiko_sync_retry_inline_keyboard(),
+        build_moderation_main_inline_keyboard(),
+        build_moderation_tickets_inline_keyboard(
+            filter_key="new",
+            current_page=1,
+            total_pages=3,
+            tickets=moderation_tickets,
+        ),
+        build_moderation_ticket_details_inline_keyboard(
+            ticket_id=str(sample_ticket_id),
+            filter_key="new",
+            page=12,
+            status_value="open",
+        ),
     ]
 
     for keyboard in keyboards:
@@ -236,3 +272,45 @@ def test_build_user_tickets_pagination_keyboard() -> None:
     # Ожидаем одну строку - назад.
     assert len(keyboard_empty.inline_keyboard) == 1
     assert keyboard_empty.inline_keyboard[0][0].text == "🔙 Назад в меню"
+
+
+def test_build_moderation_keyboards_use_expected_callback_prefixes() -> None:
+    """Проверяет префиксы callback-data для экрана модерации."""
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    ticket_id = uuid4()
+    tickets = (
+        OpenSupportTicketSummary(
+            ticket_id=ticket_id,
+            status=SupportTicketStatus.OPEN,
+            source_platform="telegram",
+            last_guest_platform="telegram",
+            created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        ),
+    )
+    tickets_keyboard = build_moderation_tickets_inline_keyboard(
+        filter_key="new",
+        current_page=2,
+        total_pages=4,
+        tickets=tickets,
+    )
+    details_keyboard = build_moderation_ticket_details_inline_keyboard(
+        ticket_id=str(ticket_id),
+        filter_key="new",
+        page=2,
+        status_value="open",
+    )
+
+    callbacks = [
+        button.callback_data
+        for row in tickets_keyboard.inline_keyboard + details_keyboard.inline_keyboard
+        for button in row
+        if button.callback_data is not None
+    ]
+    assert any(data.startswith(MOD_LIST_PREFIX) for data in callbacks)
+    assert any(data.startswith(MOD_PAGE_PREFIX) for data in callbacks)
+    assert any(data.startswith(MOD_TICKET_PREFIX) for data in callbacks)
+    assert any(data.startswith(MOD_REPLY_PREFIX) for data in callbacks)
+    assert any(data.startswith(MOD_TAKE_PREFIX) for data in callbacks)
+    assert any(data.startswith(MOD_CLOSE_PREFIX) for data in callbacks)

@@ -48,6 +48,7 @@ from vtelemax.core import (
     ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
+    OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     PersonTicketsPageResult,
     GetPersonByAccountCommand,
@@ -85,6 +86,13 @@ from vtelemax.core import (
 )
 
 from .menu import (
+    MOD_CLOSE_PREFIX,
+    MOD_LIST_PREFIX,
+    MOD_MAIN_CALLBACK,
+    MOD_PAGE_PREFIX,
+    MOD_REPLY_PREFIX,
+    MOD_TAKE_PREFIX,
+    MOD_TICKET_PREFIX,
     USER_TICKETS_PAGE_PREFIX,
     USER_TICKETS_PREV_PAGE_PREFIX,
     USER_TICKETS_NEXT_PAGE_PREFIX,
@@ -119,6 +127,12 @@ class TelegramMenuActionResult:
     current_page: int | None = None
     total_pages: int | None = None
     tickets: tuple[PersonSupportTicketSummary, ...] = ()
+    moderation_filter: str | None = None
+    moderation_page: int | None = None
+    moderation_total_pages: int | None = None
+    moderation_ticket_id: UUID | None = None
+    moderation_ticket_status: str | None = None
+    moderation_tickets: tuple[OpenSupportTicketSummary, ...] = ()
 
 
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
@@ -134,6 +148,33 @@ _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
 _STATE_MOD_WAIT_TICKET_FOR_DETAILS = "moderation_wait_ticket_for_details"
 _STATE_MOD_WAIT_TICKET_FOR_CLOSE = "moderation_wait_ticket_for_close"
 _STATE_MOD_WAIT_TICKET_FOR_IN_PROGRESS = "moderation_wait_ticket_for_in_progress"
+
+_MOD_FILTER_NEW = "new"
+_MOD_FILTER_WORK = "work"
+_MOD_FILTER_CLOSED = "closed"
+_MOD_FILTER_ALL = "all"
+_MOD_FILTER_ORDER: tuple[str, ...] = (
+    _MOD_FILTER_NEW,
+    _MOD_FILTER_WORK,
+    _MOD_FILTER_CLOSED,
+    _MOD_FILTER_ALL,
+)
+_MOD_FILTER_TO_STATUSES: dict[str, tuple[SupportTicketStatus, ...]] = {
+    _MOD_FILTER_NEW: (SupportTicketStatus.OPEN,),
+    _MOD_FILTER_WORK: (SupportTicketStatus.IN_PROGRESS,),
+    _MOD_FILTER_CLOSED: (SupportTicketStatus.CLOSED,),
+    _MOD_FILTER_ALL: (
+        SupportTicketStatus.OPEN,
+        SupportTicketStatus.IN_PROGRESS,
+        SupportTicketStatus.CLOSED,
+    ),
+}
+_MOD_FILTER_TITLES: dict[str, str] = {
+    _MOD_FILTER_NEW: "🆕 Новые обращения",
+    _MOD_FILTER_WORK: "🛠 Обращения в работе",
+    _MOD_FILTER_CLOSED: "✅ Закрытые обращения",
+    _MOD_FILTER_ALL: "📚 Все обращения",
+}
 
 
 @dataclass(slots=True)
@@ -721,6 +762,13 @@ class TelegramIdentityAdapter:
                 ),
                 requires_contact_keyboard=True,
             )
+
+        moderation_callback_result = self._try_handle_moderation_callback(
+            telegram_user_id=telegram_user_id,
+            action_text=action_text,
+        )
+        if moderation_callback_result is not None:
+            return moderation_callback_result
 
         moderator_result = self._try_handle_moderator_command(
             action_text=action_text,
@@ -1389,6 +1437,350 @@ class TelegramIdentityAdapter:
             return self._open_moderator_menu(telegram_user_id=telegram_user_id)
         return None
 
+    def _try_handle_moderation_callback(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult | None:
+        """Пытается обработать callback-кнопки меню модератора."""
+
+        raw = (action_text or "").strip()
+        if not raw.startswith("mod_"):
+            return None
+
+        if raw == MOD_MAIN_CALLBACK:
+            return self._open_moderator_menu(telegram_user_id=telegram_user_id)
+
+        if not self._is_moderator_account(telegram_user_id=telegram_user_id):
+            self._clear_moderator_state(telegram_user_id)
+            return TelegramMenuActionResult(
+                status="moderation_forbidden",
+                message="Команда /mod доступна только модераторам.",
+            )
+
+        if (
+            self._moderator_reply_use_case is None
+            or self._ticket_details_use_case is None
+            or self._list_open_tickets_use_case is None
+        ):
+            return TelegramMenuActionResult(
+                status="moderation_unavailable",
+                message="Меню модератора недоступно: не подключены сценарии модерации.",
+            )
+
+        if raw.startswith(MOD_LIST_PREFIX):
+            filter_key = self._normalize_moderation_filter(raw[len(MOD_LIST_PREFIX):])
+            return self._show_moderation_tickets_page(
+                telegram_user_id=telegram_user_id,
+                filter_key=filter_key,
+                page=1,
+            )
+
+        if raw.startswith(MOD_PAGE_PREFIX):
+            parsed_page = self._parse_moderation_page_payload(raw[len(MOD_PAGE_PREFIX):])
+            if parsed_page is None:
+                return self._show_moderation_tickets_page(
+                    telegram_user_id=telegram_user_id,
+                    filter_key=_MOD_FILTER_NEW,
+                    page=1,
+                )
+            filter_key, page = parsed_page
+            return self._show_moderation_tickets_page(
+                telegram_user_id=telegram_user_id,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_details = self._parse_moderation_ticket_payload(raw, MOD_TICKET_PREFIX)
+        if parsed_details is not None:
+            ticket_id, filter_key, page = parsed_details
+            return self._build_moderation_ticket_details_result(
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_reply = self._parse_moderation_ticket_payload(raw, MOD_REPLY_PREFIX)
+        if parsed_reply is not None:
+            ticket_id, filter_key, page = parsed_reply
+            return self._start_moderation_reply_from_callback(
+                telegram_user_id=telegram_user_id,
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_take = self._parse_moderation_ticket_payload(raw, MOD_TAKE_PREFIX)
+        if parsed_take is not None:
+            ticket_id, filter_key, page = parsed_take
+            return self._set_moderation_status_from_callback(
+                telegram_user_id=telegram_user_id,
+                ticket_id=ticket_id,
+                new_status=SupportTicketStatus.IN_PROGRESS,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_close = self._parse_moderation_ticket_payload(raw, MOD_CLOSE_PREFIX)
+        if parsed_close is not None:
+            ticket_id, filter_key, page = parsed_close
+            return self._set_moderation_status_from_callback(
+                telegram_user_id=telegram_user_id,
+                ticket_id=ticket_id,
+                new_status=SupportTicketStatus.CLOSED,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        return TelegramMenuActionResult(
+            status="moderation_menu_unknown",
+            message="Не удалось распознать действие меню модератора.",
+        )
+
+    @staticmethod
+    def _normalize_moderation_filter(raw_filter: str) -> str:
+        """Нормализует фильтр списка обращений модератора."""
+
+        normalized = (raw_filter or "").strip().lower()
+        if normalized in _MOD_FILTER_ORDER:
+            return normalized
+        return _MOD_FILTER_NEW
+
+    def _parse_moderation_page_payload(self, raw_payload: str) -> tuple[str, int] | None:
+        """Разбирает callback пагинации `mod_page_<filter>_<page>`."""
+
+        payload = (raw_payload or "").strip()
+        if not payload or "_" not in payload:
+            return None
+        filter_raw, page_raw = payload.rsplit("_", maxsplit=1)
+        filter_key = self._normalize_moderation_filter(filter_raw)
+        try:
+            page = max(int(page_raw), 1)
+        except ValueError:
+            return None
+        return filter_key, page
+
+    def _parse_moderation_ticket_payload(
+        self,
+        raw_callback: str,
+        prefix: str,
+    ) -> tuple[UUID, str, int] | None:
+        """Разбирает callback с ticket_id в формате `<prefix><uuid>_<filter>_<page>`."""
+
+        if not raw_callback.startswith(prefix):
+            return None
+        payload = raw_callback[len(prefix) :].strip()
+        parts = payload.rsplit("_", maxsplit=2)
+        if len(parts) != 3:
+            return None
+        raw_ticket_id, raw_filter, raw_page = parts
+        try:
+            ticket_id = UUID(raw_ticket_id)
+        except ValueError:
+            return None
+        filter_key = self._normalize_moderation_filter(raw_filter)
+        try:
+            page = max(int(raw_page), 1)
+        except ValueError:
+            page = 1
+        return ticket_id, filter_key, page
+
+    def _show_moderation_tickets_page(
+        self,
+        *,
+        telegram_user_id: int,
+        filter_key: str,
+        page: int,
+        per_page: int = 5,
+    ) -> TelegramMenuActionResult:
+        """Возвращает страницу списка обращений модератора по выбранному фильтру."""
+
+        if self._list_open_tickets_use_case is None:
+            return TelegramMenuActionResult(
+                status="moderation_unavailable",
+                message="Список обращений недоступен: list-open-use-case не подключен.",
+            )
+
+        normalized_filter = self._normalize_moderation_filter(filter_key)
+        all_tickets = self._list_open_tickets_use_case.execute(
+            statuses=_MOD_FILTER_TO_STATUSES[normalized_filter],
+            limit=200,
+        )
+
+        total_items = len(all_tickets)
+        safe_per_page = max(int(per_page), 1)
+        total_pages = max((total_items + safe_per_page - 1) // safe_per_page, 1)
+        safe_page = min(max(int(page), 1), total_pages)
+        start_index = (safe_page - 1) * safe_per_page
+        end_index = start_index + safe_per_page
+        page_tickets = tuple(all_tickets[start_index:end_index])
+
+        title = _MOD_FILTER_TITLES[normalized_filter]
+        if total_items == 0:
+            message = f"{title}:\nСейчас обращений в этой категории нет."
+        else:
+            lines = [f"{title}:"]
+            for index, ticket in enumerate(page_tickets, start=1):
+                status_emoji, status_text = self._format_ticket_status(ticket.status.value)
+                created = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+                lines.append(
+                    f"{index}. {status_emoji} #{self._format_ticket_id_short(ticket.ticket_id)}"
+                    f" • {status_text} • {ticket.source_platform} • {created}"
+                )
+            lines.append("")
+            lines.append(f"Страница {safe_page}/{total_pages}. Всего обращений: {total_items}.")
+            message = "\n".join(lines)
+
+        self._moderator_state_by_user_id[telegram_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id[telegram_user_id] = {
+            "filter": normalized_filter,
+            "page": str(safe_page),
+        }
+        return TelegramMenuActionResult(
+            status="moderation_tickets_page",
+            message=message,
+            moderation_filter=normalized_filter,
+            moderation_page=safe_page,
+            moderation_total_pages=total_pages,
+            moderation_tickets=page_tickets,
+        )
+
+    def _build_moderation_ticket_details_result(
+        self,
+        *,
+        ticket_id: UUID,
+        filter_key: str,
+        page: int,
+    ) -> TelegramMenuActionResult:
+        """Формирует карточку тикета модератора для callback-навигации."""
+
+        try:
+            details, messages = self._get_ticket_details_with_history(ticket_id)
+        except ValueError as error:
+            return TelegramMenuActionResult(
+                status="moderation_details_error",
+                message=f"Не удалось загрузить тикет: {error}",
+                moderation_filter=self._normalize_moderation_filter(filter_key),
+                moderation_page=max(int(page), 1),
+            )
+
+        status_value = getattr(details.status, "value", str(details.status))
+        status_emoji, status_text = self._format_ticket_status(status_value)
+        linked = ", ".join(details.linked_platforms) or "-"
+        message_lines = [
+            f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
+            f"🧾 <b>ID:</b> <code>{html.escape(str(details.ticket_id))}</code>",
+            f"📌 <b>Статус:</b> {html.escape(status_text)}",
+            f"🧭 <b>Канал создания:</b> {html.escape(details.source_platform)}",
+            f"🔁 <b>Последний канал гостя:</b> {html.escape(details.last_guest_platform or '-')}",
+            f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
+            "",
+        ]
+        message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
+        return TelegramMenuActionResult(
+            status="moderation_ticket_details",
+            message="\n".join(message_lines),
+            parse_mode="HTML",
+            moderation_filter=self._normalize_moderation_filter(filter_key),
+            moderation_page=max(int(page), 1),
+            moderation_ticket_id=ticket_id,
+            moderation_ticket_status=status_value,
+        )
+
+    def _start_moderation_reply_from_callback(
+        self,
+        *,
+        telegram_user_id: int,
+        ticket_id: UUID,
+        filter_key: str,
+        page: int,
+    ) -> TelegramMenuActionResult:
+        """Переводит модератора в режим ввода ответа из карточки тикета."""
+
+        if self._ticket_details_use_case is None:
+            return TelegramMenuActionResult(
+                status="moderation_details_unavailable",
+                message="Карточка тикета недоступна: details-use-case не подключен.",
+            )
+        try:
+            self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            return TelegramMenuActionResult(
+                status="moderation_details_error",
+                message=f"Не удалось найти тикет: {error}",
+            )
+
+        self._moderator_state_by_user_id[telegram_user_id] = _STATE_MOD_WAIT_REPLY_TEXT
+        self._moderator_context_by_user_id[telegram_user_id] = {
+            "ticket_id": str(ticket_id),
+            "filter": self._normalize_moderation_filter(filter_key),
+            "page": str(max(int(page), 1)),
+        }
+        return TelegramMenuActionResult(
+            status="moderation_wait_reply_text",
+            message=(
+                "Введите текст ответа модератора.\n"
+                "Можно указать целевой канал префиксом: --to=telegram|vk|max.\n"
+                "Пример: --to=vk Добрый день, ответ готов."
+            ),
+        )
+
+    def _set_moderation_status_from_callback(
+        self,
+        *,
+        telegram_user_id: int,
+        ticket_id: UUID,
+        new_status: SupportTicketStatus,
+        filter_key: str,
+        page: int,
+    ) -> TelegramMenuActionResult:
+        """Меняет статус тикета из callback-кнопки карточки и возвращает обновленную карточку."""
+
+        if self._set_ticket_status_use_case is None:
+            return TelegramMenuActionResult(
+                status="moderation_status_unavailable",
+                message="Изменение статуса тикета временно недоступно.",
+            )
+
+        try:
+            result = self._set_ticket_status_use_case.execute(
+                SetSupportTicketStatusCommand(
+                    ticket_id=ticket_id,
+                    status=new_status,
+                )
+            )
+        except ValueError as error:
+            return TelegramMenuActionResult(
+                status="moderation_status_error",
+                message=f"Не удалось изменить статус тикета: {error}",
+            )
+
+        self._moderator_state_by_user_id[telegram_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id[telegram_user_id] = {
+            "filter": self._normalize_moderation_filter(filter_key),
+            "page": str(max(int(page), 1)),
+        }
+        details_result = self._build_moderation_ticket_details_result(
+            ticket_id=result.ticket_id,
+            filter_key=filter_key,
+            page=page,
+        )
+        _, previous_status_text = self._format_ticket_status(result.previous_status.value)
+        _, new_status_text = self._format_ticket_status(result.new_status.value)
+        return TelegramMenuActionResult(
+            status=details_result.status,
+            message=(
+                f"✅ Статус обновлен: {previous_status_text} → {new_status_text}.\n\n"
+                f"{details_result.message}"
+            ),
+            parse_mode=details_result.parse_mode,
+            moderation_filter=details_result.moderation_filter,
+            moderation_page=details_result.moderation_page,
+            moderation_ticket_id=details_result.moderation_ticket_id,
+            moderation_ticket_status=details_result.moderation_ticket_status,
+        )
+
     def _open_moderator_menu(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
         """Открывает единое меню модератора."""
 
@@ -1406,7 +1798,10 @@ class TelegramIdentityAdapter:
             )
 
         self._moderator_state_by_user_id[telegram_user_id] = _STATE_MOD_MENU
-        self._moderator_context_by_user_id.pop(telegram_user_id, None)
+        self._moderator_context_by_user_id[telegram_user_id] = {
+            "filter": _MOD_FILTER_NEW,
+            "page": "1",
+        }
         return TelegramMenuActionResult(
             status="moderation_menu",
             message=self._build_moderation_menu_text(),
@@ -1496,14 +1891,10 @@ class TelegramIdentityAdapter:
         """Обрабатывает выбор пункта главного меню модератора."""
 
         if lowered_text in {"1", "тикеты", "список"}:
-            tickets_text = self._build_tickets_text_by_status(
-                title="Новые обращения:",
-                statuses=(SupportTicketStatus.OPEN,),
-                limit=10,
-            )
-            return TelegramMenuActionResult(
-                status="moderation_tickets",
-                message=f"{tickets_text}\n\n{self._build_moderation_menu_text()}",
+            return self._show_moderation_tickets_page(
+                telegram_user_id=telegram_user_id,
+                filter_key=_MOD_FILTER_NEW,
+                page=1,
             )
 
         if lowered_text in {"2", "ответ", "ответить"}:
@@ -1529,25 +1920,17 @@ class TelegramIdentityAdapter:
             )
 
         if lowered_text in {"4", "в работе", "работа", "активные"}:
-            tickets_text = self._build_tickets_text_by_status(
-                title="Обращения в работе:",
-                statuses=(SupportTicketStatus.IN_PROGRESS,),
-                limit=10,
-            )
-            return TelegramMenuActionResult(
-                status="moderation_tickets_in_progress",
-                message=f"{tickets_text}\n\n{self._build_moderation_menu_text()}",
+            return self._show_moderation_tickets_page(
+                telegram_user_id=telegram_user_id,
+                filter_key=_MOD_FILTER_WORK,
+                page=1,
             )
 
         if lowered_text in {"5", "закрытые", "архив"}:
-            tickets_text = self._build_tickets_text_by_status(
-                title="Закрытые обращения:",
-                statuses=(SupportTicketStatus.CLOSED,),
-                limit=10,
-            )
-            return TelegramMenuActionResult(
-                status="moderation_tickets_closed",
-                message=f"{tickets_text}\n\n{self._build_moderation_menu_text()}",
+            return self._show_moderation_tickets_page(
+                telegram_user_id=telegram_user_id,
+                filter_key=_MOD_FILTER_CLOSED,
+                page=1,
             )
 
         if lowered_text in {"6", "закрыть", "close"}:
@@ -1671,8 +2054,34 @@ class TelegramIdentityAdapter:
                 message=f"Не удалось маршрутизировать ответ: {error}",
             )
 
+        filter_key = self._normalize_moderation_filter(context.get("filter", _MOD_FILTER_NEW))
+        try:
+            page = max(int(context.get("page", "1")), 1)
+        except ValueError:
+            page = 1
         self._moderator_state_by_user_id[telegram_user_id] = _STATE_MOD_MENU
         self._moderator_context_by_user_id.pop(telegram_user_id, None)
+
+        details_result = self._build_moderation_ticket_details_result(
+            ticket_id=route.ticket_id,
+            filter_key=filter_key,
+            page=page,
+        )
+        if details_result.status == "moderation_ticket_details":
+            return TelegramMenuActionResult(
+                status=details_result.status,
+                message=(
+                    "Ответ модератора зарегистрирован.\n"
+                    f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n\n"
+                    f"{details_result.message}"
+                ),
+                parse_mode=details_result.parse_mode,
+                moderation_filter=details_result.moderation_filter,
+                moderation_page=details_result.moderation_page,
+                moderation_ticket_id=details_result.moderation_ticket_id,
+                moderation_ticket_status=details_result.moderation_ticket_status,
+            )
+
         return TelegramMenuActionResult(
             status="moderation_routed",
             message=(
@@ -1923,14 +2332,11 @@ class TelegramIdentityAdapter:
 
         return (
             "🛠 Меню модератора\n"
-            "1 — Новые обращения\n"
-            "2 — Ответить на тикет\n"
-            "3 — Показать карточку тикета\n"
-            "4 — Обращения в работе\n"
-            "5 — Закрытые обращения\n"
-            "6 — Закрыть тикет\n"
-            "7 — Перевести тикет в работу\n"
-            "0 — Выйти из режима модератора"
+            "Используйте кнопки ниже, чтобы открыть список обращений:\n"
+            "• 🆕 Новые\n"
+            "• 🛠 В работе\n"
+            "• ✅ Закрытые\n"
+            "• 📚 Все"
         )
 
     @staticmethod

@@ -832,6 +832,68 @@ def test_max_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     assert "max" in details.text
 
 
+def test_max_moderation_callback_menu_supports_pagination_and_ticket_actions() -> None:
+    """Проверяет callback-меню модератора MAX: фильтр, пагинацию, карточку и ответ."""
+
+    adapter, register_use_case, create_ticket_use_case = _build_adapter_with_support_context()
+    _complete_max_registration(adapter, max_user_id=1001)
+
+    created_tickets = [
+        create_ticket_use_case.execute(
+            CreateSupportTicketCommand(
+                platform="max",
+                external_id="1001",
+                question_text=f"Нужна помощь #{index}",
+            )
+        )
+        for index in range(6)
+    ]
+    first_ticket_id = created_tickets[0].ticket_id
+
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="max",
+            external_id="9999",
+            raw_phone="+79990009999",
+        )
+    )
+    moderator_person = adapter._person_lookup_use_case.execute(  # noqa: SLF001
+        GetPersonByAccountCommand(platform="max", external_id="9999")
+    )
+    assert moderator_person is not None
+    with register_use_case._unit_of_work_factory() as unit_of_work:  # noqa: SLF001
+        unit_of_work.identity_repository.update_person_profile(
+            moderator_person.person_id,
+            PersonProfilePatch(is_moderator=True),
+        )
+        unit_of_work.commit()
+
+    open_menu = adapter.handle_incoming(max_user_id=9999, text="/mod", payload=None)
+    list_page = adapter.handle_incoming(max_user_id=9999, text="", payload="mod_list_new")
+    details = adapter.handle_incoming(
+        max_user_id=9999,
+        text="",
+        payload=f"mod_ticket_{first_ticket_id}_new_1",
+    )
+    start_reply = adapter.handle_incoming(
+        max_user_id=9999,
+        text="",
+        payload=f"mod_reply_{first_ticket_id}_new_1",
+    )
+    routed = adapter.handle_incoming(max_user_id=9999, text="Тестовый ответ", payload=None)
+
+    assert open_menu.screen is not None
+    assert open_menu.screen.screen_id == "moderation_main"
+    assert list_page.screen is not None
+    assert list_page.screen.screen_id == "moderation_tickets"
+    assert "Страница 1/" in list_page.text
+    assert details.screen is not None
+    assert details.screen.screen_id == "moderation_ticket_details"
+    assert "Канал создания:" in details.text
+    assert "Введите текст ответа модератора" in start_reply.text
+    assert "Ответ модератора зарегистрирован" in routed.text
+
+
 def test_max_ticket_details_screen_includes_ticket_history() -> None:
     """Проверяет, что карточка тикета в MAX содержит историю сообщений, а не заглушку."""
 

@@ -374,7 +374,12 @@ def register_vk_guest_handlers(
         cmd = ""
         if isinstance(payload, dict):
             cmd = str(payload.get("cmd", "")).strip()
-        if cmd.startswith(USER_TICKET_DETAILS_PREFIX) or cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX) or cmd.startswith(USER_TICKETS_NEXT_PAGE_PREFIX):
+        if (
+            cmd.startswith(USER_TICKET_DETAILS_PREFIX)
+            or cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX)
+            or cmd.startswith(USER_TICKETS_NEXT_PAGE_PREFIX)
+            or cmd.startswith("mod_")
+        ):
             # Обрабатываем через адаптер
             response = adapter.handle_incoming(
                 vk_user_id=int(event.user_id),

@@ -24,6 +24,13 @@ from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import TelegramIdentityAdapter, TelegramMenuActionResult
 from .menu import (
+    MOD_CLOSE_PREFIX,
+    MOD_LIST_PREFIX,
+    MOD_MAIN_CALLBACK,
+    MOD_PAGE_PREFIX,
+    MOD_REPLY_PREFIX,
+    MOD_TAKE_PREFIX,
+    MOD_TICKET_PREFIX,
     NOTIFY_NO_CALLBACK,
     NOTIFY_YES_CALLBACK,
     RULES_ACCEPT_CALLBACK,
@@ -53,6 +60,9 @@ from .menu import (
     build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
+    build_moderation_main_inline_keyboard,
+    build_moderation_ticket_details_inline_keyboard,
+    build_moderation_tickets_inline_keyboard,
     build_notifications_consent_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
@@ -341,6 +351,45 @@ def build_telegram_identity_router(
             return build_notifications_consent_inline_keyboard()
         if result.status in {"iiko_sync_retry", "iiko_sync_retry_pending"}:
             return build_iiko_sync_retry_inline_keyboard()
+        if result.status in {"moderation_menu", "moderation_menu_unknown"}:
+            return build_moderation_main_inline_keyboard()
+        if (
+            result.status == "moderation_tickets_page"
+            and result.moderation_filter is not None
+            and result.moderation_page is not None
+            and result.moderation_total_pages is not None
+        ):
+            return build_moderation_tickets_inline_keyboard(
+                filter_key=result.moderation_filter,
+                current_page=result.moderation_page,
+                total_pages=result.moderation_total_pages,
+                tickets=result.moderation_tickets,
+            )
+        if (
+            result.status in {"moderation_ticket_details", "moderation_details_error"}
+            and result.moderation_ticket_id is not None
+            and result.moderation_filter is not None
+            and result.moderation_page is not None
+        ):
+            return build_moderation_ticket_details_inline_keyboard(
+                ticket_id=str(result.moderation_ticket_id),
+                filter_key=result.moderation_filter,
+                page=result.moderation_page,
+                status_value=result.moderation_ticket_status or "",
+            )
+        if result.status in {
+            "moderation_tickets",
+            "moderation_tickets_in_progress",
+            "moderation_tickets_closed",
+            "moderation_details",
+            "moderation_routed",
+            "moderation_status_updated",
+            "moderation_wait_ticket_for_reply",
+            "moderation_wait_ticket_for_details",
+            "moderation_wait_ticket_for_close",
+            "moderation_wait_ticket_for_in_progress",
+        }:
+            return build_moderation_main_inline_keyboard()
         if result.status == "tickets_list" and result.current_page is not None and result.total_pages is not None:
             # Показываем пагинацию для списка тикетов
             return build_user_tickets_pagination_keyboard(
@@ -696,7 +745,14 @@ def build_telegram_identity_router(
         F.data.startswith(USER_TICKET_DETAILS_PREFIX) |
         F.data.startswith(USER_TICKETS_PREV_PAGE_PREFIX) |
         F.data.startswith(USER_TICKETS_NEXT_PAGE_PREFIX) |
-        F.data.startswith(USER_TICKETS_PAGE_PREFIX)
+        F.data.startswith(USER_TICKETS_PAGE_PREFIX) |
+        F.data == MOD_MAIN_CALLBACK |
+        F.data.startswith(MOD_LIST_PREFIX) |
+        F.data.startswith(MOD_PAGE_PREFIX) |
+        F.data.startswith(MOD_TICKET_PREFIX) |
+        F.data.startswith(MOD_REPLY_PREFIX) |
+        F.data.startswith(MOD_TAKE_PREFIX) |
+        F.data.startswith(MOD_CLOSE_PREFIX)
     )
     async def ticket_pagination_callback_handler(callback: CallbackQuery) -> None:
         """Обработчик inline-кнопок деталей тикета и пагинации списка обращений."""

@@ -46,6 +46,7 @@ from vtelemax.core import (
     GuestMenuAction,
     MAILING_CONSENT_URLS,
     PERSONAL_DATA_CONSENT_URLS,
+    OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     PRIVACY_POLICY_URLS,
     build_delivery_screen,
@@ -58,6 +59,13 @@ USER_TICKETS_PAGE_PREFIX = "user_tickets_page_"
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+MOD_MAIN_CALLBACK = "mod_main"
+MOD_LIST_PREFIX = "mod_list_"
+MOD_PAGE_PREFIX = "mod_page_"
+MOD_TICKET_PREFIX = "mod_ticket_"
+MOD_REPLY_PREFIX = "mod_reply_"
+MOD_TAKE_PREFIX = "mod_take_"
+MOD_CLOSE_PREFIX = "mod_close_"
 DOCS_URL = PERSONAL_DATA_CONSENT_URLS["telegram"]
 NOTIFICATIONS_DOCS_URL = MAILING_CONSENT_URLS["telegram"]
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
@@ -408,3 +416,122 @@ def build_user_tickets_pagination_keyboard(
     ])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_moderation_main_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает главное inline-меню модератора с фильтрами обращений."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🆕 Новые", callback_data=f"{MOD_LIST_PREFIX}new"),
+                InlineKeyboardButton(text="🛠 В работе", callback_data=f"{MOD_LIST_PREFIX}work"),
+            ],
+            [
+                InlineKeyboardButton(text="✅ Закрытые", callback_data=f"{MOD_LIST_PREFIX}closed"),
+                InlineKeyboardButton(text="📚 Все", callback_data=f"{MOD_LIST_PREFIX}all"),
+            ],
+        ]
+    )
+
+
+def build_moderation_tickets_inline_keyboard(
+    *,
+    filter_key: str,
+    current_page: int,
+    total_pages: int,
+    tickets: tuple[OpenSupportTicketSummary, ...],
+) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру пагинации тикетов модератора."""
+
+    buttons: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(text="🆕 Новые", callback_data=f"{MOD_LIST_PREFIX}new"),
+            InlineKeyboardButton(text="🛠 В работе", callback_data=f"{MOD_LIST_PREFIX}work"),
+        ],
+        [
+            InlineKeyboardButton(text="✅ Закрытые", callback_data=f"{MOD_LIST_PREFIX}closed"),
+            InlineKeyboardButton(text="📚 Все", callback_data=f"{MOD_LIST_PREFIX}all"),
+        ],
+    ]
+
+    status_emoji_map = {"open": "🆕", "in_progress": "🛠", "closed": "✅"}
+    for ticket in tickets:
+        status_value = ticket.status.value
+        status_emoji = status_emoji_map.get(status_value, "❓")
+        short_id = str(ticket.ticket_id)[-4:].upper()
+        date_text = ticket.created_at.strftime("%d.%m") if ticket.created_at else ""
+        label = f"{status_emoji} #{short_id}"
+        if date_text:
+            label = f"{label} от {date_text}"
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"{MOD_TICKET_PREFIX}{ticket.ticket_id}_{filter_key}_{current_page}",
+                )
+            ]
+        )
+
+    if total_pages > 1:
+        navigation_row: list[InlineKeyboardButton] = []
+        if current_page > 1:
+            navigation_row.append(
+                InlineKeyboardButton(
+                    text="◀️ Назад",
+                    callback_data=f"{MOD_PAGE_PREFIX}{filter_key}_{current_page - 1}",
+                )
+            )
+        navigation_row.append(
+            InlineKeyboardButton(
+                text=f"{current_page}/{total_pages}",
+                callback_data="noop",
+            )
+        )
+        if current_page < total_pages:
+            navigation_row.append(
+                InlineKeyboardButton(
+                    text="Вперед ▶️",
+                    callback_data=f"{MOD_PAGE_PREFIX}{filter_key}_{current_page + 1}",
+                )
+            )
+        buttons.append(navigation_row)
+
+    buttons.append([InlineKeyboardButton(text="🏠 Меню модератора", callback_data=MOD_MAIN_CALLBACK)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_moderation_ticket_details_inline_keyboard(
+    *,
+    ticket_id: str,
+    filter_key: str,
+    page: int,
+    status_value: str,
+) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру карточки обращения модератора."""
+
+    callback_suffix = f"{ticket_id}_{filter_key}_{page}"
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="✍️ Ответить", callback_data=f"{MOD_REPLY_PREFIX}{callback_suffix}")],
+    ]
+    action_row: list[InlineKeyboardButton] = []
+    if status_value != "in_progress":
+        action_row.append(
+            InlineKeyboardButton(text="🛠 В работу", callback_data=f"{MOD_TAKE_PREFIX}{callback_suffix}")
+        )
+    if status_value != "closed":
+        action_row.append(
+            InlineKeyboardButton(text="✅ Закрыть", callback_data=f"{MOD_CLOSE_PREFIX}{callback_suffix}")
+        )
+    if action_row:
+        rows.append(action_row)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ К списку",
+                callback_data=f"{MOD_PAGE_PREFIX}{filter_key}_{page}",
+            ),
+            InlineKeyboardButton(text="🏠 Меню", callback_data=MOD_MAIN_CALLBACK),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)

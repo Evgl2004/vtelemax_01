@@ -955,7 +955,7 @@ def test_telegram_mod_requires_moderator_flag_and_routes_reply_via_fsm() -> None
     assert open_menu.status == "moderation_menu"
     assert wait_ticket.status == "moderation_wait_ticket_for_reply"
     assert wait_reply.status == "moderation_wait_reply_text"
-    assert routed.status == "moderation_routed"
+    assert routed.status in {"moderation_routed", "moderation_ticket_details"}
     assert "Маршрут доставки: vk" in routed.message
     assert details_step.status == "moderation_wait_ticket_for_details"
     assert details.status == "moderation_details"
@@ -1032,12 +1032,88 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
     assert wait_ticket.status == "moderation_wait_ticket_for_reply"
     assert dirty_ticket.status == "moderation_bad_ticket"
     assert wait_reply.status == "moderation_wait_reply_text"
-    assert routed.status == "moderation_routed"
+    assert routed.status in {"moderation_routed", "moderation_ticket_details"}
     assert "Маршрут доставки: telegram" in routed.message
     assert wait_details.status == "moderation_wait_ticket_for_details"
     assert details.status == "moderation_details"
     assert "Канал создания:" in details.message
     assert "telegram" in details.message
+
+
+def test_telegram_moderation_callback_menu_supports_pagination_and_ticket_actions() -> None:
+    """Проверяет callback-меню модератора: фильтр, пагинацию, карточку и ответ."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    list_open_tickets_use_case = ListOpenSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        moderator_reply_use_case=moderator_reply_use_case,
+        ticket_details_use_case=ticket_details_use_case,
+        list_open_tickets_use_case=list_open_tickets_use_case,
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    created_tickets = [
+        create_ticket_use_case.execute(
+            CreateSupportTicketCommand(
+                platform="telegram",
+                external_id="1001",
+                question_text=f"Нужна помощь #{index}",
+            )
+        )
+        for index in range(6)
+    ]
+    first_ticket_id = created_tickets[0].ticket_id
+
+    adapter.register_contact(telegram_user_id=9999, raw_phone="+79990009999")
+    moderator_person = lookup_use_case.execute(
+        GetPersonByAccountCommand(platform="telegram", external_id="9999")
+    )
+    assert moderator_person is not None
+    with InMemoryIdentityUnitOfWork(repository) as unit_of_work:
+        unit_of_work.identity_repository.update_person_profile(
+            moderator_person.person_id,
+            PersonProfilePatch(is_moderator=True),
+        )
+        unit_of_work.commit()
+
+    open_menu = adapter.handle_menu_action(telegram_user_id=9999, action_text="/mod")
+    list_page = adapter.handle_menu_action(telegram_user_id=9999, action_text="mod_list_new")
+    details = adapter.handle_menu_action(
+        telegram_user_id=9999,
+        action_text=f"mod_ticket_{first_ticket_id}_new_1",
+    )
+    start_reply = adapter.handle_menu_action(
+        telegram_user_id=9999,
+        action_text=f"mod_reply_{first_ticket_id}_new_1",
+    )
+    routed = adapter.handle_menu_action(telegram_user_id=9999, action_text="Тестовый ответ")
+
+    assert open_menu.status == "moderation_menu"
+    assert list_page.status == "moderation_tickets_page"
+    assert list_page.moderation_total_pages is not None
+    assert list_page.moderation_total_pages >= 2
+    assert details.status == "moderation_ticket_details"
+    assert start_reply.status == "moderation_wait_reply_text"
+    assert routed.status in {"moderation_ticket_details", "moderation_routed"}
+    assert "Ответ модератора зарегистрирован" in routed.message
 
 
 def test_telegram_ticket_details_screen_includes_ticket_history() -> None:

@@ -35,6 +35,7 @@ from vtelemax.core import (
     ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
+    OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     PersonTicketsPageResult,
     RegisterOrAttachAccountCommand,
@@ -51,13 +52,51 @@ from vtelemax.core import (
     resolve_guest_menu_action,
 )
 
-from .menu_adapter import MaxGuestMenuAdapter, MaxScreen, MaxButton
+from .menu_adapter import (
+    MOD_CLOSE_PREFIX,
+    MOD_LIST_PREFIX,
+    MOD_MAIN_CALLBACK,
+    MOD_PAGE_PREFIX,
+    MOD_REPLY_PREFIX,
+    MOD_TAKE_PREFIX,
+    MOD_TICKET_PREFIX,
+    MaxButton,
+    MaxGuestMenuAdapter,
+    MaxScreen,
+)
 from .payloads import resolve_action_from_max_payload, build_max_payload
 
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+
+_MOD_FILTER_NEW = "new"
+_MOD_FILTER_WORK = "work"
+_MOD_FILTER_CLOSED = "closed"
+_MOD_FILTER_ALL = "all"
+_MOD_FILTER_ORDER: tuple[str, ...] = (
+    _MOD_FILTER_NEW,
+    _MOD_FILTER_WORK,
+    _MOD_FILTER_CLOSED,
+    _MOD_FILTER_ALL,
+)
+_MOD_FILTER_TO_STATUSES: dict[str, tuple[SupportTicketStatus, ...]] = {
+    _MOD_FILTER_NEW: (SupportTicketStatus.OPEN,),
+    _MOD_FILTER_WORK: (SupportTicketStatus.IN_PROGRESS,),
+    _MOD_FILTER_CLOSED: (SupportTicketStatus.CLOSED,),
+    _MOD_FILTER_ALL: (
+        SupportTicketStatus.OPEN,
+        SupportTicketStatus.IN_PROGRESS,
+        SupportTicketStatus.CLOSED,
+    ),
+}
+_MOD_FILTER_TITLES: dict[str, str] = {
+    _MOD_FILTER_NEW: "🆕 Новые обращения",
+    _MOD_FILTER_WORK: "🛠 Обращения в работе",
+    _MOD_FILTER_CLOSED: "✅ Закрытые обращения",
+    _MOD_FILTER_ALL: "📚 Все обращения",
+}
 
 _STATE_WAITING_PHONE = OnboardingState.WAITING_PHONE.value
 _STATE_WAITING_RULES_CONSENT = OnboardingState.WAITING_RULES_CONSENT.value
@@ -367,6 +406,13 @@ class MaxIdentityAdapter:
         moderator_response = self._try_handle_moderator_command(text=text, max_user_id=max_user_id)
         if moderator_response is not None:
             return moderator_response
+
+        moderation_payload_response = self._try_handle_moderation_payload(
+            max_user_id=max_user_id,
+            payload=payload,
+        )
+        if moderation_payload_response is not None:
+            return moderation_payload_response
 
         moderator_state = self._moderator_state_by_user_id.get(max_user_id)
         if moderator_state is not None:
@@ -1096,6 +1142,326 @@ class MaxIdentityAdapter:
             return self._open_moderator_menu(max_user_id=max_user_id)
         return None
 
+    def _try_handle_moderation_payload(
+        self,
+        *,
+        max_user_id: int,
+        payload: object | None,
+    ) -> MaxAdapterResponse | None:
+        """Пытается обработать callback-навигацию модератора по payload."""
+
+        cmd = ""
+        if isinstance(payload, dict):
+            cmd = str(payload.get("cmd", "")).strip()
+        elif isinstance(payload, str):
+            cmd = payload.strip()
+        if not cmd.startswith("mod_"):
+            return None
+
+        if cmd == MOD_MAIN_CALLBACK:
+            return self._open_moderator_menu(max_user_id=max_user_id)
+
+        if not self._is_moderator_account(max_user_id=max_user_id):
+            self._clear_moderator_state(max_user_id)
+            return MaxAdapterResponse(text="Команда /mod доступна только модераторам.")
+
+        if (
+            self._moderator_reply_use_case is None
+            or self._ticket_details_use_case is None
+            or self._list_open_tickets_use_case is None
+        ):
+            return MaxAdapterResponse(
+                text="Меню модератора недоступно: не подключены сценарии модерации."
+            )
+
+        if cmd.startswith(MOD_LIST_PREFIX):
+            filter_key = self._normalize_moderation_filter(cmd[len(MOD_LIST_PREFIX):])
+            return self._show_moderation_tickets_page(
+                max_user_id=max_user_id,
+                filter_key=filter_key,
+                page=1,
+            )
+
+        if cmd.startswith(MOD_PAGE_PREFIX):
+            parsed = self._parse_moderation_page_payload(cmd[len(MOD_PAGE_PREFIX):])
+            if parsed is None:
+                return self._show_moderation_tickets_page(
+                    max_user_id=max_user_id,
+                    filter_key=_MOD_FILTER_NEW,
+                    page=1,
+                )
+            filter_key, page = parsed
+            return self._show_moderation_tickets_page(
+                max_user_id=max_user_id,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_details = self._parse_moderation_ticket_payload(cmd, MOD_TICKET_PREFIX)
+        if parsed_details is not None:
+            ticket_id, filter_key, page = parsed_details
+            return self._build_moderation_ticket_details_response(
+                max_user_id=max_user_id,
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_reply = self._parse_moderation_ticket_payload(cmd, MOD_REPLY_PREFIX)
+        if parsed_reply is not None:
+            ticket_id, filter_key, page = parsed_reply
+            return self._start_moderation_reply_from_payload(
+                max_user_id=max_user_id,
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_take = self._parse_moderation_ticket_payload(cmd, MOD_TAKE_PREFIX)
+        if parsed_take is not None:
+            ticket_id, filter_key, page = parsed_take
+            return self._set_moderation_status_from_payload(
+                max_user_id=max_user_id,
+                ticket_id=ticket_id,
+                new_status=SupportTicketStatus.IN_PROGRESS,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        parsed_close = self._parse_moderation_ticket_payload(cmd, MOD_CLOSE_PREFIX)
+        if parsed_close is not None:
+            ticket_id, filter_key, page = parsed_close
+            return self._set_moderation_status_from_payload(
+                max_user_id=max_user_id,
+                ticket_id=ticket_id,
+                new_status=SupportTicketStatus.CLOSED,
+                filter_key=filter_key,
+                page=page,
+            )
+
+        return MaxAdapterResponse(text="Не удалось распознать действие меню модератора.")
+
+    @staticmethod
+    def _normalize_moderation_filter(raw_filter: str) -> str:
+        """Нормализует фильтр обращения в модераторском меню."""
+
+        normalized = (raw_filter or "").strip().lower()
+        if normalized in _MOD_FILTER_ORDER:
+            return normalized
+        return _MOD_FILTER_NEW
+
+    def _parse_moderation_page_payload(self, raw_payload: str) -> tuple[str, int] | None:
+        """Разбирает payload вида `mod_page_<filter>_<page>`."""
+
+        payload = (raw_payload or "").strip()
+        if not payload or "_" not in payload:
+            return None
+        filter_raw, page_raw = payload.rsplit("_", maxsplit=1)
+        filter_key = self._normalize_moderation_filter(filter_raw)
+        try:
+            page = max(int(page_raw), 1)
+        except ValueError:
+            return None
+        return filter_key, page
+
+    def _parse_moderation_ticket_payload(
+        self,
+        raw_cmd: str,
+        prefix: str,
+    ) -> tuple[UUID, str, int] | None:
+        """Разбирает payload вида `<prefix><uuid>_<filter>_<page>`."""
+
+        if not raw_cmd.startswith(prefix):
+            return None
+        suffix = raw_cmd[len(prefix):].strip()
+        parts = suffix.rsplit("_", maxsplit=2)
+        if len(parts) != 3:
+            return None
+        raw_ticket_id, raw_filter, raw_page = parts
+        try:
+            ticket_id = UUID(raw_ticket_id)
+        except ValueError:
+            return None
+        filter_key = self._normalize_moderation_filter(raw_filter)
+        try:
+            page = max(int(raw_page), 1)
+        except ValueError:
+            page = 1
+        return ticket_id, filter_key, page
+
+    def _show_moderation_tickets_page(
+        self,
+        *,
+        max_user_id: int,
+        filter_key: str,
+        page: int,
+        per_page: int = 5,
+    ) -> MaxAdapterResponse:
+        """Показывает страницу списка тикетов модератора."""
+
+        if self._list_open_tickets_use_case is None:
+            return MaxAdapterResponse(text="Список обращений недоступен: list-open-use-case не подключен.")
+
+        normalized_filter = self._normalize_moderation_filter(filter_key)
+        all_tickets = self._list_open_tickets_use_case.execute(
+            statuses=_MOD_FILTER_TO_STATUSES[normalized_filter],
+            limit=200,
+        )
+        total_items = len(all_tickets)
+        safe_per_page = max(int(per_page), 1)
+        total_pages = max((total_items + safe_per_page - 1) // safe_per_page, 1)
+        safe_page = min(max(int(page), 1), total_pages)
+        start_index = (safe_page - 1) * safe_per_page
+        end_index = start_index + safe_per_page
+        page_tickets = tuple(all_tickets[start_index:end_index])
+
+        title = _MOD_FILTER_TITLES[normalized_filter]
+        if total_items == 0:
+            text = f"{title}:\nСейчас обращений в этой категории нет."
+        else:
+            lines = [f"{title}:"]
+            for index, ticket in enumerate(page_tickets, start=1):
+                status_emoji, status_text = self._format_ticket_status(ticket.status.value)
+                created = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+                lines.append(
+                    f"{index}. {status_emoji} #{self._format_ticket_id_short(ticket.ticket_id)}"
+                    f" • {status_text} • {ticket.source_platform} • {created}"
+                )
+            lines.append("")
+            lines.append(f"Страница {safe_page}/{total_pages}. Всего обращений: {total_items}.")
+            text = "\n".join(lines)
+
+        self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id[max_user_id] = {
+            "filter": normalized_filter,
+            "page": str(safe_page),
+        }
+        return MaxAdapterResponse(
+            text=text,
+            screen=self._menu_adapter.build_moderation_tickets_screen(
+                filter_key=normalized_filter,
+                current_page=safe_page,
+                total_pages=total_pages,
+                tickets=page_tickets,
+            ),
+        )
+
+    def _build_moderation_ticket_details_response(
+        self,
+        *,
+        max_user_id: int,
+        ticket_id: UUID,
+        filter_key: str,
+        page: int,
+    ) -> MaxAdapterResponse:
+        """Формирует карточку тикета модератора для callback-навигации."""
+
+        try:
+            details, messages = self._get_ticket_details_with_history(ticket_id)
+        except ValueError as error:
+            return MaxAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
+
+        status_value = getattr(details.status, "value", str(details.status))
+        status_emoji, status_text = self._format_ticket_status(status_value)
+        linked = ", ".join(details.linked_platforms) or "-"
+        message_lines = [
+            f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
+            f"ID: {details.ticket_id}",
+            f"Статус: {status_text}",
+            f"Канал создания: {details.source_platform}",
+            f"Последний канал гостя: {details.last_guest_platform or '-'}",
+            f"Каналы гостя: {linked}",
+            "",
+        ]
+        message_lines.extend(self._format_ticket_history_lines(messages, use_html=False))
+        normalized_filter = self._normalize_moderation_filter(filter_key)
+        safe_page = max(int(page), 1)
+        self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
+        self._moderator_context_by_user_id[max_user_id] = {
+            "filter": normalized_filter,
+            "page": str(safe_page),
+        }
+        return MaxAdapterResponse(
+            text="\n".join(message_lines),
+            screen=self._menu_adapter.build_moderation_ticket_details_screen(
+                ticket_id=str(details.ticket_id),
+                filter_key=normalized_filter,
+                page=safe_page,
+                status_value=status_value,
+            ),
+        )
+
+    def _start_moderation_reply_from_payload(
+        self,
+        *,
+        max_user_id: int,
+        ticket_id: UUID,
+        filter_key: str,
+        page: int,
+    ) -> MaxAdapterResponse:
+        """Переводит модератора в режим ввода ответа по callback из карточки тикета."""
+
+        if self._ticket_details_use_case is None:
+            return MaxAdapterResponse(text="Карточка тикета недоступна: details-use-case не подключен.")
+        try:
+            self._ticket_details_use_case.execute(ticket_id)
+        except ValueError as error:
+            return MaxAdapterResponse(text=f"Не удалось найти тикет: {error}")
+
+        self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_WAIT_REPLY_TEXT
+        self._moderator_context_by_user_id[max_user_id] = {
+            "ticket_id": str(ticket_id),
+            "filter": self._normalize_moderation_filter(filter_key),
+            "page": str(max(int(page), 1)),
+        }
+        return MaxAdapterResponse(
+            text=(
+                "Введите текст ответа модератора.\n"
+                "Можно указать целевой канал префиксом: --to=telegram|vk|max.\n"
+                "Пример: --to=vk Добрый день, ответ готов."
+            )
+        )
+
+    def _set_moderation_status_from_payload(
+        self,
+        *,
+        max_user_id: int,
+        ticket_id: UUID,
+        new_status: SupportTicketStatus,
+        filter_key: str,
+        page: int,
+    ) -> MaxAdapterResponse:
+        """Меняет статус тикета из callback-кнопки карточки."""
+
+        if self._set_ticket_status_use_case is None:
+            return MaxAdapterResponse(text="Изменение статуса тикета временно недоступно.")
+        try:
+            result = self._set_ticket_status_use_case.execute(
+                SetSupportTicketStatusCommand(
+                    ticket_id=ticket_id,
+                    status=new_status,
+                )
+            )
+        except ValueError as error:
+            return MaxAdapterResponse(text=f"Не удалось изменить статус тикета: {error}")
+
+        details_response = self._build_moderation_ticket_details_response(
+            max_user_id=max_user_id,
+            ticket_id=result.ticket_id,
+            filter_key=filter_key,
+            page=page,
+        )
+        _, previous_status_text = self._format_ticket_status(result.previous_status.value)
+        _, new_status_text = self._format_ticket_status(result.new_status.value)
+        return MaxAdapterResponse(
+            text=(
+                f"✅ Статус обновлен: {previous_status_text} → {new_status_text}.\n\n"
+                f"{details_response.text}"
+            ),
+            screen=details_response.screen,
+            parse_mode=details_response.parse_mode,
+        )
+
     def _open_moderator_menu(self, *, max_user_id: int) -> MaxAdapterResponse:
         """Открывает единое меню модератора."""
 
@@ -1109,23 +1475,38 @@ class MaxIdentityAdapter:
             )
 
         self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
-        self._moderator_context_by_user_id.pop(max_user_id, None)
-        return MaxAdapterResponse(text=self._build_moderation_menu_text())
+        self._moderator_context_by_user_id[max_user_id] = {
+            "filter": _MOD_FILTER_NEW,
+            "page": "1",
+        }
+        return MaxAdapterResponse(
+            text=self._build_moderation_menu_text(),
+            screen=self._menu_adapter.build_moderation_main_screen(),
+        )
 
     def _handle_moderator_state_input(self, *, max_user_id: int, text: str) -> MaxAdapterResponse:
         """Обрабатывает ввод модератора внутри FSM-режима."""
 
         state = self._moderator_state_by_user_id.get(max_user_id)
         if state is None:
-            return MaxAdapterResponse(text=self._build_moderation_menu_text())
+            return MaxAdapterResponse(
+                text=self._build_moderation_menu_text(),
+                screen=self._menu_adapter.build_moderation_main_screen(),
+            )
 
         raw = (text or "").strip()
         lowered = raw.lower()
 
         if lowered in {"отмена", "/cancel", "/mod", "меню"}:
             self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
-            self._moderator_context_by_user_id.pop(max_user_id, None)
-            return MaxAdapterResponse(text=self._build_moderation_menu_text())
+            self._moderator_context_by_user_id[max_user_id] = {
+                "filter": _MOD_FILTER_NEW,
+                "page": "1",
+            }
+            return MaxAdapterResponse(
+                text=self._build_moderation_menu_text(),
+                screen=self._menu_adapter.build_moderation_main_screen(),
+            )
 
         if lowered in {"выход", "0"}:
             self._clear_moderator_state(max_user_id)
@@ -1172,12 +1553,11 @@ class MaxIdentityAdapter:
         """Обрабатывает выбор пункта главного меню модератора."""
 
         if lowered_text in {"1", "тикеты", "список"}:
-            tickets_text = self._build_tickets_text_by_status(
-                title="Новые обращения:",
-                statuses=(SupportTicketStatus.OPEN,),
-                limit=10,
+            return self._show_moderation_tickets_page(
+                max_user_id=max_user_id,
+                filter_key=_MOD_FILTER_NEW,
+                page=1,
             )
-            return MaxAdapterResponse(text=f"{tickets_text}\n\n{self._build_moderation_menu_text()}")
 
         if lowered_text in {"2", "ответ", "ответить"}:
             self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_WAIT_TICKET_FOR_REPLY
@@ -1200,20 +1580,18 @@ class MaxIdentityAdapter:
             )
 
         if lowered_text in {"4", "в работе", "работа", "активные"}:
-            tickets_text = self._build_tickets_text_by_status(
-                title="Обращения в работе:",
-                statuses=(SupportTicketStatus.IN_PROGRESS,),
-                limit=10,
+            return self._show_moderation_tickets_page(
+                max_user_id=max_user_id,
+                filter_key=_MOD_FILTER_WORK,
+                page=1,
             )
-            return MaxAdapterResponse(text=f"{tickets_text}\n\n{self._build_moderation_menu_text()}")
 
         if lowered_text in {"5", "закрытые", "архив"}:
-            tickets_text = self._build_tickets_text_by_status(
-                title="Закрытые обращения:",
-                statuses=(SupportTicketStatus.CLOSED,),
-                limit=10,
+            return self._show_moderation_tickets_page(
+                max_user_id=max_user_id,
+                filter_key=_MOD_FILTER_CLOSED,
+                page=1,
             )
-            return MaxAdapterResponse(text=f"{tickets_text}\n\n{self._build_moderation_menu_text()}")
 
         if lowered_text in {"6", "закрыть", "close"}:
             self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_WAIT_TICKET_FOR_CLOSE
@@ -1312,8 +1690,29 @@ class MaxIdentityAdapter:
         except ValueError as error:
             return MaxAdapterResponse(text=f"Не удалось маршрутизировать ответ: {error}")
 
+        filter_key = self._normalize_moderation_filter(context.get("filter", _MOD_FILTER_NEW))
+        try:
+            page = max(int(context.get("page", "1")), 1)
+        except ValueError:
+            page = 1
         self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
         self._moderator_context_by_user_id.pop(max_user_id, None)
+        details_response = self._build_moderation_ticket_details_response(
+            max_user_id=max_user_id,
+            ticket_id=route.ticket_id,
+            filter_key=filter_key,
+            page=page,
+        )
+        if details_response.screen is not None:
+            return MaxAdapterResponse(
+                text=(
+                    "Ответ модератора зарегистрирован.\n"
+                    f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n\n"
+                    f"{details_response.text}"
+                ),
+                screen=details_response.screen,
+                parse_mode=details_response.parse_mode,
+            )
         return MaxAdapterResponse(
             text=(
                 "Ответ модератора зарегистрирован.\n"
@@ -1440,14 +1839,11 @@ class MaxIdentityAdapter:
 
         return (
             "🛠 Меню модератора\n"
-            "1 — Новые обращения\n"
-            "2 — Ответить на тикет\n"
-            "3 — Показать карточку тикета\n"
-            "4 — Обращения в работе\n"
-            "5 — Закрытые обращения\n"
-            "6 — Закрыть тикет\n"
-            "7 — Перевести тикет в работу\n"
-            "0 — Выйти из режима модератора"
+            "Используйте кнопки ниже, чтобы открыть список обращений:\n"
+            "• 🆕 Новые\n"
+            "• 🛠 В работе\n"
+            "• ✅ Закрытые\n"
+            "• 📚 Все"
         )
 
     @staticmethod

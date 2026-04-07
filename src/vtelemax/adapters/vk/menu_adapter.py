@@ -8,6 +8,7 @@ from datetime import date, datetime
 from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
+    OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     BUTTON_MY_TICKETS,
     BUTTON_BACK_TO_SUPPORT,
@@ -40,6 +41,13 @@ from .payloads import build_vk_payload
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+MOD_MAIN_CALLBACK = "mod_main"
+MOD_LIST_PREFIX = "mod_list_"
+MOD_PAGE_PREFIX = "mod_page_"
+MOD_TICKET_PREFIX = "mod_ticket_"
+MOD_REPLY_PREFIX = "mod_reply_"
+MOD_TAKE_PREFIX = "mod_take_"
+MOD_CLOSE_PREFIX = "mod_close_"
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,6 +425,110 @@ class VkGuestMenuAdapter:
             text="",  # Текст будет добавлен отдельно
             rows=tuple(rows),
         )
+
+    def build_moderation_main_screen(self) -> VkScreen:
+        """Создает главное меню модератора с фильтрами обращений."""
+
+        rows = (
+            (
+                VkButton(label="🆕 Новые", payload={"cmd": f"{MOD_LIST_PREFIX}new"}),
+                VkButton(label="🛠 В работе", payload={"cmd": f"{MOD_LIST_PREFIX}work"}),
+            ),
+            (
+                VkButton(label="✅ Закрытые", payload={"cmd": f"{MOD_LIST_PREFIX}closed"}),
+                VkButton(label="📚 Все", payload={"cmd": f"{MOD_LIST_PREFIX}all"}),
+            ),
+        )
+        return VkScreen(
+            screen_id="moderation_main",
+            text="🛠 Меню модератора\nВыберите категорию обращений:",
+            rows=rows,
+        )
+
+    def build_moderation_tickets_screen(
+        self,
+        *,
+        filter_key: str,
+        current_page: int,
+        total_pages: int,
+        tickets: tuple[OpenSupportTicketSummary, ...],
+    ) -> VkScreen:
+        """Создает экран списка обращений модератора с пагинацией."""
+
+        rows: list[tuple[VkButton, ...]] = [
+            (
+                VkButton(label="🆕 Новые", payload={"cmd": f"{MOD_LIST_PREFIX}new"}),
+                VkButton(label="🛠 В работе", payload={"cmd": f"{MOD_LIST_PREFIX}work"}),
+            ),
+            (
+                VkButton(label="✅ Закрытые", payload={"cmd": f"{MOD_LIST_PREFIX}closed"}),
+                VkButton(label="📚 Все", payload={"cmd": f"{MOD_LIST_PREFIX}all"}),
+            ),
+        ]
+        status_emoji = {"open": "🆕", "in_progress": "🛠", "closed": "✅"}
+        for ticket in tickets:
+            label = f"{status_emoji.get(ticket.status.value, '❓')} #{str(ticket.ticket_id)[-4:].upper()}"
+            if ticket.created_at is not None:
+                label += f" от {ticket.created_at.strftime('%d.%m')}"
+            rows.append(
+                (
+                    VkButton(
+                        label=label,
+                        payload={"cmd": f"{MOD_TICKET_PREFIX}{ticket.ticket_id}_{filter_key}_{current_page}"},
+                    ),
+                )
+            )
+
+        if total_pages > 1:
+            nav_row: list[VkButton] = []
+            if current_page > 1:
+                nav_row.append(
+                    VkButton(
+                        label="◀️ Назад",
+                        payload={"cmd": f"{MOD_PAGE_PREFIX}{filter_key}_{current_page - 1}"},
+                    )
+                )
+            nav_row.append(VkButton(label=f"{current_page}/{total_pages}", payload={"cmd": "noop"}))
+            if current_page < total_pages:
+                nav_row.append(
+                    VkButton(
+                        label="Вперед ▶️",
+                        payload={"cmd": f"{MOD_PAGE_PREFIX}{filter_key}_{current_page + 1}"},
+                    )
+                )
+            rows.append(tuple(nav_row))
+
+        rows.append((VkButton(label="🏠 Меню модератора", payload={"cmd": MOD_MAIN_CALLBACK}),))
+        return VkScreen(screen_id="moderation_tickets", text="", rows=tuple(rows))
+
+    def build_moderation_ticket_details_screen(
+        self,
+        *,
+        ticket_id: str,
+        filter_key: str,
+        page: int,
+        status_value: str,
+    ) -> VkScreen:
+        """Создает кнопки действий модератора для карточки тикета."""
+
+        suffix = f"{ticket_id}_{filter_key}_{page}"
+        rows: list[tuple[VkButton, ...]] = [
+            (VkButton(label="✍️ Ответить", payload={"cmd": f"{MOD_REPLY_PREFIX}{suffix}"}),),
+        ]
+        action_row: list[VkButton] = []
+        if status_value != "in_progress":
+            action_row.append(VkButton(label="🛠 В работу", payload={"cmd": f"{MOD_TAKE_PREFIX}{suffix}"}))
+        if status_value != "closed":
+            action_row.append(VkButton(label="✅ Закрыть", payload={"cmd": f"{MOD_CLOSE_PREFIX}{suffix}"}))
+        if action_row:
+            rows.append(tuple(action_row))
+        rows.append(
+            (
+                VkButton(label="⬅️ К списку", payload={"cmd": f"{MOD_PAGE_PREFIX}{filter_key}_{page}"}),
+                VkButton(label="🏠 Меню", payload={"cmd": MOD_MAIN_CALLBACK}),
+            )
+        )
+        return VkScreen(screen_id="moderation_ticket_details", text="", rows=tuple(rows))
 
     def resolve_action_screen(
         self,

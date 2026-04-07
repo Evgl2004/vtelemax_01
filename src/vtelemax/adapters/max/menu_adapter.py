@@ -8,6 +8,7 @@ from datetime import date, datetime
 from vtelemax.core import (
     GuestMenuAction,
     MenuButtonContract,
+    OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     BUTTON_MY_TICKETS,
     build_about_screen,
@@ -39,6 +40,13 @@ from .payloads import build_max_payload
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+MOD_MAIN_CALLBACK = "mod_main"
+MOD_LIST_PREFIX = "mod_list_"
+MOD_PAGE_PREFIX = "mod_page_"
+MOD_TICKET_PREFIX = "mod_ticket_"
+MOD_REPLY_PREFIX = "mod_reply_"
+MOD_TAKE_PREFIX = "mod_take_"
+MOD_CLOSE_PREFIX = "mod_close_"
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,6 +412,100 @@ class MaxGuestMenuAdapter:
             text="",  # Текст будет добавлен отдельно
             rows=tuple(rows),
         )
+
+    def build_moderation_main_screen(self) -> MaxScreen:
+        """Создает главное меню модератора с фильтрами обращений."""
+
+        rows = (
+            (
+                MaxButton(label="🆕 Новые", payload=f"{MOD_LIST_PREFIX}new"),
+                MaxButton(label="🛠 В работе", payload=f"{MOD_LIST_PREFIX}work"),
+            ),
+            (
+                MaxButton(label="✅ Закрытые", payload=f"{MOD_LIST_PREFIX}closed"),
+                MaxButton(label="📚 Все", payload=f"{MOD_LIST_PREFIX}all"),
+            ),
+        )
+        return MaxScreen(
+            screen_id="moderation_main",
+            text="🛠 Меню модератора\nВыберите категорию обращений:",
+            rows=rows,
+        )
+
+    def build_moderation_tickets_screen(
+        self,
+        *,
+        filter_key: str,
+        current_page: int,
+        total_pages: int,
+        tickets: tuple[OpenSupportTicketSummary, ...],
+    ) -> MaxScreen:
+        """Создает экран списка обращений модератора с пагинацией."""
+
+        rows: list[tuple[MaxButton, ...]] = [
+            (
+                MaxButton(label="🆕 Новые", payload=f"{MOD_LIST_PREFIX}new"),
+                MaxButton(label="🛠 В работе", payload=f"{MOD_LIST_PREFIX}work"),
+            ),
+            (
+                MaxButton(label="✅ Закрытые", payload=f"{MOD_LIST_PREFIX}closed"),
+                MaxButton(label="📚 Все", payload=f"{MOD_LIST_PREFIX}all"),
+            ),
+        ]
+        status_emoji = {"open": "🆕", "in_progress": "🛠", "closed": "✅"}
+        for ticket in tickets:
+            label = f"{status_emoji.get(ticket.status.value, '❓')} #{str(ticket.ticket_id)[-4:].upper()}"
+            if ticket.created_at is not None:
+                label += f" от {ticket.created_at.strftime('%d.%m')}"
+            rows.append(
+                (
+                    MaxButton(
+                        label=label,
+                        payload=f"{MOD_TICKET_PREFIX}{ticket.ticket_id}_{filter_key}_{current_page}",
+                    ),
+                )
+            )
+
+        if total_pages > 1:
+            nav_row: list[MaxButton] = []
+            if current_page > 1:
+                nav_row.append(MaxButton(label="◀️ Назад", payload=f"{MOD_PAGE_PREFIX}{filter_key}_{current_page - 1}"))
+            nav_row.append(MaxButton(label=f"{current_page}/{total_pages}", payload="noop"))
+            if current_page < total_pages:
+                nav_row.append(MaxButton(label="Вперед ▶️", payload=f"{MOD_PAGE_PREFIX}{filter_key}_{current_page + 1}"))
+            rows.append(tuple(nav_row))
+
+        rows.append((MaxButton(label="🏠 Меню модератора", payload=MOD_MAIN_CALLBACK),))
+        return MaxScreen(screen_id="moderation_tickets", text="", rows=tuple(rows))
+
+    def build_moderation_ticket_details_screen(
+        self,
+        *,
+        ticket_id: str,
+        filter_key: str,
+        page: int,
+        status_value: str,
+    ) -> MaxScreen:
+        """Создает кнопки действий модератора для карточки тикета."""
+
+        suffix = f"{ticket_id}_{filter_key}_{page}"
+        rows: list[tuple[MaxButton, ...]] = [
+            (MaxButton(label="✍️ Ответить", payload=f"{MOD_REPLY_PREFIX}{suffix}"),),
+        ]
+        action_row: list[MaxButton] = []
+        if status_value != "in_progress":
+            action_row.append(MaxButton(label="🛠 В работу", payload=f"{MOD_TAKE_PREFIX}{suffix}"))
+        if status_value != "closed":
+            action_row.append(MaxButton(label="✅ Закрыть", payload=f"{MOD_CLOSE_PREFIX}{suffix}"))
+        if action_row:
+            rows.append(tuple(action_row))
+        rows.append(
+            (
+                MaxButton(label="⬅️ К списку", payload=f"{MOD_PAGE_PREFIX}{filter_key}_{page}"),
+                MaxButton(label="🏠 Меню", payload=MOD_MAIN_CALLBACK),
+            )
+        )
+        return MaxScreen(screen_id="moderation_ticket_details", text="", rows=tuple(rows))
 
     def resolve_action_screen(
         self,
