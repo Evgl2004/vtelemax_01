@@ -327,12 +327,15 @@ class MaxIdentityAdapter:
             text=text,
             contact=contact_phone,
         )
-        # Если есть контакт, обрабатываем как телефонный ввод
+        # Если есть контакт, обрабатываем как телефонный ввод только на ожидаемом шаге.
         if contact_phone is not None:
             state = self._state_by_user_id.get(max_user_id)
+            if state not in {_STATE_WAITING_PHONE, _STATE_WAITING_LEGACY_PHONE}:
+                method_logger.warning(
+                    "Контакт получен вне шага ввода телефона. Контакт проигнорирован, восстанавливаем актуальный экран."
+                )
+                return self.handle_start(max_user_id=max_user_id)
             is_legacy = state == _STATE_WAITING_LEGACY_PHONE
-            # Если состояние не ожидание телефона, но контакт пришёл, всё равно пытаемся зарегистрировать
-            # (например, пользователь отправил контакт повторно)
             return self._handle_phone_input(
                 max_user_id=max_user_id,
                 text=contact_phone,

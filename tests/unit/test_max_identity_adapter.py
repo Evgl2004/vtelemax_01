@@ -474,6 +474,33 @@ def test_max_registration_by_phone_after_rules_consent() -> None:
     assert response.screen is None
 
 
+def test_max_ignores_contact_outside_phone_step() -> None:
+    """Проверяет, что контакт вне шага ввода телефона не запускает частичную привязку аккаунта."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = MaxIdentityAdapter(registration_use_case, lookup_use_case)
+
+    response = adapter.handle_incoming(
+        max_user_id=9090,
+        text="",
+        payload=None,
+        contact_phone="+79125550123",
+    )
+    person = lookup_use_case.execute(
+        GetPersonByAccountCommand(platform="max", external_id="9090")
+    )
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_rules"
+    assert person is None
+
+
 def test_max_profile_available_after_registration() -> None:
     """Проверяет получение профиля после регистрации."""
 

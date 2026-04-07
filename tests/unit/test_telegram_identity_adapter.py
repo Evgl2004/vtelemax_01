@@ -462,6 +462,32 @@ def test_telegram_adapter_returns_vacancies_screen_for_vacancies_action() -> Non
     assert "team.sobolevalliance.su/vacancy" in result.message
 
 
+def test_telegram_expects_contact_input_only_on_phone_steps() -> None:
+    """Проверяет, что контакт ожидается только на шагах WAITING_PHONE/WAITING_LEGACY_PHONE."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    assert adapter.expects_contact_input(telegram_user_id=1001) is False
+
+    start_result = adapter.start_interaction(telegram_user_id=1001)
+    assert start_result.status == "rules_consent_required"
+    assert adapter.expects_contact_input(telegram_user_id=1001) is False
+
+    phone_step_result = adapter.handle_menu_action(
+        telegram_user_id=1001,
+        action_text="✅ Согласен",
+    )
+    assert phone_step_result.status == "phone_required"
+    assert adapter.expects_contact_input(telegram_user_id=1001) is True
+
+
 def test_telegram_start_interaction_for_new_user_requires_rules_consent() -> None:
     """Проверяет старт onboarding для нового пользователя через шаг согласия."""
 

@@ -533,6 +533,15 @@ def build_telegram_identity_router(
             )
             return
 
+        if not identity_adapter.expects_contact_input(message.from_user.id):
+            event_logger.warning(
+                "Контакт получен вне ожидаемого шага onboarding. Игнорируем контакт и возвращаем пользователя в актуальный экран."
+            )
+            menu_result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
+            reply_markup = _choose_reply_markup(menu_result)
+            await _answer_with_result(message=message, result=menu_result, reply_markup=reply_markup)
+            return
+
         result = identity_adapter.register_contact(
             telegram_user_id=message.from_user.id,
             raw_phone=message.contact.phone_number,

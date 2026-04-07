@@ -582,6 +582,12 @@ class TelegramIdentityAdapter:
 
         return build_start_rules_screen().text
 
+    def expects_contact_input(self, telegram_user_id: int) -> bool:
+        """Проверяет, что сейчас ожидается ввод контакта в onboarding-сценарии."""
+
+        state = self._onboarding_state_by_user_id.get(telegram_user_id, OnboardingState.IDLE)
+        return state in {OnboardingState.WAITING_PHONE, OnboardingState.WAITING_LEGACY_PHONE}
+
     def build_menu_overview_message(self, *, user_name: str = "Гость") -> str:
         """Возвращает текст обзора главного меню."""
 
