@@ -10,7 +10,6 @@ from vtelemax.core import (
     MenuButtonContract,
     OpenSupportTicketSummary,
     PersonSupportTicketSummary,
-    BUTTON_MY_TICKETS,
     BUTTON_BACK_TO_SUPPORT,
     build_about_screen,
     build_balance_screen,
@@ -264,14 +263,7 @@ class VkGuestMenuAdapter:
         """Экран создания обращения."""
 
         screen = build_support_question_screen()
-        rows = (
-            (
-                VkButton(
-                    label=BUTTON_MY_TICKETS,
-                    payload=build_vk_payload(GuestMenuAction.MY_TICKETS),
-                ),
-            ),
-        )
+        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,

@@ -346,6 +346,7 @@ class VkIdentityAdapter:
                 GuestMenuAction.BACK_TO_SUPPORT,
                 GuestMenuAction.SUPPORT,
                 GuestMenuAction.MAIN_MENU,
+                GuestMenuAction.MY_TICKETS,
             }:
                 self._state_by_user_id.pop(vk_user_id, None)
                 return self._handle_action(vk_user_id=vk_user_id, action=action)
@@ -2126,6 +2127,7 @@ class VkIdentityAdapter:
             )
             if not tickets:
                 # Нет тикетов — показываем экран с предложением задать вопрос
+                self._state_by_user_id[vk_user_id] = _STATE_WAITING_SUPPORT_QUESTION
                 screen = self._menu_adapter.build_support_question_screen()
                 return VkAdapterResponse(text=screen.text, screen=screen)
             # Форматируем сообщение с тикетами
@@ -2153,6 +2155,7 @@ class VkIdentityAdapter:
 
         if not page_result.tickets:
             # Нет тикетов — показываем экран с предложением задать вопрос
+            self._state_by_user_id[vk_user_id] = _STATE_WAITING_SUPPORT_QUESTION
             screen = self._menu_adapter.build_support_question_screen()
             return VkAdapterResponse(text=screen.text, screen=screen)
 

@@ -90,13 +90,13 @@ def test_max_support_feedback_screen_contains_link_and_back_button() -> None:
     assert screen.rows[1][0].payload == GuestMenuAction.BACK_TO_SUPPORT.value
 
 
-def test_max_support_question_screen_has_back_to_tickets_button() -> None:
-    """Проверяет, что экран «Мне только спросить» содержит возврат в «Мои обращения»."""
+def test_max_support_question_screen_has_back_to_main_button() -> None:
+    """Проверяет, что экран «Мне только спросить» содержит возврат в главное меню."""
 
     adapter = MaxGuestMenuAdapter()
     screen = adapter.build_support_question_screen()
 
     assert len(screen.rows) == 1
     assert len(screen.rows[0]) == 1
-    assert screen.rows[0][0].label == "📋 Мои обращения"
-    assert screen.rows[0][0].payload == GuestMenuAction.MY_TICKETS.value
+    assert screen.rows[0][0].label == "🔙 Назад в меню"
+    assert screen.rows[0][0].payload == GuestMenuAction.BACK_TO_MAIN.value
