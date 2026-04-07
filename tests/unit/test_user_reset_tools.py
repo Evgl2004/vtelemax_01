@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import create_engine, event, select
@@ -134,9 +135,21 @@ def test_get_snapshot_and_delete_person_cascade() -> None:
     account_vk_id = uuid4()
     ticket_id = uuid4()
     message_id = uuid4()
+    rules_accepted_at_tg = datetime(2026, 4, 7, 10, 0, tzinfo=timezone.utc)
+    notifications_allowed_at_tg = datetime(2026, 4, 7, 10, 2, tzinfo=timezone.utc)
+    registered_at_tg = datetime(2026, 4, 7, 10, 3, tzinfo=timezone.utc)
 
     with Session(engine) as session:
-        session.add(PersonRow(person_id=person_id))
+        session.add(
+            PersonRow(
+                person_id=person_id,
+                is_legacy=True,
+                is_moderator=False,
+                is_registered=True,
+                first_name_input="Андрей",
+                phone_verification_method="telegram_contact",
+            )
+        )
         # Для SQLite фиксируем родительскую запись до вставки зависимых строк.
         session.flush()
         session.add(PhoneRow(phone_id=phone_id, person_id=person_id, phone_e164="+79991234567"))
@@ -161,8 +174,11 @@ def test_get_snapshot_and_delete_person_cascade() -> None:
                 person_id=person_id,
                 platform="telegram",
                 rules_accepted=True,
+                rules_accepted_at=rules_accepted_at_tg,
                 notifications_allowed=True,
+                notifications_allowed_at=notifications_allowed_at_tg,
                 is_registered=True,
+                registered_at=registered_at_tg,
             )
         )
         session.add(
@@ -196,10 +212,19 @@ def test_get_snapshot_and_delete_person_cascade() -> None:
         snapshot = get_person_snapshot_by_phone(session, "+79991234567")
         assert snapshot is not None
         assert snapshot.person_id == person_id
+        assert snapshot.is_legacy is True
+        assert snapshot.is_moderator is False
+        assert snapshot.is_registered is True
+        assert snapshot.first_name_input == "Андрей"
+        assert snapshot.phone_verification_method == "telegram_contact"
         assert snapshot.tickets_count == 1
         assert snapshot.messages_count == 1
         assert len(snapshot.accounts) == 2
         assert len(snapshot.platform_states) == 2
+        telegram_state = next(state for state in snapshot.platform_states if state.platform == "telegram")
+        assert telegram_state.rules_accepted_at == rules_accepted_at_tg.replace(tzinfo=None)
+        assert telegram_state.notifications_allowed_at == notifications_allowed_at_tg.replace(tzinfo=None)
+        assert telegram_state.registered_at == registered_at_tg.replace(tzinfo=None)
 
         deleted_count = delete_person_by_id(session, person_id)
         session.commit()

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -43,8 +44,11 @@ class PersonResetPlatformState:
 
     platform: str
     rules_accepted: bool
+    rules_accepted_at: datetime | None
     notifications_allowed: bool
+    notifications_allowed_at: datetime | None
     is_registered: bool
+    registered_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +57,11 @@ class PersonResetSnapshot:
 
     person_id: UUID
     phone_e164: str
+    is_legacy: bool
+    is_moderator: bool
+    is_registered: bool
+    first_name_input: str | None
+    phone_verification_method: str | None
     accounts: tuple[PersonResetAccount, ...]
     platform_states: tuple[PersonResetPlatformState, ...]
     tickets_count: int
@@ -73,6 +82,18 @@ def get_person_snapshot_by_phone(session: Session, phone_e164: str) -> PersonRes
     if person_id is None:
         return None
 
+    person_row = session.execute(
+        select(
+            PersonRow.is_legacy,
+            PersonRow.is_moderator,
+            PersonRow.is_registered,
+            PersonRow.first_name_input,
+            PersonRow.phone_verification_method,
+        ).where(PersonRow.person_id == person_id)
+    ).one_or_none()
+    if person_row is None:
+        return None
+
     account_rows = session.execute(
         select(PlatformAccountRow.platform, PlatformAccountRow.external_id)
         .where(PlatformAccountRow.person_id == person_id)
@@ -86,8 +107,11 @@ def get_person_snapshot_by_phone(session: Session, phone_e164: str) -> PersonRes
         select(
             PersonPlatformStateRow.platform,
             PersonPlatformStateRow.rules_accepted,
+            PersonPlatformStateRow.rules_accepted_at,
             PersonPlatformStateRow.notifications_allowed,
+            PersonPlatformStateRow.notifications_allowed_at,
             PersonPlatformStateRow.is_registered,
+            PersonPlatformStateRow.registered_at,
         )
         .where(PersonPlatformStateRow.person_id == person_id)
         .order_by(PersonPlatformStateRow.platform)
@@ -96,8 +120,11 @@ def get_person_snapshot_by_phone(session: Session, phone_e164: str) -> PersonRes
         PersonResetPlatformState(
             platform=row.platform,
             rules_accepted=bool(row.rules_accepted),
+            rules_accepted_at=row.rules_accepted_at,
             notifications_allowed=bool(row.notifications_allowed),
+            notifications_allowed_at=row.notifications_allowed_at,
             is_registered=bool(row.is_registered),
+            registered_at=row.registered_at,
         )
         for row in platform_state_rows
     )
@@ -122,6 +149,11 @@ def get_person_snapshot_by_phone(session: Session, phone_e164: str) -> PersonRes
     return PersonResetSnapshot(
         person_id=person_id,
         phone_e164=phone_e164,
+        is_legacy=bool(person_row.is_legacy),
+        is_moderator=bool(person_row.is_moderator),
+        is_registered=bool(person_row.is_registered),
+        first_name_input=person_row.first_name_input,
+        phone_verification_method=person_row.phone_verification_method,
         accounts=accounts,
         platform_states=platform_states,
         tickets_count=int(tickets_count),

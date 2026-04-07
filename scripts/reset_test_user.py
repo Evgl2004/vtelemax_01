@@ -143,6 +143,14 @@ def main() -> int:
         else:
             print(f"[reset-user] Найден пользователь: person_id={snapshot.person_id}")
             print(f"[reset-user] Привязанных аккаунтов: {len(snapshot.accounts)}")
+            print(
+                "[reset-user] Profile: "
+                f"is_legacy={snapshot.is_legacy}, "
+                f"is_moderator={snapshot.is_moderator}, "
+                f"is_registered={snapshot.is_registered}, "
+                f"first_name_input={snapshot.first_name_input!r}, "
+                f"phone_verification_method={snapshot.phone_verification_method!r}"
+            )
             for account in snapshot.accounts:
                 print(
                     f"[reset-user]   - platform={account.platform}, external_id={account.external_id}"
@@ -155,8 +163,11 @@ def main() -> int:
                     "[reset-user]   - "
                     f"platform={state.platform}, "
                     f"rules_accepted={state.rules_accepted}, "
+                    f"rules_accepted_at={state.rules_accepted_at}, "
                     f"notifications_allowed={state.notifications_allowed}, "
-                    f"is_registered={state.is_registered}"
+                    f"notifications_allowed_at={state.notifications_allowed_at}, "
+                    f"is_registered={state.is_registered}, "
+                    f"registered_at={state.registered_at}"
                 )
             print(
                 "[reset-user] Support-данные: "
