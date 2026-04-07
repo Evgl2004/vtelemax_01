@@ -792,6 +792,7 @@ class TelegramIdentityAdapter:
                 GuestMenuAction.BACK_TO_SUPPORT,
                 GuestMenuAction.SUPPORT,
                 GuestMenuAction.MAIN_MENU,
+                GuestMenuAction.MY_TICKETS,
             }:
                 self._dialog_state_by_user_id.pop(telegram_user_id, None)
                 return self.handle_menu_action(telegram_user_id=telegram_user_id, action_text=action_text)
