@@ -189,6 +189,179 @@ class CreateSupportTicketTransactionalUseCase:
 
 
 @dataclass(frozen=True, slots=True)
+class AddGuestMessageToTicketCommand:
+    """Команда добавления сообщения гостя в существующий тикет."""
+
+    platform: PlatformName
+    external_id: str
+    ticket_id: UUID
+    message_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class AddedGuestMessageToTicketResult:
+    """Результат добавления сообщения гостя в существующий тикет."""
+
+    ticket_id: UUID
+    person_id: UUID
+    source_platform: PlatformName
+    message_id: UUID
+
+
+class AddGuestMessageToTicketTransactionalUseCase:
+    """Добавляет сообщение гостя в существующий тикет в рамках транзакции."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: AddGuestMessageToTicketCommand) -> AddedGuestMessageToTicketResult:
+        """Регистрирует сообщение гостя в существующем тикете."""
+
+        if command.platform not in SUPPORTED_PLATFORMS:
+            raise ValueError("Платформа не поддерживается. Допустимые значения: telegram, vk, max.")
+
+        external_id = str(command.external_id).strip()
+        if not external_id:
+            raise ValueError("Внешний идентификатор аккаунта не может быть пустым.")
+
+        message_text = str(command.message_text).strip()
+        if not message_text:
+            raise ValueError("Текст обращения не может быть пустым.")
+        if len(message_text) < MIN_SUPPORT_QUESTION_LENGTH:
+            raise ValueError(
+                f"Текст обращения должен содержать минимум {MIN_SUPPORT_QUESTION_LENGTH} символов."
+            )
+
+        with self._unit_of_work_factory() as unit_of_work:
+            person = unit_of_work.identity_repository.get_person_by_account(command.platform, external_id)
+            if person is None:
+                raise ValueError(
+                    "Нельзя добавить сообщение: аккаунт не зарегистрирован в strict identity."
+                )
+
+            ticket = unit_of_work.support_repository.get_ticket(command.ticket_id)
+            if ticket is None:
+                raise ValueError("Тикет не найден.")
+            if ticket.person_id != person.person_id:
+                raise ValueError("Нельзя добавить сообщение: тикет принадлежит другому пользователю.")
+            if ticket.status == SupportTicketStatus.CLOSED:
+                raise ValueError("Нельзя добавить сообщение: тикет уже закрыт.")
+
+            message_id = uuid4()
+            unit_of_work.support_repository.add_message(
+                SupportMessage(
+                    message_id=message_id,
+                    ticket_id=ticket.ticket_id,
+                    author=SupportMessageAuthor.GUEST,
+                    body=message_text,
+                    source_platform=command.platform,
+                )
+            )
+            if ticket.status == SupportTicketStatus.IN_PROGRESS:
+                unit_of_work.support_repository.update_ticket_status(
+                    ticket_id=ticket.ticket_id,
+                    status=SupportTicketStatus.OPEN,
+                )
+
+            self._enqueue_moderator_notifications(
+                unit_of_work=unit_of_work,
+                source_message_id=message_id,
+                ticket_id=ticket.ticket_id,
+                source_platform=command.platform,
+                source_external_id=external_id,
+                message_text=message_text,
+            )
+            unit_of_work.commit()
+            return AddedGuestMessageToTicketResult(
+                ticket_id=ticket.ticket_id,
+                person_id=person.person_id,
+                source_platform=command.platform,
+                message_id=message_id,
+            )
+
+    @staticmethod
+    def _build_moderator_notification_message_id(
+        *,
+        source_message_id: UUID,
+        target_platform: PlatformName,
+        target_external_id: str,
+    ) -> UUID:
+        """Формирует детерминированный message_id для защиты от дублей уведомлений."""
+
+        seed = f"mod-followup:{source_message_id}:{target_platform}:{target_external_id}"
+        return uuid5(NAMESPACE_URL, seed)
+
+    @staticmethod
+    def _build_moderator_notification_text(
+        *,
+        ticket_id: UUID,
+        source_platform: PlatformName,
+        message_text: str,
+    ) -> str:
+        """Формирует текст уведомления модератору о новом сообщении гостя в тикете."""
+
+        short_id = str(ticket_id)[-4:].upper()
+        return "\n".join(
+            (
+                "📨 Новое сообщение гостя в обращении",
+                f"Тикет: #{short_id} ({ticket_id})",
+                f"Канал: {source_platform}",
+                "",
+                "Сообщение:",
+                message_text,
+                "",
+                "Откройте меню модератора командой /mod.",
+            )
+        )
+
+    def _enqueue_moderator_notifications(
+        self,
+        *,
+        unit_of_work: SupportUnitOfWork,
+        source_message_id: UUID,
+        ticket_id: UUID,
+        source_platform: PlatformName,
+        source_external_id: str,
+        message_text: str,
+    ) -> None:
+        """Ставит в outbox уведомления модераторам о новом сообщении гостя в тикете."""
+
+        moderators = unit_of_work.identity_repository.list_moderator_accounts()
+        if not moderators:
+            return
+
+        notification_body = self._build_moderator_notification_text(
+            ticket_id=ticket_id,
+            source_platform=source_platform,
+            message_text=message_text,
+        )
+        for moderator_account in moderators:
+            if (
+                moderator_account.platform == source_platform
+                and moderator_account.external_id == source_external_id
+            ):
+                # Если сообщение оставлено из аккаунта модератора, не шлем уведомление в тот же аккаунт.
+                continue
+
+            unit_of_work.support_repository.add_message(
+                SupportMessage(
+                    message_id=self._build_moderator_notification_message_id(
+                        source_message_id=source_message_id,
+                        target_platform=moderator_account.platform,
+                        target_external_id=moderator_account.external_id,
+                    ),
+                    ticket_id=ticket_id,
+                    author=SupportMessageAuthor.SYSTEM,
+                    body=notification_body,
+                    source_platform=source_platform,
+                    target_platform=moderator_account.platform,
+                    target_external_id=moderator_account.external_id,
+                    delivery_status=SupportDeliveryStatus.CREATED,
+                )
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ModeratorReplyCommand:
     """Команда маршрутизации ответа модератора."""
 

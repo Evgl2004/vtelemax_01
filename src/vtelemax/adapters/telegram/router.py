@@ -38,6 +38,7 @@ from .menu import (
     USER_TICKETS_PREV_PAGE_PREFIX,
     USER_TICKETS_NEXT_PAGE_PREFIX,
     USER_TICKET_DETAILS_PREFIX,
+    USER_TICKET_REPLY_PREFIX,
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_DELIVERY,
@@ -70,6 +71,7 @@ from .menu import (
     build_rules_consent_inline_keyboard,
     build_support_feedback_inline_keyboard,
     build_support_menu_inline_keyboard,
+    build_ticket_details_inline_keyboard,
     build_user_tickets_pagination_keyboard,
     BUTTON_PROFILE,
     BUTTON_RETRY_IIKO_SYNC,
@@ -406,10 +408,16 @@ def build_telegram_identity_router(
             if result.has_support_tickets:
                 return build_back_to_tickets_list_inline_keyboard()
             return back_to_main_keyboard
+        if result.status in {"support_reply_input", "support_reply_empty", "support_reply_error"}:
+            return build_back_to_tickets_list_inline_keyboard()
         if result.status == "support_contacts":
             return back_to_main_keyboard
-        if result.status in {"ticket_details", "ticket_details_error"}:
-            # Для деталей тикета и ошибки показываем кнопку "Назад к списку обращений"
+        if result.status == "ticket_details" and result.ticket_id is not None:
+            return build_ticket_details_inline_keyboard(
+                ticket_id=str(result.ticket_id),
+                can_reply=(result.ticket_status or "") != "closed",
+            )
+        if result.status == "ticket_details_error":
             return build_back_to_tickets_list_inline_keyboard()
         if result.status == "delivery":
             return build_delivery_inline_keyboard()
@@ -424,6 +432,8 @@ def build_telegram_identity_router(
             "about",
             "support_question_submitted",
             "support_question_error",
+            "support_reply_submitted",
+            "support_reply_closed",
         }:
             return back_to_main_keyboard
         if result.status in {"profile", "profile_edit_first_name_saved", "profile_edit_last_name_saved", "profile_edit_gender_saved", "profile_edit_birth_date_saved", "profile_edit_email_saved"}:
@@ -754,6 +764,7 @@ def build_telegram_identity_router(
 
     @router.callback_query(
         F.data.startswith(USER_TICKET_DETAILS_PREFIX) |
+        F.data.startswith(USER_TICKET_REPLY_PREFIX) |
         F.data.startswith(USER_TICKETS_PREV_PAGE_PREFIX) |
         F.data.startswith(USER_TICKETS_NEXT_PAGE_PREFIX) |
         F.data.startswith(USER_TICKETS_PAGE_PREFIX) |
@@ -974,7 +985,15 @@ def build_telegram_identity_router(
                     parse_mode=result.parse_mode,
                     reply_markup=reply_markup if isinstance(reply_markup, InlineKeyboardMarkup) else None,
                 )
-                if result.status in {"support_question", "support_question_empty", "support_question_unavailable", "support_question_input"}:
+                if result.status in {
+                    "support_question",
+                    "support_question_empty",
+                    "support_question_unavailable",
+                    "support_question_input",
+                    "support_reply_input",
+                    "support_reply_empty",
+                    "support_reply_error",
+                }:
                     _remember_support_prompt_message(
                         user_id=callback.from_user.id,
                         message_id=callback.message.message_id,

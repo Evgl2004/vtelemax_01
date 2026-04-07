@@ -112,6 +112,9 @@ from .support_models import (
 )
 from .support_ports import SupportRepository, SupportUnitOfWork
 from .support_use_cases import (
+    AddGuestMessageToTicketCommand,
+    AddGuestMessageToTicketTransactionalUseCase,
+    AddedGuestMessageToTicketResult,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     CreatedSupportTicketResult,
@@ -255,6 +258,9 @@ __all__ = [
     "SupportDeliveryStatus",
     "SupportTicket",
     "SupportMessage",
+    "AddGuestMessageToTicketCommand",
+    "AddedGuestMessageToTicketResult",
+    "AddGuestMessageToTicketTransactionalUseCase",
     "CreateSupportTicketCommand",
     "CreatedSupportTicketResult",
     "CreateSupportTicketTransactionalUseCase",

@@ -59,6 +59,7 @@ USER_TICKETS_PAGE_PREFIX = "user_tickets_page_"
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+USER_TICKET_REPLY_PREFIX = "ticket_reply_"
 MOD_MAIN_CALLBACK = "mod_main"
 MOD_LIST_PREFIX = "mod_list_"
 MOD_PAGE_PREFIX = "mod_page_"
@@ -252,6 +253,30 @@ def build_back_to_tickets_list_inline_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def build_ticket_details_inline_keyboard(*, ticket_id: str, can_reply: bool) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру карточки обращения гостя."""
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if can_reply:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✍️ Ответить",
+                    callback_data=f"{USER_TICKET_REPLY_PREFIX}{ticket_id}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=BUTTON_MY_TICKETS,
+                callback_data=_action_callback(GuestMenuAction.MY_TICKETS),
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_profile_inline_keyboard() -> InlineKeyboardMarkup:

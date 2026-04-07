@@ -9,6 +9,8 @@ from uuid import UUID
 from loguru import logger
 
 from vtelemax.core import (
+    AddGuestMessageToTicketCommand,
+    AddGuestMessageToTicketTransactionalUseCase,
     BUTTON_ACCEPT_RULES,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SUPPORT_QUESTION,
@@ -71,6 +73,7 @@ _STATE_WAITING_NOTIFICATIONS_CONSENT = OnboardingState.WAITING_NOTIFICATIONS_CON
 _STATE_WAITING_IIKO_SYNC = OnboardingState.WAITING_IIKO_SYNC.value
 _STATE_WAITING_LEGACY_PHONE = OnboardingState.WAITING_LEGACY_PHONE.value
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
+_STATE_WAITING_SUPPORT_REPLY = "waiting_support_reply"
 _STATE_PROFILE_EDIT_CHOICE = "profile_edit_choice"
 _STATE_PROFILE_EDIT_FIRST_NAME = "profile_edit_first_name"
 _STATE_PROFILE_EDIT_LAST_NAME = "profile_edit_last_name"
@@ -88,6 +91,7 @@ _STATE_MOD_WAIT_TICKET_FOR_IN_PROGRESS = "moderation_wait_ticket_for_in_progress
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+USER_TICKET_REPLY_PREFIX = "ticket_reply_"
 
 _MOD_FILTER_NEW = "new"
 _MOD_FILTER_WORK = "work"
@@ -148,6 +152,7 @@ class VkIdentityAdapter:
         person_lookup_use_case: GetPersonByAccountTransactionalUseCase,
         menu_adapter: VkGuestMenuAdapter | None = None,
         create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
+        add_guest_message_to_ticket_use_case: AddGuestMessageToTicketTransactionalUseCase | None = None,
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         ticket_conversation_use_case: GetSupportTicketConversationTransactionalUseCase | None = None,
@@ -164,11 +169,13 @@ class VkIdentityAdapter:
         self._person_lookup_use_case = person_lookup_use_case
         self._menu_adapter = menu_adapter or VkGuestMenuAdapter()
         self._state_by_user_id: dict[int, str] = {}
+        self._reply_ticket_id_by_user_id: dict[int, UUID] = {}
         self._onboarding_draft_by_user_id: dict[int, _OnboardingDraft] = {}
         self._moderator_state_by_user_id: dict[int, str] = {}
         self._moderator_context_by_user_id: dict[int, dict[str, str]] = {}
         self._onboarding_flow = OnboardingFlowService(platform="vk")
         self._create_support_ticket_use_case = create_support_ticket_use_case
+        self._add_guest_message_to_ticket_use_case = add_guest_message_to_ticket_use_case
         self._moderator_reply_use_case = moderator_reply_use_case
         self._ticket_details_use_case = ticket_details_use_case
         self._ticket_conversation_use_case = ticket_conversation_use_case
@@ -354,6 +361,21 @@ class VkIdentityAdapter:
             # Если пользователь ввел что-то неожиданное в состоянии ожидания вопроса,
             # обрабатываем это как вопрос
             return self._handle_support_question(vk_user_id=vk_user_id, text=text)
+        if state == _STATE_WAITING_SUPPORT_REPLY:
+            action = resolve_action_from_vk_payload(payload)
+            if action is None:
+                action = resolve_guest_menu_action(text)
+            if action in {
+                GuestMenuAction.BACK_TO_MAIN,
+                GuestMenuAction.BACK_TO_SUPPORT,
+                GuestMenuAction.SUPPORT,
+                GuestMenuAction.MAIN_MENU,
+                GuestMenuAction.MY_TICKETS,
+            }:
+                self._state_by_user_id.pop(vk_user_id, None)
+                self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
+                return self._handle_action(vk_user_id=vk_user_id, action=action)
+            return self._handle_support_reply(vk_user_id=vk_user_id, text=text)
         if state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice(vk_user_id=vk_user_id, text=text, payload=payload)
         if state == _STATE_PROFILE_EDIT_FIRST_NAME:
@@ -397,6 +419,13 @@ class VkIdentityAdapter:
                 except ValueError:
                     page = 1
                 return self._show_user_tickets_page(vk_user_id=vk_user_id, page=page, per_page=5)
+            if cmd.startswith(USER_TICKET_REPLY_PREFIX):
+                try:
+                    ticket_id_str = cmd[len(USER_TICKET_REPLY_PREFIX):]
+                    ticket_id = UUID(ticket_id_str)
+                except ValueError:
+                    return VkAdapterResponse(text="Неверный идентификатор тикета.")
+                return self._begin_support_reply(vk_user_id=vk_user_id, ticket_id=ticket_id)
             if cmd.startswith(USER_TICKET_DETAILS_PREFIX):
                 try:
                     ticket_id_str = cmd[len(USER_TICKET_DETAILS_PREFIX):]
@@ -824,6 +853,95 @@ class VkIdentityAdapter:
         return VkAdapterResponse(
             text=screen.text,
             screen=screen,
+        )
+
+    def _begin_support_reply(self, *, vk_user_id: int, ticket_id: UUID) -> VkAdapterResponse:
+        """Переводит пользователя в режим ответа по выбранному тикету."""
+
+        if self._add_guest_message_to_ticket_use_case is None:
+            return VkAdapterResponse(text="Функция ответа по обращению временно недоступна.")
+
+        if self._ticket_details_use_case is None:
+            return VkAdapterResponse(text="Функционал просмотра деталей тикета временно недоступен.")
+
+        try:
+            details, _messages = self._get_ticket_details_with_history(ticket_id)
+        except ValueError as error:
+            return VkAdapterResponse(text=f"Тикет не найден: {error}")
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None or person.person_id != details.person_id:
+            return VkAdapterResponse(text="У вас нет доступа к этому тикету.")
+
+        if details.status == SupportTicketStatus.CLOSED:
+            return VkAdapterResponse(
+                text="Обращение уже закрыто. Откройте новое через пункт «❓ Мне только спросить»."
+            )
+
+        self._state_by_user_id[vk_user_id] = _STATE_WAITING_SUPPORT_REPLY
+        self._reply_ticket_id_by_user_id[vk_user_id] = ticket_id
+        short_id = self._format_ticket_id_short(ticket_id)
+        return VkAdapterResponse(
+            text=(
+                f"✍️ Введите ответ для обращения #{short_id}.\n"
+                "Минимальная длина ответа: 10 символов."
+            )
+        )
+
+    def _handle_support_reply(self, *, vk_user_id: int, text: str) -> VkAdapterResponse:
+        """Обрабатывает ответ гостя в существующем обращении."""
+
+        ticket_id = self._reply_ticket_id_by_user_id.get(vk_user_id)
+        if ticket_id is None:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return VkAdapterResponse(
+                text="Потерян контекст обращения. Откройте «📋 Мои обращения» и выберите тикет снова."
+            )
+
+        reply_text = (text or "").strip()
+        if not reply_text:
+            return VkAdapterResponse(
+                text="Ответ не может быть пустым. Введите текст сообщения для модератора."
+            )
+
+        if self._add_guest_message_to_ticket_use_case is None:
+            return VkAdapterResponse(text="Функция ответа по обращению временно недоступна.")
+
+        try:
+            self._add_guest_message_to_ticket_use_case.execute(
+                AddGuestMessageToTicketCommand(
+                    platform="vk",
+                    external_id=str(vk_user_id),
+                    ticket_id=ticket_id,
+                    message_text=reply_text,
+                )
+            )
+        except ValueError as error:
+            error_text = str(error)
+            if "закрыт" in error_text.lower():
+                self._state_by_user_id.pop(vk_user_id, None)
+                self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
+                return VkAdapterResponse(
+                    text="Обращение уже закрыто. Откройте новое через пункт «❓ Мне только спросить»."
+                )
+            return VkAdapterResponse(
+                text=(
+                    "Не удалось добавить сообщение в обращение.\n"
+                    f"Причина: {error_text}"
+                )
+            )
+
+        self._state_by_user_id.pop(vk_user_id, None)
+        self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
+        short_id = self._format_ticket_id_short(ticket_id)
+        return VkAdapterResponse(
+            text=(
+                f"✅ Ответ по обращению #{short_id} отправлен модератору.\n"
+                "Мы уведомим вас, когда поступит новый ответ."
+            ),
+            screen=self._menu_adapter.build_support_question_confirmation_screen(),
         )
 
     def _render_profile_screen(self, *, vk_user_id: int) -> VkAdapterResponse:
@@ -1360,8 +1478,7 @@ class VkIdentityAdapter:
         return VkAdapterResponse(
             text=(
                 "Введите текст ответа модератора.\n"
-                "Можно указать целевой канал префиксом: --to=telegram|vk|max.\n"
-                "Пример: --to=telegram Добрый день, ответ готов."
+                "Отправьте ответ одним сообщением."
             )
         )
 
@@ -1590,8 +1707,7 @@ class VkIdentityAdapter:
         return VkAdapterResponse(
             text=(
                 "Введите текст ответа модератора.\n"
-                "Можно указать целевой канал префиксом: --to=telegram|vk|max.\n"
-                "Пример: --to=telegram Добрый день, ответ готов."
+                "Отправьте ответ одним сообщением."
             )
         )
 
@@ -2016,12 +2132,14 @@ class VkIdentityAdapter:
                 return self._show_user_tickets_page(vk_user_id=vk_user_id, page=1, per_page=5)
             # тикетов нет — переходим в состояние ожидания вопроса
             self._state_by_user_id[vk_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+            self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
             screen = self._menu_adapter.build_support_question_screen()
             return VkAdapterResponse(text=screen.text, screen=screen)
 
         if action == GuestMenuAction.SUPPORT_QUESTION_FROM_LIST:
             # Всегда переходим к созданию нового тикета, независимо от наличия тикетов
             self._state_by_user_id[vk_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+            self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
             screen = self._menu_adapter.build_support_question_screen()
             return VkAdapterResponse(text=screen.text, screen=screen)
 
@@ -2128,6 +2246,7 @@ class VkIdentityAdapter:
             if not tickets:
                 # Нет тикетов — показываем экран с предложением задать вопрос
                 self._state_by_user_id[vk_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+                self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
                 screen = self._menu_adapter.build_support_question_screen()
                 return VkAdapterResponse(text=screen.text, screen=screen)
             # Форматируем сообщение с тикетами
@@ -2156,6 +2275,7 @@ class VkIdentityAdapter:
         if not page_result.tickets:
             # Нет тикетов — показываем экран с предложением задать вопрос
             self._state_by_user_id[vk_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+            self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
             screen = self._menu_adapter.build_support_question_screen()
             return VkAdapterResponse(text=screen.text, screen=screen)
 
@@ -2436,23 +2556,27 @@ class VkIdentityAdapter:
 
         message_lines.append("")
         message_lines.extend(self._format_ticket_history_lines(messages))
-        message_lines.extend(
-            [
-                "",
-                "Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.",
-            ]
-        )
         message = "\n".join(message_lines)
-        
-        # Создаем экран с кнопкой "Назад к списку обращений"
+
+        rows: list[tuple[VkButton, ...]] = []
+        if details.status != SupportTicketStatus.CLOSED:
+            rows.append(
+                (
+                    VkButton(
+                        label="✍️ Ответить",
+                        payload={"cmd": f"{USER_TICKET_REPLY_PREFIX}{ticket_id}"},
+                    ),
+                )
+            )
         back_button = VkButton(
             label=BUTTON_MY_TICKETS,
             payload=build_vk_payload(GuestMenuAction.MY_TICKETS),
         )
+        rows.append((back_button,))
         screen = VkScreen(
             screen_id="ticket_details",
             text=message,
-            rows=((back_button,),),
+            rows=tuple(rows),
         )
         
         return VkAdapterResponse(

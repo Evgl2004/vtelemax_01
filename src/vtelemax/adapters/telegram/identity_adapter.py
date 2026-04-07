@@ -10,6 +10,8 @@ from uuid import UUID
 from loguru import logger
 
 from vtelemax.core import (
+    AddGuestMessageToTicketCommand,
+    AddGuestMessageToTicketTransactionalUseCase,
     BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
     BUTTON_BALANCE,
@@ -97,6 +99,7 @@ from .menu import (
     USER_TICKETS_PREV_PAGE_PREFIX,
     USER_TICKETS_NEXT_PAGE_PREFIX,
     USER_TICKET_DETAILS_PREFIX,
+    USER_TICKET_REPLY_PREFIX,
     build_user_tickets_pagination_keyboard,
 )
 
@@ -127,6 +130,8 @@ class TelegramMenuActionResult:
     current_page: int | None = None
     total_pages: int | None = None
     tickets: tuple[PersonSupportTicketSummary, ...] = ()
+    ticket_id: UUID | None = None
+    ticket_status: str | None = None
     moderation_filter: str | None = None
     moderation_page: int | None = None
     moderation_total_pages: int | None = None
@@ -136,6 +141,7 @@ class TelegramMenuActionResult:
 
 
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
+_STATE_WAITING_SUPPORT_REPLY = "waiting_support_reply"
 _STATE_PROFILE_EDIT_CHOICE = "profile_edit_choice"
 _STATE_PROFILE_EDIT_FIRST_NAME = "profile_edit_first_name"
 _STATE_PROFILE_EDIT_LAST_NAME = "profile_edit_last_name"
@@ -197,6 +203,7 @@ class TelegramIdentityAdapter:
         registration_use_case: RegisterOrAttachAccountTransactionalUseCase,
         person_lookup_use_case: GetPersonByAccountTransactionalUseCase,
         create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
+        add_guest_message_to_ticket_use_case: AddGuestMessageToTicketTransactionalUseCase | None = None,
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
         ticket_details_use_case: GetSupportTicketDetailsTransactionalUseCase | None = None,
         ticket_conversation_use_case: GetSupportTicketConversationTransactionalUseCase | None = None,
@@ -215,9 +222,11 @@ class TelegramIdentityAdapter:
         self._onboarding_state_by_user_id: dict[int, OnboardingState] = {}
         self._onboarding_draft_by_user_id: dict[int, _OnboardingDraft] = {}
         self._dialog_state_by_user_id: dict[int, str] = {}
+        self._reply_ticket_id_by_user_id: dict[int, UUID] = {}
         self._moderator_state_by_user_id: dict[int, str] = {}
         self._moderator_context_by_user_id: dict[int, dict[str, str]] = {}
         self._create_support_ticket_use_case = create_support_ticket_use_case
+        self._add_guest_message_to_ticket_use_case = add_guest_message_to_ticket_use_case
         self._moderator_reply_use_case = moderator_reply_use_case
         self._ticket_details_use_case = ticket_details_use_case
         self._ticket_conversation_use_case = ticket_conversation_use_case
@@ -802,12 +811,53 @@ class TelegramIdentityAdapter:
             }:
                 self._dialog_state_by_user_id.pop(telegram_user_id, None)
                 return self.handle_menu_action(telegram_user_id=telegram_user_id, action_text=action_text)
+            if action_text.startswith(
+                (
+                    USER_TICKETS_PREV_PAGE_PREFIX,
+                    USER_TICKETS_NEXT_PAGE_PREFIX,
+                    USER_TICKETS_PAGE_PREFIX,
+                    USER_TICKET_DETAILS_PREFIX,
+                    USER_TICKET_REPLY_PREFIX,
+                    "mod_",
+                )
+            ):
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                return self.handle_menu_action(telegram_user_id=telegram_user_id, action_text=action_text)
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             # Если пользователь ввел что-то неожиданное в состоянии ожидания вопроса,
             # обрабатываем это как вопрос
             return self._handle_support_question_input(
                 telegram_user_id=telegram_user_id,
                 question_text=action_text,
+            )
+        if dialog_state == _STATE_WAITING_SUPPORT_REPLY:
+            action = resolve_guest_menu_action(action_text)
+            if action in {
+                GuestMenuAction.BACK_TO_MAIN,
+                GuestMenuAction.BACK_TO_SUPPORT,
+                GuestMenuAction.SUPPORT,
+                GuestMenuAction.MAIN_MENU,
+                GuestMenuAction.MY_TICKETS,
+            }:
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                self._reply_ticket_id_by_user_id.pop(telegram_user_id, None)
+                return self.handle_menu_action(telegram_user_id=telegram_user_id, action_text=action_text)
+            if action_text.startswith(
+                (
+                    USER_TICKETS_PREV_PAGE_PREFIX,
+                    USER_TICKETS_NEXT_PAGE_PREFIX,
+                    USER_TICKETS_PAGE_PREFIX,
+                    USER_TICKET_DETAILS_PREFIX,
+                    USER_TICKET_REPLY_PREFIX,
+                    "mod_",
+                )
+            ):
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                self._reply_ticket_id_by_user_id.pop(telegram_user_id, None)
+                return self.handle_menu_action(telegram_user_id=telegram_user_id, action_text=action_text)
+            return self._handle_support_reply_input(
+                telegram_user_id=telegram_user_id,
+                message_text=action_text,
             )
         if dialog_state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice_input(
@@ -861,7 +911,21 @@ class TelegramIdentityAdapter:
                 page=page,
                 per_page=5,
             )
-        
+
+        if action_text.startswith(USER_TICKET_REPLY_PREFIX):
+            try:
+                ticket_id_str = action_text[len(USER_TICKET_REPLY_PREFIX):]
+                ticket_id = UUID(ticket_id_str)
+            except ValueError:
+                return TelegramMenuActionResult(
+                    status="ticket_details_error",
+                    message="Неверный идентификатор тикета.",
+                )
+            return self._begin_support_reply(
+                telegram_user_id=telegram_user_id,
+                ticket_id=ticket_id,
+            )
+
         # Обработка нажатия на конкретный тикет для просмотра деталей
         if action_text.startswith(USER_TICKET_DETAILS_PREFIX):
             try:
@@ -998,6 +1062,7 @@ class TelegramIdentityAdapter:
             if not has_tickets:
                 # Если тикетов нет, переходим к созданию нового тикета
                 self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+                self._reply_ticket_id_by_user_id.pop(telegram_user_id, None)
                 screen = build_support_question_screen()
                 return TelegramMenuActionResult(
                     status="support_question_input",
@@ -1020,6 +1085,7 @@ class TelegramIdentityAdapter:
                 external_id=str(telegram_user_id),
             )
             self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_QUESTION
+            self._reply_ticket_id_by_user_id.pop(telegram_user_id, None)
             screen = build_support_question_screen()
             return TelegramMenuActionResult(
                 status="support_question_input",
@@ -1119,6 +1185,135 @@ class TelegramIdentityAdapter:
                 f"🎫 Создан тикет #{short_id}\n"
                 "Канал обращения: telegram\n"
                 "Модератор рассмотрит обращение в ближайшее время."
+            ),
+        )
+
+    def _begin_support_reply(
+        self,
+        *,
+        telegram_user_id: int,
+        ticket_id: UUID,
+    ) -> TelegramMenuActionResult:
+        """Переводит пользователя в режим ответа по выбранному тикету."""
+
+        if self._add_guest_message_to_ticket_use_case is None:
+            return TelegramMenuActionResult(
+                status="support_reply_error",
+                has_support_tickets=True,
+                message="Функция ответа по обращению временно недоступна.",
+            )
+
+        if self._ticket_details_use_case is None:
+            return TelegramMenuActionResult(
+                status="ticket_details_error",
+                message="Функционал просмотра деталей тикета временно недоступен.",
+            )
+
+        try:
+            details, _messages = self._get_ticket_details_with_history(ticket_id)
+        except ValueError as error:
+            return TelegramMenuActionResult(
+                status="ticket_details_error",
+                message=f"Тикет не найден: {error}",
+            )
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None or person.person_id != details.person_id:
+            return TelegramMenuActionResult(
+                status="ticket_details_error",
+                message="У вас нет доступа к этому тикету.",
+            )
+
+        if details.status == SupportTicketStatus.CLOSED:
+            return TelegramMenuActionResult(
+                status="support_reply_closed",
+                has_support_tickets=True,
+                message="Обращение уже закрыто. Откройте новое через пункт «❓ Мне только спросить».",
+            )
+
+        self._dialog_state_by_user_id[telegram_user_id] = _STATE_WAITING_SUPPORT_REPLY
+        self._reply_ticket_id_by_user_id[telegram_user_id] = ticket_id
+        short_id = self._format_ticket_id_short(ticket_id)
+        return TelegramMenuActionResult(
+            status="support_reply_input",
+            has_support_tickets=True,
+            message=(
+                f"✍️ Введите ответ для обращения #{short_id}.\n"
+                "Минимальная длина ответа: 10 символов."
+            ),
+        )
+
+    def _handle_support_reply_input(
+        self,
+        *,
+        telegram_user_id: int,
+        message_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает ответ гостя в существующем обращении."""
+
+        ticket_id = self._reply_ticket_id_by_user_id.get(telegram_user_id)
+        if ticket_id is None:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return TelegramMenuActionResult(
+                status="support_reply_error",
+                has_support_tickets=True,
+                message="Потерян контекст обращения. Откройте «📋 Мои обращения» и выберите тикет снова.",
+            )
+
+        reply_text = str(message_text).strip()
+        if not reply_text:
+            return TelegramMenuActionResult(
+                status="support_reply_empty",
+                has_support_tickets=True,
+                message="Ответ не может быть пустым. Введите текст сообщения для модератора.",
+            )
+
+        if self._add_guest_message_to_ticket_use_case is None:
+            return TelegramMenuActionResult(
+                status="support_reply_error",
+                has_support_tickets=True,
+                message="Функция ответа по обращению временно недоступна.",
+            )
+
+        try:
+            self._add_guest_message_to_ticket_use_case.execute(
+                AddGuestMessageToTicketCommand(
+                    platform="telegram",
+                    external_id=str(telegram_user_id),
+                    ticket_id=ticket_id,
+                    message_text=reply_text,
+                )
+            )
+        except ValueError as error:
+            error_text = str(error)
+            if "закрыт" in error_text.lower():
+                self._dialog_state_by_user_id.pop(telegram_user_id, None)
+                self._reply_ticket_id_by_user_id.pop(telegram_user_id, None)
+                return TelegramMenuActionResult(
+                    status="support_reply_closed",
+                    has_support_tickets=True,
+                    message="Обращение уже закрыто. Откройте новое через пункт «❓ Мне только спросить».",
+                )
+            return TelegramMenuActionResult(
+                status="support_reply_error",
+                has_support_tickets=True,
+                message=(
+                    "Не удалось добавить сообщение в обращение.\n"
+                    f"Причина: {error_text}"
+                ),
+            )
+
+        self._dialog_state_by_user_id.pop(telegram_user_id, None)
+        self._reply_ticket_id_by_user_id.pop(telegram_user_id, None)
+        short_id = self._format_ticket_id_short(ticket_id)
+        return TelegramMenuActionResult(
+            status="support_reply_submitted",
+            has_support_tickets=True,
+            message=(
+                f"✅ Ответ по обращению #{short_id} отправлен модератору.\n"
+                "Мы уведомим вас, когда поступит новый ответ."
             ),
         )
 
@@ -1738,8 +1933,7 @@ class TelegramIdentityAdapter:
             status="moderation_wait_reply_text",
             message=(
                 "Введите текст ответа модератора.\n"
-                "Можно указать целевой канал префиксом: --to=telegram|vk|max.\n"
-                "Пример: --to=vk Добрый день, ответ готов."
+                "Отправьте ответ одним сообщением."
             ),
         )
 
@@ -2015,8 +2209,7 @@ class TelegramIdentityAdapter:
             status="moderation_wait_reply_text",
             message=(
                 "Введите текст ответа модератора.\n"
-                "Можно указать целевой канал префиксом: --to=telegram|vk|max.\n"
-                "Пример: --to=vk Добрый день, ответ готов."
+                "Отправьте ответ одним сообщением."
             ),
         )
 
@@ -2924,12 +3117,6 @@ class TelegramIdentityAdapter:
 
         message_lines.append("")
         message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
-        message_lines.extend(
-            [
-                "",
-                "✍️ <i>Для ответа на тикет используйте кнопку «Создать новый тикет» в списке обращений.</i>",
-            ]
-        )
         message = "\n".join(message_lines)
         
         return TelegramMenuActionResult(
@@ -2937,6 +3124,8 @@ class TelegramIdentityAdapter:
             message=message,
             has_support_tickets=True,
             parse_mode="HTML",
+            ticket_id=ticket_id,
+            ticket_status=details.status.value,
         )
 
     @staticmethod

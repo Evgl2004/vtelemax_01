@@ -15,7 +15,14 @@ from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProces
 from vtelemax.core import GuestMenuAction, build_iiko_sync_pending_screen
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
-from .identity_adapter import VkAdapterResponse, VkIdentityAdapter, USER_TICKETS_PREV_PAGE_PREFIX, USER_TICKETS_NEXT_PAGE_PREFIX, USER_TICKET_DETAILS_PREFIX
+from .identity_adapter import (
+    USER_TICKETS_NEXT_PAGE_PREFIX,
+    USER_TICKETS_PREV_PAGE_PREFIX,
+    USER_TICKET_DETAILS_PREFIX,
+    USER_TICKET_REPLY_PREFIX,
+    VkAdapterResponse,
+    VkIdentityAdapter,
+)
 from .keyboard_renderer import render_vk_keyboard
 from .payloads import resolve_action_from_vk_payload
 
@@ -376,6 +383,7 @@ def register_vk_guest_handlers(
             cmd = str(payload.get("cmd", "")).strip()
         if (
             cmd.startswith(USER_TICKET_DETAILS_PREFIX)
+            or cmd.startswith(USER_TICKET_REPLY_PREFIX)
             or cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX)
             or cmd.startswith(USER_TICKETS_NEXT_PAGE_PREFIX)
             or cmd.startswith("mod_")
