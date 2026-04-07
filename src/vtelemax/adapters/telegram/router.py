@@ -746,7 +746,7 @@ def build_telegram_identity_router(
         F.data.startswith(USER_TICKETS_PREV_PAGE_PREFIX) |
         F.data.startswith(USER_TICKETS_NEXT_PAGE_PREFIX) |
         F.data.startswith(USER_TICKETS_PAGE_PREFIX) |
-        F.data == MOD_MAIN_CALLBACK |
+        (F.data == MOD_MAIN_CALLBACK) |
         F.data.startswith(MOD_LIST_PREFIX) |
         F.data.startswith(MOD_PAGE_PREFIX) |
         F.data.startswith(MOD_TICKET_PREFIX) |
