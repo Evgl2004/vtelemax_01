@@ -56,6 +56,7 @@ class LegacyBroadcastSendResult:
     failed_messages: int  # количество неудачных отправок сообщений
     retry_after_errors: int  # количество ошибок лимита (TelegramRetryAfter)
     forbidden_errors: int  # количество ошибок "бот заблокирован"
+    chat_not_found_errors: int  # количество ошибок "chat not found"
     other_errors: int  # прочие ошибки
 
 
@@ -104,7 +105,16 @@ async def send_legacy_broadcast(
     failed_messages = 0
     retry_after_errors = 0
     forbidden_errors = 0
+    chat_not_found_errors = 0
     other_errors = 0
+
+    # Логирование маскированного токена для диагностики
+    token = getattr(bot, "token", None)
+    if token:
+        masked_token = f"{token[:5]}...{token[-5:]}" if len(token) > 10 else "***"
+        logger.debug(f"Токен бота для рассылки: {masked_token}")
+    else:
+        logger.warning("Токен бота недоступен для логирования")
 
     broadcast_message = build_default_legacy_broadcast_message()
 
@@ -137,7 +147,12 @@ async def send_legacy_broadcast(
                 continue
             except TelegramBadRequest as e:
                 failed_cleanup += 1
-                logger.warning(f"   Ошибка очистки для {chat_id}: {e}")
+                error_message = str(e).lower()
+                if "chat not found" in error_message:
+                    chat_not_found_errors += 1
+                    logger.warning(f"   Чат не найден для {chat_id} (очистка). Причина: {e}")
+                else:
+                    logger.warning(f"   Ошибка очистки для {chat_id}: {e}")
                 # Продолжаем, возможно, сообщение всё равно отправится
             except Exception as e:
                 other_errors += 1
@@ -175,7 +190,12 @@ async def send_legacy_broadcast(
             continue
         except TelegramBadRequest as e:
             failed_messages += 1
-            logger.warning(f"   Ошибка отправки сообщения для {chat_id}: {e}")
+            error_message = str(e).lower()
+            if "chat not found" in error_message:
+                chat_not_found_errors += 1
+                logger.warning(f"   Чат не найден для {chat_id} (сообщение). Причина: {e}")
+            else:
+                logger.warning(f"   Ошибка отправки сообщения для {chat_id}: {e}")
         except Exception as e:
             other_errors += 1
             logger.warning(f"   Неожиданная ошибка отправки сообщения для {chat_id}: {e}")
@@ -190,6 +210,7 @@ async def send_legacy_broadcast(
         f"сообщения {sent_messages}/{total}, "
         f"ошибки лимита {retry_after_errors}, "
         f"заблокировано {forbidden_errors}, "
+        f"чат не найден {chat_not_found_errors}, "
         f"прочие ошибки {other_errors}."
     )
     return LegacyBroadcastSendResult(
@@ -200,6 +221,7 @@ async def send_legacy_broadcast(
         failed_messages=failed_messages,
         retry_after_errors=retry_after_errors,
         forbidden_errors=forbidden_errors,
+        chat_not_found_errors=chat_not_found_errors,
         other_errors=other_errors,
     )
 

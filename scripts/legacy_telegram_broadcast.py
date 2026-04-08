@@ -176,6 +176,8 @@ def _print_send_result(result: LegacyBroadcastSendResult) -> None:
         print(f"  Ошибок лимита (TelegramRetryAfter): {result.retry_after_errors}")
     if result.forbidden_errors:
         print(f"  Заблокированных ботов: {result.forbidden_errors}")
+    if result.chat_not_found_errors:
+        print(f"  Чатов не найдено: {result.chat_not_found_errors}")
     if result.other_errors:
         print(f"  Прочих ошибок: {result.other_errors}")
 
