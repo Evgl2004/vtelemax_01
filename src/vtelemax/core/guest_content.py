@@ -392,8 +392,6 @@ def build_balance_screen(balance: float) -> MenuScreenContract:
         text=(
             "💰 *Ваш бонусный баланс*\n\n"
             f"Текущие бонусы: {balance:.2f}\n"
-            "Ближайшая дата сгорания: —\n"
-            "Количество бонусов к сгоранию: —\n"
         ),
         buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),),
         parse_mode="markdown",
