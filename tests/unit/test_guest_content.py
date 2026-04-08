@@ -23,7 +23,7 @@ def test_main_menu_screen_contains_prototype_buttons() -> None:
     labels = [button.label for button in screen.buttons]
 
     assert "💰 Мой баланс" in labels
-    assert "🪪 Виртуальная карта" in labels
+    assert "🪪 Карта" in labels
     assert "🚚 Доставка" in labels
     assert "❓ Мне только спросить" in labels
     assert "💼 Вакансии" in labels

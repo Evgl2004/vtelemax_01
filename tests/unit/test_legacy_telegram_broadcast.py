@@ -28,7 +28,7 @@ class TestBuildDefaultLegacyBroadcastMessage:
         assert "vk.me/club236296391" in text
         assert "max.ru/id7203243481_bot" in text
         assert "💰 Мой баланс" in text
-        assert "🪪 Виртуальная карта" in text
+        assert "🪪 Карта" in text
         assert "🚚 Доставка" in text
         assert "❓ Мне только спросить" in text
         assert "✍️ Оставить отзыв" in text

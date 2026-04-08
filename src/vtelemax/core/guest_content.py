@@ -14,7 +14,7 @@ from datetime import date, datetime
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
 
 BUTTON_BALANCE = "💰 Мой баланс"
-BUTTON_VIRTUAL_CARD = "🪪 Виртуальная карта"
+BUTTON_VIRTUAL_CARD = "🪪 Карта"
 BUTTON_DELIVERY = "🚚 Доставка"
 BUTTON_SUPPORT = "🆘 Отдел заботы"
 BUTTON_VACANCIES = "💼 Вакансии"

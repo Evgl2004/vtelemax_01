@@ -26,7 +26,7 @@ def test_vk_main_menu_contains_expected_first_buttons() -> None:
     # Первая строка: баланс и виртуальная карта
     assert len(screen.rows[0]) == 2
     assert screen.rows[0][0].label == "💰 Мой баланс"
-    assert screen.rows[0][1].label == "🪪 Виртуальная карта"
+    assert screen.rows[0][1].label == "🪪 Карта"
     # Вторая строка: "Мне только спросить" (одна кнопка)
     assert len(screen.rows[1]) == 1
     assert screen.rows[1][0].label == "❓ Мне только спросить"

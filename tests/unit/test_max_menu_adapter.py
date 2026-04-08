@@ -28,7 +28,7 @@ def test_max_main_menu_contains_expected_first_buttons() -> None:
     # Проверяем, что семь строк, каждая с одной кнопкой
     assert len(screen.rows) == 7
     assert screen.rows[0][0].label == "💰 Мой баланс"
-    assert screen.rows[1][0].label == "🪪 Виртуальная карта"
+    assert screen.rows[1][0].label == "🪪 Карта"
     assert screen.rows[2][0].label == "🚚 Доставка"
     assert screen.rows[3][0].label == "❓ Мне только спросить"
     assert screen.rows[4][0].label == "💼 Вакансии"
