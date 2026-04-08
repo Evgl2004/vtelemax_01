@@ -31,6 +31,8 @@ from vtelemax.core import (
     build_support_menu_screen,
     build_support_question_screen,
     build_support_question_confirmation_screen,
+    build_business_lunch_screen,
+    build_table_booking_screen,
     build_vacancies_screen,
 )
 
