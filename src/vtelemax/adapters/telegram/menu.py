@@ -197,6 +197,46 @@ def build_delivery_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def build_business_lunch_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру подменю «Бизнес-ланч» с URL-кнопками заведений."""
+
+    screen = build_business_lunch_screen()
+    rows: list[list[InlineKeyboardButton]] = []
+    for button in screen.buttons:
+        if button.url is not None:
+            rows.append([InlineKeyboardButton(text=button.label, url=button.url)])
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button.label,
+                        callback_data=_action_callback(button.action),
+                    )
+                ]
+            )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_table_booking_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру подменю «Бронь стола» с URL-кнопками заведений."""
+
+    screen = build_table_booking_screen()
+    rows: list[list[InlineKeyboardButton]] = []
+    for button in screen.buttons:
+        if button.url is not None:
+            rows.append([InlineKeyboardButton(text=button.label, url=button.url)])
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button.label,
+                        callback_data=_action_callback(button.action),
+                    )
+                ]
+            )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeyboardMarkup:
     """Создает inline-клавиатуру подменю «Отдел заботы» (вертикальный список)."""
 

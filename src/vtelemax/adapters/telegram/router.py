@@ -67,6 +67,8 @@ from .menu import (
     build_back_to_tickets_list_inline_keyboard,
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
+    build_business_lunch_inline_keyboard,
+    build_table_booking_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_moderation_main_inline_keyboard,
@@ -423,6 +425,10 @@ def build_telegram_identity_router(
             return build_back_to_tickets_list_inline_keyboard()
         if result.status == "delivery":
             return build_delivery_inline_keyboard()
+        if result.status == "business_lunch":
+            return build_business_lunch_inline_keyboard()
+        if result.status == "table_booking":
+            return build_table_booking_inline_keyboard()
         if result.status in {
             "balance",
             "balance_unavailable",
