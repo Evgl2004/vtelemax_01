@@ -15,6 +15,7 @@ from vtelemax.core import (
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_BALANCE,
+    BUTTON_BUSINESS_LUNCH,
     BUTTON_DELIVERY,
     BUTTON_DOCS_LINK,
     BUTTON_HELP,
@@ -41,6 +42,7 @@ from vtelemax.core import (
     BUTTON_SUPPORT_CONTACTS,
     BUTTON_SUPPORT_FEEDBACK,
     BUTTON_SUPPORT_QUESTION,
+    BUTTON_TABLE_BOOKING,
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
     GuestMenuAction,
@@ -146,16 +148,30 @@ def build_iiko_sync_retry_inline_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
-    """Создает inline-клавиатуру главного меню (вертикальный список разделов)."""
+    """Создает inline-клавиатуру главного меню (группировка как в VK/MAX)."""
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=BUTTON_BALANCE, callback_data=_action_callback(GuestMenuAction.BALANCE))],
-            [InlineKeyboardButton(text=BUTTON_VIRTUAL_CARD, callback_data=_action_callback(GuestMenuAction.VIRTUAL_CARD))],
-            [InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY))],
+            # Строка 1: Баланс | Виртуальная карта
+            [
+                InlineKeyboardButton(text=BUTTON_BALANCE, callback_data=_action_callback(GuestMenuAction.BALANCE)),
+                InlineKeyboardButton(text=BUTTON_VIRTUAL_CARD, callback_data=_action_callback(GuestMenuAction.VIRTUAL_CARD)),
+            ],
+            # Строка 2: Мне только спросить
             [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION))],
-            [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
+            # Строка 3: Оставить отзыв (URL-кнопка)
             [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, url=SUPPORT_FEEDBACK_URL)],
+            # Строка 4: Бизнес-ланч | Бронь стола
+            [
+                InlineKeyboardButton(text=BUTTON_BUSINESS_LUNCH, callback_data=_action_callback(GuestMenuAction.BUSINESS_LUNCH)),
+                InlineKeyboardButton(text=BUTTON_TABLE_BOOKING, callback_data=_action_callback(GuestMenuAction.TABLE_BOOKING)),
+            ],
+            # Строка 5: Доставка | Вакансии
+            [
+                InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY)),
+                InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES)),
+            ],
+            # Строка 6: Профиль
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
         ]
     )

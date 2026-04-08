@@ -64,6 +64,7 @@ from vtelemax.core import (
     SUPPORTED_PLATFORMS,
     SupportTicketStatus,
     build_about_screen,
+    build_business_lunch_screen,
     build_delivery_screen,
     build_first_name_input_screen,
     build_help_screen,
@@ -78,6 +79,7 @@ from vtelemax.core import (
     build_support_feedback_screen,
     build_support_menu_screen,
     build_support_question_screen,
+    build_table_booking_screen,
     build_virtual_card_result_screen,
     build_vacancies_screen,
     normalize_email,
@@ -1036,6 +1038,22 @@ class TelegramIdentityAdapter:
             screen = build_delivery_screen()
             return TelegramMenuActionResult(
                 status="delivery",
+                message=screen.text,
+                parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+            )
+
+        if action == GuestMenuAction.BUSINESS_LUNCH:
+            screen = build_business_lunch_screen()
+            return TelegramMenuActionResult(
+                status="business_lunch",
+                message=screen.text,
+                parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+            )
+
+        if action == GuestMenuAction.TABLE_BOOKING:
+            screen = build_table_booking_screen()
+            return TelegramMenuActionResult(
+                status="table_booking",
                 message=screen.text,
                 parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
             )
