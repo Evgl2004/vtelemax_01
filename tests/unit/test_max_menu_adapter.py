@@ -20,20 +20,28 @@ def test_max_payload_build_and_resolve_roundtrip() -> None:
 
 
 def test_max_main_menu_contains_expected_first_buttons() -> None:
-    """Проверяет ключевые первые кнопки главного меню (вертикальный список)."""
+    """Проверяет ключевые первые кнопки главного меню (группировка как в VK)."""
 
     adapter = MaxGuestMenuAdapter()
     screen = adapter.build_main_menu_screen(user_name="Гость")
 
-    # Проверяем, что семь строк, каждая с одной кнопкой
-    assert len(screen.rows) == 7
+    # Ожидаем 6 строк
+    assert len(screen.rows) == 6
+    # Строка 0: Баланс | Виртуальная карта
     assert screen.rows[0][0].label == "💰 Мой баланс"
-    assert screen.rows[1][0].label == "🪪 Карта"
-    assert screen.rows[2][0].label == "🚚 Доставка"
-    assert screen.rows[3][0].label == "❓ Мне только спросить"
-    assert screen.rows[4][0].label == "💼 Вакансии"
-    assert screen.rows[5][0].label == "✍️ Оставить отзыв"
-    assert screen.rows[6][0].label == "👤 Профиль"
+    assert screen.rows[0][1].label == "🪪 Карта"
+    # Строка 1: Мне только спросить
+    assert screen.rows[1][0].label == "❓ Мне только спросить"
+    # Строка 2: Обратная связь
+    assert screen.rows[2][0].label == "✍️ Оставить отзыв"
+    # Строка 3: Бизнес-ланч | Бронь стола
+    assert screen.rows[3][0].label == "🍽️ Бизнес-ланч"
+    assert screen.rows[3][1].label == "🪑 Бронь стола"
+    # Строка 4: Доставка | Вакансии
+    assert screen.rows[4][0].label == "🚚 Доставка"
+    assert screen.rows[4][1].label == "💼 Вакансии"
+    # Строка 5: Профиль
+    assert screen.rows[5][0].label == "👤 Профиль"
 
 
 def test_max_support_menu_respects_my_tickets_flag() -> None:
