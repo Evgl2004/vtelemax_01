@@ -76,6 +76,28 @@ DELIVERY_URL_SUSAMI = "https://susami.rest.market/"
 DELIVERY_URL_CHINA = "https://china.rest.market/"
 DELIVERY_URL_UZBECHKA = "https://uzbechka.rest.market/"
 
+# Кнопки и URL для бизнес-ланча
+BUTTON_BUSINESS_LUNCH = "🍽️ Бизнес-ланч"
+BUTTON_BUSINESS_LUNCH_GRUZIKA_NANI = "Грузинка Нани"
+BUTTON_BUSINESS_LUNCH_SUSAMI = "Сами Сусами"
+BUTTON_BUSINESS_LUNCH_CHINA = "Чина"
+BUTTON_BUSINESS_LUNCH_UZBECHKA = "Узбечка"
+BUSINESS_LUNCH_URL_GRUZIKA_NANI = "https://rest-nani.ru/BL.jpg"
+BUSINESS_LUNCH_URL_SUSAMI = "https://rest-susami.ru/BL.jpg"
+BUSINESS_LUNCH_URL_CHINA = "https://rest-china.ru/BL.jpg"
+BUSINESS_LUNCH_URL_UZBECHKA = "https://rest-uzbechka.ru/BL.jpg"
+
+# Кнопки и URL для бронирования столиков
+BUTTON_TABLE_BOOKING = "🪑 Бронь стола"
+BUTTON_TABLE_BOOKING_GRUZIKA_NANI = "Грузинка Нани"
+BUTTON_TABLE_BOOKING_SUSAMI = "Сами Сусами"
+BUTTON_TABLE_BOOKING_CHINA = "Чина"
+BUTTON_TABLE_BOOKING_UZBECHKA = "Узбечка"
+TABLE_BOOKING_URL_GRUZIKA_NANI = "https://gruzinka.restoplace.ws/"
+TABLE_BOOKING_URL_SUSAMI = "https://susami.restoplace.ws/"
+TABLE_BOOKING_URL_CHINA = "https://china.restoplace.ws/"
+TABLE_BOOKING_URL_UZBECHKA = "https://usbechka.restoplace.ws/"
+
 
 CONTACT_SCREEN_TEXTS = {
     "telegram": (
@@ -135,6 +157,12 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         "виртуальная карта": GuestMenuAction.VIRTUAL_CARD,
         BUTTON_DELIVERY.lower(): GuestMenuAction.DELIVERY,
         "доставка": GuestMenuAction.DELIVERY,
+        BUTTON_BUSINESS_LUNCH.lower(): GuestMenuAction.BUSINESS_LUNCH,
+        "бизнес ланч": GuestMenuAction.BUSINESS_LUNCH,
+        "бизнес-ланч": GuestMenuAction.BUSINESS_LUNCH,
+        BUTTON_TABLE_BOOKING.lower(): GuestMenuAction.TABLE_BOOKING,
+        "бронь стола": GuestMenuAction.TABLE_BOOKING,
+        "бронь": GuestMenuAction.TABLE_BOOKING,
         BUTTON_SUPPORT.lower(): GuestMenuAction.SUPPORT,
         "отдел заботы": GuestMenuAction.SUPPORT,
         "поддержка": GuestMenuAction.SUPPORT,
@@ -321,6 +349,8 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
                 label=BUTTON_SUPPORT_FEEDBACK,
                 url=FEEDBACK_FORM_URL,
             ),
+            MenuButtonContract(action=GuestMenuAction.BUSINESS_LUNCH, label=BUTTON_BUSINESS_LUNCH),
+            MenuButtonContract(action=GuestMenuAction.TABLE_BOOKING, label=BUTTON_TABLE_BOOKING),
             MenuButtonContract(action=GuestMenuAction.PROFILE, label=BUTTON_PROFILE),
         ),
     )
@@ -355,6 +385,76 @@ def build_delivery_screen() -> MenuScreenContract:
                 action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_DELIVERY_UZBECHKA,
                 url=DELIVERY_URL_UZBECHKA,
+            ),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
+        ),
+    )
+
+
+def build_business_lunch_screen() -> MenuScreenContract:
+    """Экран подменю «Бизнес-ланч» со ссылками на изображения бизнес-ланча."""
+
+    return MenuScreenContract(
+        screen_id="business_lunch",
+        text=(
+            "🍽️ Бизнес-ланч\n\n"
+            "Выберите заведение для просмотра бизнес-ланча:"
+        ),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_BUSINESS_LUNCH_GRUZIKA_NANI,
+                url=BUSINESS_LUNCH_URL_GRUZIKA_NANI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_BUSINESS_LUNCH_SUSAMI,
+                url=BUSINESS_LUNCH_URL_SUSAMI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_BUSINESS_LUNCH_CHINA,
+                url=BUSINESS_LUNCH_URL_CHINA,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_BUSINESS_LUNCH_UZBECHKA,
+                url=BUSINESS_LUNCH_URL_UZBECHKA,
+            ),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
+        ),
+    )
+
+
+def build_table_booking_screen() -> MenuScreenContract:
+    """Экран подменю «Бронь стола» со ссылками на страницы бронирования."""
+
+    return MenuScreenContract(
+        screen_id="table_booking",
+        text=(
+            "🪑 Бронь стола\n\n"
+            "Выберите заведение для бронирования столика онлайн:"
+        ),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_TABLE_BOOKING_GRUZIKA_NANI,
+                url=TABLE_BOOKING_URL_GRUZIKA_NANI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_TABLE_BOOKING_SUSAMI,
+                url=TABLE_BOOKING_URL_SUSAMI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_TABLE_BOOKING_CHINA,
+                url=TABLE_BOOKING_URL_CHINA,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_TABLE_BOOKING_UZBECHKA,
+                url=TABLE_BOOKING_URL_UZBECHKA,
             ),
             MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
         ),

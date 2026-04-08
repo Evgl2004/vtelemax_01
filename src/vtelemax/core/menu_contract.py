@@ -49,6 +49,8 @@ class GuestMenuAction(StrEnum):
     NOTIFY_YES = "notify_yes"
     NOTIFY_NO = "notify_no"
     RETRY_IIKO_SYNC = "retry_iiko_sync"
+    BUSINESS_LUNCH = "business_lunch"
+    TABLE_BOOKING = "table_booking"
 
 
 @dataclass(frozen=True, slots=True)
