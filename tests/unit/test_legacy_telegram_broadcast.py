@@ -32,6 +32,9 @@ class TestBuildDefaultLegacyBroadcastMessage:
         assert "🚚 Доставка" in text
         assert "❓ Мне только спросить" in text
         assert "✍️ Оставить отзыв" in text
+        assert "💼 Вакансии" in text
+        assert "🍽️ Бизнес-ланч" in text
+        assert "🪑 Бронь стола" in text
         assert "👤 Профиль" in text
         assert "старые кнопки" in text
 
