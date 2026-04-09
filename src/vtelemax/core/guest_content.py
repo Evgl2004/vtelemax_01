@@ -98,6 +98,16 @@ TABLE_BOOKING_URL_SUSAMI = "https://susami.restoplace.ws/"
 TABLE_BOOKING_URL_CHINA = "https://china.restoplace.ws/"
 TABLE_BOOKING_URL_UZBECHKA = "https://usbechka.restoplace.ws/"
 
+# Кнопки и URL для отзывов по заведениям
+BUTTON_FEEDBACK_GRUZINKA = "💃 Грузинка"
+BUTTON_FEEDBACK_SUSAMI = "🍷 Сами Сусами"
+BUTTON_FEEDBACK_CHINA = "🍜 Чина"
+BUTTON_FEEDBACK_UZBECHKA = "☀️ Узбечка"
+FEEDBACK_URL_GRUZINKA = "https://rdata.one/nwKl"
+FEEDBACK_URL_SUSAMI = "https://rdata.one/pwKl"
+FEEDBACK_URL_CHINA = "https://rdata.one/xxKl"
+FEEDBACK_URL_UZBECHKA = "https://rdata.one/vxKl"
+
 
 CONTACT_SCREEN_TEXTS = {
     "telegram": (
@@ -347,7 +357,6 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
             MenuButtonContract(
                 action=GuestMenuAction.SUPPORT_FEEDBACK,
                 label=BUTTON_SUPPORT_FEEDBACK,
-                url=FEEDBACK_FORM_URL,
             ),
             MenuButtonContract(action=GuestMenuAction.BUSINESS_LUNCH, label=BUTTON_BUSINESS_LUNCH),
             MenuButtonContract(action=GuestMenuAction.TABLE_BOOKING, label=BUTTON_TABLE_BOOKING),
@@ -461,6 +470,42 @@ def build_table_booking_screen() -> MenuScreenContract:
     )
 
 
+def build_feedback_venues_screen() -> MenuScreenContract:
+    """Экран подменю «Оставить отзыв» со ссылками на страницы отзывов заведений."""
+
+    return MenuScreenContract(
+        screen_id="feedback_venues",
+        text=(
+            "✍️ Оставить отзыв\n\n"
+            "Выберите заведение:"
+        ),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_FEEDBACK_GRUZINKA,
+                url=FEEDBACK_URL_GRUZINKA,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_FEEDBACK_SUSAMI,
+                url=FEEDBACK_URL_SUSAMI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_FEEDBACK_CHINA,
+                url=FEEDBACK_URL_CHINA,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_FEEDBACK_UZBECHKA,
+                url=FEEDBACK_URL_UZBECHKA,
+            ),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
+        ),
+        parse_mode="plain",
+    )
+
+
 def build_support_menu_screen(has_tickets: bool) -> MenuScreenContract:
     """Экран раздела поддержки."""
 
@@ -522,22 +567,36 @@ def build_vacancies_screen() -> MenuScreenContract:
 
 
 def build_support_feedback_screen() -> MenuScreenContract:
-    """Экран раздела «Оставить отзыв»."""
+    """Экран раздела «Оставить отзыв» (теперь с выбором заведения)."""
 
     return MenuScreenContract(
         screen_id="support_feedback",
         text=(
             "✍️ Оставить отзыв\n\n"
-            "Мы будем рады узнать ваше мнение.\n"
-            "Нажмите кнопку ниже:"
+            "Выберите заведение:"
         ),
         buttons=(
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_SUPPORT_FEEDBACK_LINK,
-                url=FEEDBACK_FORM_URL,
+                label=BUTTON_FEEDBACK_GRUZINKA,
+                url=FEEDBACK_URL_GRUZINKA,
             ),
-            MenuButtonContract(action=GuestMenuAction.BACK_TO_SUPPORT, label=BUTTON_BACK_TO_SUPPORT),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_FEEDBACK_SUSAMI,
+                url=FEEDBACK_URL_SUSAMI,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_FEEDBACK_CHINA,
+                url=FEEDBACK_URL_CHINA,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_FEEDBACK_UZBECHKA,
+                url=FEEDBACK_URL_UZBECHKA,
+            ),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
         ),
         parse_mode="plain",
     )

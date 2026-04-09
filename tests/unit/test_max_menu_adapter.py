@@ -88,14 +88,28 @@ def test_max_start_contact_screen_has_request_contact_button() -> None:
 
 
 def test_max_support_feedback_screen_contains_link_and_back_button() -> None:
-    """Проверяет, что в MAX-экране отзыва есть кнопка-ссылка и кнопка возврата."""
+    """Проверяет, что в MAX-экране отзыва есть 4 кнопки-ссылки на заведения и кнопка возврата в меню."""
 
     adapter = MaxGuestMenuAdapter()
     screen = adapter.build_support_feedback_screen()
 
-    assert len(screen.rows) == 2
-    assert screen.rows[0][0].url == "https://rdata.one/Nyyl"
-    assert screen.rows[1][0].payload == GuestMenuAction.BACK_TO_SUPPORT.value
+    assert len(screen.rows) == 5  # 4 заведения + назад
+    # Проверяем кнопки заведений
+    expected_urls = {
+        "https://rdata.one/nwKl",
+        "https://rdata.one/pwKl",
+        "https://rdata.one/xxKl",
+        "https://rdata.one/vxKl",
+    }
+    actual_urls = {row[0].url for row in screen.rows[:4]}
+    assert actual_urls == expected_urls
+    # Проверяем, что payload у ссылок OPEN_DOCS
+    for row in screen.rows[:4]:
+        assert row[0].payload == build_max_payload(GuestMenuAction.OPEN_DOCS)
+    # Проверяем кнопку "Назад в меню"
+    back_button = screen.rows[4][0]
+    assert back_button.url is None
+    assert back_button.payload == build_max_payload(GuestMenuAction.BACK_TO_MAIN)
 
 
 def test_max_support_question_screen_has_back_to_main_button() -> None:

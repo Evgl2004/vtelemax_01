@@ -45,6 +45,14 @@ from vtelemax.core import (
     BUTTON_TABLE_BOOKING,
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
+    BUTTON_FEEDBACK_GRUZINKA,
+    BUTTON_FEEDBACK_SUSAMI,
+    BUTTON_FEEDBACK_CHINA,
+    BUTTON_FEEDBACK_UZBECHKA,
+    FEEDBACK_URL_GRUZINKA,
+    FEEDBACK_URL_SUSAMI,
+    FEEDBACK_URL_CHINA,
+    FEEDBACK_URL_UZBECHKA,
     GuestMenuAction,
     MAILING_CONSENT_URLS,
     PERSONAL_DATA_CONSENT_URLS,
@@ -161,8 +169,8 @@ def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             ],
             # Строка 2: Мне только спросить
             [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION))],
-            # Строка 3: Оставить отзыв (URL-кнопка)
-            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, url=SUPPORT_FEEDBACK_URL)],
+            # Строка 3: Оставить отзыв
+            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, callback_data=_action_callback(GuestMenuAction.SUPPORT_FEEDBACK))],
             # Строка 4: Бизнес-ланч | Бронь стола
             [
                 InlineKeyboardButton(text=BUTTON_BUSINESS_LUNCH, callback_data=_action_callback(GuestMenuAction.BUSINESS_LUNCH)),
@@ -258,12 +266,15 @@ def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeybo
 
 
 def build_support_feedback_inline_keyboard() -> InlineKeyboardMarkup:
-    """Создает inline-клавиатуру экрана «Оставить отзыв»."""
+    """Создает inline-клавиатуру экрана «Оставить отзыв» с выбором заведения."""
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=SUPPORT_FEEDBACK_BUTTON_LABEL, url=SUPPORT_FEEDBACK_URL)],
-            [InlineKeyboardButton(text=BUTTON_BACK_TO_SUPPORT, callback_data=_action_callback(GuestMenuAction.BACK_TO_SUPPORT))],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_GRUZINKA, url=FEEDBACK_URL_GRUZINKA)],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_SUSAMI, url=FEEDBACK_URL_SUSAMI)],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_CHINA, url=FEEDBACK_URL_CHINA)],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_UZBECHKA, url=FEEDBACK_URL_UZBECHKA)],
+            [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))],
         ]
     )
 

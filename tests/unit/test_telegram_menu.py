@@ -95,16 +95,28 @@ def test_build_iiko_sync_retry_keyboard_contains_retry_button() -> None:
 
 
 def test_build_support_feedback_keyboard_contains_link_and_back_button() -> None:
-    """Проверяет клавиатуру экрана «Оставить отзыв»: ссылка и кнопка возврата."""
+    """Проверяет клавиатуру экрана «Оставить отзыв»: 4 ссылки на заведения и кнопка возврата в меню."""
 
     keyboard = build_support_feedback_inline_keyboard()
 
-    assert len(keyboard.inline_keyboard) == 2
-    link_button = keyboard.inline_keyboard[0][0]
-    back_button = keyboard.inline_keyboard[1][0]
-
-    assert link_button.url == "https://rdata.one/Nyyl"
-    assert back_button.callback_data == GuestMenuAction.BACK_TO_SUPPORT.value
+    assert len(keyboard.inline_keyboard) == 5  # 4 заведения + назад
+    # Проверяем кнопки заведений
+    expected_urls = {
+        "https://rdata.one/nwKl",
+        "https://rdata.one/pwKl",
+        "https://rdata.one/xxKl",
+        "https://rdata.one/vxKl",
+    }
+    actual_urls = {row[0].url for row in keyboard.inline_keyboard[:4]}
+    assert actual_urls == expected_urls
+    # Проверяем, что callback_data у ссылок None
+    for row in keyboard.inline_keyboard[:4]:
+        assert row[0].callback_data is None
+    # Проверяем кнопку "Назад в меню"
+    back_button = keyboard.inline_keyboard[4][0]
+    assert back_button.text == "🔙 Назад в меню"
+    assert back_button.url is None
+    assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value
 
 
 def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
@@ -149,12 +161,12 @@ def test_build_main_menu_keyboard_contains_support_question_and_feedback_link() 
     assert row2[0].text == "❓ Мне только спросить"
     assert row2[0].callback_data == GuestMenuAction.SUPPORT_QUESTION.value
     
-    # Строка 3: Оставить отзыв (URL-кнопка)
+    # Строка 3: Оставить отзыв (теперь подменю с выбором заведения)
     row3 = keyboard.inline_keyboard[2]
     assert len(row3) == 1
     assert row3[0].text == "✍️ Оставить отзыв"
-    assert row3[0].url == "https://rdata.one/Nyyl"
-    assert row3[0].callback_data is None
+    assert row3[0].url is None
+    assert row3[0].callback_data == GuestMenuAction.SUPPORT_FEEDBACK.value
     
     # Строка 4: Бизнес-ланч | Бронь стола (2 кнопки)
     row4 = keyboard.inline_keyboard[3]
