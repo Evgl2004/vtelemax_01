@@ -67,33 +67,33 @@ MAILING_CONSENT_URLS = {
 }
 BUTTON_PERSONAL_DATA_CONSENT_LINK = "📄 Согласие на ПД"
 BUTTON_PRIVACY_POLICY_LINK = "📄 Политика конфиденциальности"
-BUTTON_DELIVERY_GRUZIKA_NANI = "Грузика Нани"
-BUTTON_DELIVERY_SUSAMI = "Сами Сусами"
-BUTTON_DELIVERY_CHINA = "Чина"
-BUTTON_DELIVERY_UZBECHKA = "Узбечка"
-DELIVERY_URL_GRUZIKA_NANI = "https://gruzinka.rest.market/"
+BUTTON_DELIVERY_GRUZINKA_NANI = "💃 Грузинка Нани"
+BUTTON_DELIVERY_SUSAMI = "🍷 Сами Сусами"
+BUTTON_DELIVERY_CHINA = "🍜 Чина"
+BUTTON_DELIVERY_UZBECHKA = "☀️ Узбечка"
+DELIVERY_URL_GRUZINKA_NANI = "https://gruzinka.rest.market/"
 DELIVERY_URL_SUSAMI = "https://susami.rest.market/"
 DELIVERY_URL_CHINA = "https://china.rest.market/"
 DELIVERY_URL_UZBECHKA = "https://uzbechka.rest.market/"
 
 # Кнопки и URL для бизнес-ланча
 BUTTON_BUSINESS_LUNCH = "🍽️ Бизнес-ланч"
-BUTTON_BUSINESS_LUNCH_GRUZIKA_NANI = "Грузинка Нани"
-BUTTON_BUSINESS_LUNCH_SUSAMI = "Сами Сусами"
-BUTTON_BUSINESS_LUNCH_CHINA = "Чина"
-BUTTON_BUSINESS_LUNCH_UZBECHKA = "Узбечка"
-BUSINESS_LUNCH_URL_GRUZIKA_NANI = "https://rest-nani.ru/BL.jpg"
+BUTTON_BUSINESS_LUNCH_GRUZINKA_NANI = "💃 Грузинка Нани"
+BUTTON_BUSINESS_LUNCH_SUSAMI = "🍷 Сами Сусами"
+BUTTON_BUSINESS_LUNCH_CHINA = "🍜 Чина"
+BUTTON_BUSINESS_LUNCH_UZBECHKA = "☀️ Узбечка"
+BUSINESS_LUNCH_URL_GRUZINKA_NANI = "https://rest-nani.ru/BL.jpg"
 BUSINESS_LUNCH_URL_SUSAMI = "https://rest-susami.ru/BL.jpg"
 BUSINESS_LUNCH_URL_CHINA = "https://rest-china.ru/BL.jpg"
 BUSINESS_LUNCH_URL_UZBECHKA = "https://rest-uzbechka.ru/BL.jpg"
 
 # Кнопки и URL для бронирования столиков
 BUTTON_TABLE_BOOKING = "🪑 Бронь стола"
-BUTTON_TABLE_BOOKING_GRUZIKA_NANI = "Грузинка Нани"
-BUTTON_TABLE_BOOKING_SUSAMI = "Сами Сусами"
-BUTTON_TABLE_BOOKING_CHINA = "Чина"
-BUTTON_TABLE_BOOKING_UZBECHKA = "Узбечка"
-TABLE_BOOKING_URL_GRUZIKA_NANI = "https://gruzinka.restoplace.ws/"
+BUTTON_TABLE_BOOKING_GRUZINKA_NANI = "💃 Грузинка Нани"
+BUTTON_TABLE_BOOKING_SUSAMI = "🍷 Сами Сусами"
+BUTTON_TABLE_BOOKING_CHINA = "🍜 Чина"
+BUTTON_TABLE_BOOKING_UZBECHKA = "☀️ Узбечка"
+TABLE_BOOKING_URL_GRUZINKA_NANI = "https://gruzinka.restoplace.ws/"
 TABLE_BOOKING_URL_SUSAMI = "https://susami.restoplace.ws/"
 TABLE_BOOKING_URL_CHINA = "https://china.restoplace.ws/"
 TABLE_BOOKING_URL_UZBECHKA = "https://usbechka.restoplace.ws/"
@@ -368,8 +368,8 @@ def build_delivery_screen() -> MenuScreenContract:
         buttons=(
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_DELIVERY_GRUZIKA_NANI,
-                url=DELIVERY_URL_GRUZIKA_NANI,
+                label=BUTTON_DELIVERY_GRUZINKA_NANI,
+                url=DELIVERY_URL_GRUZINKA_NANI,
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
@@ -403,8 +403,8 @@ def build_business_lunch_screen() -> MenuScreenContract:
         buttons=(
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_BUSINESS_LUNCH_GRUZIKA_NANI,
-                url=BUSINESS_LUNCH_URL_GRUZIKA_NANI,
+                label=BUTTON_BUSINESS_LUNCH_GRUZINKA_NANI,
+                url=BUSINESS_LUNCH_URL_GRUZINKA_NANI,
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
@@ -438,8 +438,8 @@ def build_table_booking_screen() -> MenuScreenContract:
         buttons=(
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_TABLE_BOOKING_GRUZIKA_NANI,
-                url=TABLE_BOOKING_URL_GRUZIKA_NANI,
+                label=BUTTON_TABLE_BOOKING_GRUZINKA_NANI,
+                url=TABLE_BOOKING_URL_GRUZINKA_NANI,
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,

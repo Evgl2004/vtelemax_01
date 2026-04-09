@@ -114,7 +114,7 @@ def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
 
     assert len(keyboard.inline_keyboard) == 5
     first_button = keyboard.inline_keyboard[0][0]
-    assert first_button.text == "Грузика Нани"
+    assert first_button.text == "💃 Грузинка Нани"
     assert first_button.url == "https://gruzinka.rest.market/"
     assert first_button.callback_data is None
     for row in keyboard.inline_keyboard[:4]:
