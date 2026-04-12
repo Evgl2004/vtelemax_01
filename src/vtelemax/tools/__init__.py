@@ -29,6 +29,14 @@ from .legacy_telegram_migration import (
     prepare_legacy_source_records,
     read_legacy_source_records,
 )
+from .legacy_telegram_broadcast import (
+    LegacyBroadcastSelectionResult,
+    LegacyBroadcastSendResult,
+    LegacyBroadcastTarget,
+    build_default_legacy_broadcast_message,
+    select_legacy_broadcast_targets,
+    send_legacy_broadcast,
+)
 
 __all__ = [
     "PersonResetAccount",
@@ -49,4 +57,10 @@ __all__ = [
     "prepare_legacy_source_records",
     "migrate_prepared_legacy_records",
     "build_report_lines",
+    "LegacyBroadcastTarget",
+    "LegacyBroadcastSelectionResult",
+    "LegacyBroadcastSendResult",
+    "build_default_legacy_broadcast_message",
+    "select_legacy_broadcast_targets",
+    "send_legacy_broadcast",
 ]
