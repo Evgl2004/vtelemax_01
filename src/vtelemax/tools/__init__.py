@@ -37,6 +37,12 @@ from .legacy_telegram_broadcast import (
     select_legacy_broadcast_targets,
     send_legacy_broadcast,
 )
+from .guest_info import (
+    GuestInfo,
+    GuestPlatformInfo,
+    get_guest_info_by_phone,
+    get_guest_info_rows_by_phone,
+)
 
 __all__ = [
     "PersonResetAccount",
@@ -63,4 +69,8 @@ __all__ = [
     "build_default_legacy_broadcast_message",
     "select_legacy_broadcast_targets",
     "send_legacy_broadcast",
+    "GuestInfo",
+    "GuestPlatformInfo",
+    "get_guest_info_by_phone",
+    "get_guest_info_rows_by_phone",
 ]
