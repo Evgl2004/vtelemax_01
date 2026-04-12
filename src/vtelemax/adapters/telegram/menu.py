@@ -79,6 +79,7 @@ MOD_TICKET_PREFIX = "mod_ticket_"
 MOD_REPLY_PREFIX = "mod_reply_"
 MOD_TAKE_PREFIX = "mod_take_"
 MOD_CLOSE_PREFIX = "mod_close_"
+GUEST_MESSAGE_CLOSE_CALLBACK = "guest_msg_close"
 DOCS_URL = PERSONAL_DATA_CONSENT_URLS["telegram"]
 NOTIFICATIONS_DOCS_URL = MAILING_CONSENT_URLS["telegram"]
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
@@ -546,6 +547,16 @@ def build_moderation_reply_cancel_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data=MOD_MAIN_CALLBACK)],
+        ]
+    )
+
+
+def build_guest_message_close_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-кнопку закрытия входящего сообщения от модератора для гостя."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Закрыть", callback_data=GUEST_MESSAGE_CLOSE_CALLBACK)],
         ]
     )
 

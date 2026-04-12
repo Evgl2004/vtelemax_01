@@ -39,6 +39,7 @@ from .menu import (
     MOD_TICKET_PREFIX,
     NOTIFY_NO_CALLBACK,
     NOTIFY_YES_CALLBACK,
+    GUEST_MESSAGE_CLOSE_CALLBACK,
     RULES_ACCEPT_CALLBACK,
     USER_TICKETS_PAGE_PREFIX,
     USER_TICKETS_PREV_PAGE_PREFIX,
@@ -77,6 +78,7 @@ from .menu import (
     build_table_booking_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
+    build_guest_message_close_inline_keyboard,
     build_moderation_main_inline_keyboard,
     build_moderation_notification_inline_keyboard,
     build_moderation_reply_cancel_inline_keyboard,
@@ -506,6 +508,8 @@ def build_telegram_identity_router(
                 reply_markup = None
                 if delivery.author == SupportMessageAuthor.SYSTEM:
                     reply_markup = build_moderation_notification_inline_keyboard(str(delivery.ticket_id))
+                elif delivery.author == SupportMessageAuthor.MODERATOR:
+                    reply_markup = build_guest_message_close_inline_keyboard()
                 await bot.send_message(
                     chat_id=int(delivery.target_external_id),
                     text=text,
@@ -631,7 +635,12 @@ def build_telegram_identity_router(
             telegram_user_id=message.from_user.id,
             action_text=message.text,
         )
-        if result.status in {"support_question_submitted", "support_question_error"}:
+        if result.status in {
+            "support_question_submitted",
+            "support_question_error",
+            "support_reply_submitted",
+            "support_reply_closed",
+        }:
             await _cleanup_support_prompt_message(
                 bot=message.bot,
                 chat_id=message.chat.id,
@@ -793,6 +802,24 @@ def build_telegram_identity_router(
         await callback.answer()
         event_logger.debug("No-op callback подтвержден без сценарного перехода.")
 
+    @router.callback_query(F.data == GUEST_MESSAGE_CLOSE_CALLBACK)
+    async def guest_message_close_callback_handler(callback: CallbackQuery) -> None:
+        """Удаляет входящее сообщение модератора по кнопке «Закрыть»."""
+
+        event_logger = router_logger.bind(
+            stage="guest_message_close_callback",
+            user_id=str(callback.from_user.id) if callback.from_user else "-",
+        )
+        await _try_process_pending_deliveries(callback.bot)
+        await callback.answer()
+
+        if callback.message is None:
+            return
+        try:
+            await callback.message.delete()
+        except Exception:  # noqa: BLE001
+            event_logger.debug("Не удалось удалить сообщение гостя по кнопке закрытия.")
+
     @router.callback_query(
         F.data.startswith(USER_TICKET_DETAILS_PREFIX) |
         F.data.startswith(USER_TICKET_REPLY_PREFIX) |
@@ -826,6 +853,32 @@ def build_telegram_identity_router(
             action_text=callback.data,
         )
         event_logger.info("Callback пагинации тикетов обработан. status={status}.", status=result.status)
+
+        support_wait_statuses = {
+            "support_question",
+            "support_question_empty",
+            "support_question_unavailable",
+            "support_question_input",
+            "support_reply_input",
+            "support_reply_empty",
+            "support_reply_error",
+        }
+        if result.status in support_wait_statuses and callback.message is not None:
+            _remember_support_prompt_message(
+                user_id=callback.from_user.id,
+                message_id=callback.message.message_id,
+            )
+        elif result.status not in {"support_question_submitted", "support_reply_submitted", "support_reply_closed"}:
+            support_prompt_message_id_by_user_id.pop(callback.from_user.id, None)
+
+        moderation_wait_statuses = {"moderation_wait_reply_text", "moderation_empty_reply", "moderation_bad_platform"}
+        if result.status in moderation_wait_statuses and callback.message is not None:
+            _remember_moderation_reply_prompt_message(
+                user_id=callback.from_user.id,
+                message_id=callback.message.message_id,
+            )
+        elif result.status != "moderation_error":
+            moderation_reply_prompt_message_id_by_user_id.pop(callback.from_user.id, None)
 
         reply_markup = _choose_reply_markup(result)
 

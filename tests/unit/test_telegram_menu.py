@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from vtelemax.adapters.telegram.menu import (
+    GUEST_MESSAGE_CLOSE_CALLBACK,
     MOD_CLOSE_PREFIX,
     MOD_LIST_PREFIX,
     MOD_PAGE_PREFIX,
@@ -16,6 +17,7 @@ from vtelemax.adapters.telegram.menu import (
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
+    build_guest_message_close_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_moderation_main_inline_keyboard,
     build_moderation_ticket_details_inline_keyboard,
@@ -208,6 +210,7 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
     )
     keyboards = [
         build_main_menu_inline_keyboard(),
+        build_guest_message_close_inline_keyboard(),
         build_delivery_inline_keyboard(),
         build_support_menu_inline_keyboard(has_tickets=False),
         build_support_menu_inline_keyboard(has_tickets=True),
@@ -238,6 +241,18 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
                 if callback_data is None:
                     continue
                 assert len(callback_data.encode("utf-8")) <= 64
+
+
+def test_build_guest_message_close_keyboard_contains_close_callback() -> None:
+    """Проверяет inline-кнопку закрытия входящего сообщения от модератора."""
+
+    keyboard = build_guest_message_close_inline_keyboard()
+
+    assert len(keyboard.inline_keyboard) == 1
+    assert len(keyboard.inline_keyboard[0]) == 1
+    button = keyboard.inline_keyboard[0][0]
+    assert button.text == "❌ Закрыть"
+    assert button.callback_data == GUEST_MESSAGE_CLOSE_CALLBACK
 
 
 def test_build_user_tickets_pagination_keyboard() -> None:
