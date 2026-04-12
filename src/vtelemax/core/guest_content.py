@@ -140,10 +140,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
 
     mapping: dict[str, GuestMenuAction] = {
         BUTTON_MAIN_MENU.lower(): GuestMenuAction.MAIN_MENU,
-        "меню": GuestMenuAction.MAIN_MENU,
-        "/menu": GuestMenuAction.MAIN_MENU,
         BUTTON_PROFILE.lower(): GuestMenuAction.PROFILE,
-        "профиль": GuestMenuAction.PROFILE,
         BUTTON_PROFILE_EDIT.lower(): GuestMenuAction.PROFILE_EDIT,
         BUTTON_PROFILE_EDIT_FIRST_NAME.lower(): GuestMenuAction.PROFILE_EDIT_FIRST_NAME,
         BUTTON_PROFILE_EDIT_LAST_NAME.lower(): GuestMenuAction.PROFILE_EDIT_LAST_NAME,
@@ -153,43 +150,24 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_PROFILE_EDIT_BIRTH_DATE.lower(): GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
         BUTTON_PROFILE_EDIT_EMAIL.lower(): GuestMenuAction.PROFILE_EDIT_EMAIL,
         BUTTON_PROFILE_EDIT_CANCEL.lower(): GuestMenuAction.PROFILE_EDIT_CANCEL,
-        "/profile": GuestMenuAction.PROFILE,
         BUTTON_HELP.lower(): GuestMenuAction.HELP,
         "/help": GuestMenuAction.HELP,
         BUTTON_ABOUT.lower(): GuestMenuAction.ABOUT,
-        "/about": GuestMenuAction.ABOUT,
         BUTTON_SEND_PHONE.lower(): GuestMenuAction.SHARE_CONTACT,
         BUTTON_BALANCE.lower(): GuestMenuAction.BALANCE,
-        "мой баланс": GuestMenuAction.BALANCE,
-        "баланс": GuestMenuAction.BALANCE,
         BUTTON_BONUSES.lower(): GuestMenuAction.BALANCE,
         BUTTON_VIRTUAL_CARD.lower(): GuestMenuAction.VIRTUAL_CARD,
-        "виртуальная карта": GuestMenuAction.VIRTUAL_CARD,
         BUTTON_DELIVERY.lower(): GuestMenuAction.DELIVERY,
-        "доставка": GuestMenuAction.DELIVERY,
         BUTTON_BUSINESS_LUNCH.lower(): GuestMenuAction.BUSINESS_LUNCH,
-        "бизнес ланч": GuestMenuAction.BUSINESS_LUNCH,
-        "бизнес-ланч": GuestMenuAction.BUSINESS_LUNCH,
         BUTTON_TABLE_BOOKING.lower(): GuestMenuAction.TABLE_BOOKING,
-        "бронь стола": GuestMenuAction.TABLE_BOOKING,
-        "бронь": GuestMenuAction.TABLE_BOOKING,
         BUTTON_SUPPORT.lower(): GuestMenuAction.SUPPORT,
-        "отдел заботы": GuestMenuAction.SUPPORT,
-        "поддержка": GuestMenuAction.SUPPORT,
         BUTTON_VACANCIES.lower(): GuestMenuAction.VACANCIES,
-        "вакансии": GuestMenuAction.VACANCIES,
         BUTTON_SUPPORT_FEEDBACK.lower(): GuestMenuAction.SUPPORT_FEEDBACK,
-        "оставить отзыв": GuestMenuAction.SUPPORT_FEEDBACK,
         BUTTON_SUPPORT_QUESTION.lower(): GuestMenuAction.SUPPORT_QUESTION,
         BUTTON_SUPPORT_QUESTION_LEGACY.lower(): GuestMenuAction.SUPPORT_QUESTION,
-        "❓ мне только спросить": GuestMenuAction.SUPPORT_QUESTION,
-        "задать вопрос": GuestMenuAction.SUPPORT_QUESTION,
-        "мне только спросить": GuestMenuAction.SUPPORT_QUESTION,
         "support_question_from_list": GuestMenuAction.SUPPORT_QUESTION_FROM_LIST,
         BUTTON_MY_TICKETS.lower(): GuestMenuAction.MY_TICKETS,
-        "мои обращения": GuestMenuAction.MY_TICKETS,
         BUTTON_SUPPORT_CONTACTS.lower(): GuestMenuAction.SUPPORT_CONTACTS,
-        "контакты": GuestMenuAction.SUPPORT_CONTACTS,
         BUTTON_BACK_TO_MAIN.lower(): GuestMenuAction.BACK_TO_MAIN,
         BUTTON_BACK_TO_SUPPORT.lower(): GuestMenuAction.BACK_TO_SUPPORT,
         BUTTON_DOCS_LINK.lower(): GuestMenuAction.OPEN_DOCS,
@@ -685,10 +663,10 @@ def build_help_screen() -> MenuScreenContract:
     return MenuScreenContract(
         screen_id="help",
         text=(
-            "🆘 Помощь по боту\n\n"
-            "• /start — запуск и регистрация\n"
-            "• Мой профиль — показать ваш телефон и привязки\n"
-            "• Отдел заботы — связь с поддержкой"
+            "ℹ️ Помощь по боту\n\n"
+            "• /start или «Начать» — запуск и регистрация\n"
+            "• /help или «Помощь» — показать эту подсказку\n"
+            "• Для связи с поддержкой используйте пункт меню «❓ Мне только спросить»"
         ),
     )
 
@@ -898,4 +876,3 @@ def _format_accounts_platforms(accounts_platforms: tuple[str, ...] | None) -> st
     }
     readable_platforms = [title_mapping.get(platform, platform.upper()) for platform in accounts_platforms]
     return ", ".join(readable_platforms)
-

@@ -120,7 +120,7 @@ def test_profile_phone_is_consistent_for_telegram_vk_max() -> None:
     telegram, vk, max_adapter = _build_adapters()
     _complete_cross_platform_registration(telegram, vk, max_adapter)
 
-    telegram_profile = telegram.handle_menu_action(telegram_user_id=1001, action_text="/profile")
+    telegram_profile = telegram.handle_menu_action(telegram_user_id=1001, action_text="👤 Профиль")
     vk_profile = vk.handle_incoming(vk_user_id=2002, text="", payload={"cmd": GuestMenuAction.PROFILE.value})
     max_profile = max_adapter.handle_incoming(
         max_user_id=3003, text="", payload=GuestMenuAction.PROFILE.value

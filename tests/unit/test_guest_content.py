@@ -45,10 +45,10 @@ def test_support_menu_screen_includes_my_tickets_only_when_requested() -> None:
 
 
 def test_resolve_guest_menu_action_detects_text_and_command() -> None:
-    """Проверяет распознавание действия по кнопке и slash-команде."""
+    """Проверяет распознавание действия по кнопке и разрешенной slash-команде."""
 
     assert resolve_guest_menu_action("💰 Мой баланс") == GuestMenuAction.BALANCE
-    assert resolve_guest_menu_action("/menu") == GuestMenuAction.MAIN_MENU
+    assert resolve_guest_menu_action("Главное меню") == GuestMenuAction.MAIN_MENU
     assert resolve_guest_menu_action("✅ Согласен") == GuestMenuAction.ACCEPT_RULES
 
 
@@ -135,7 +135,10 @@ def test_help_screen_does_not_mention_menu_command() -> None:
     screen = build_help_screen()
 
     assert "/start" in screen.text
+    assert "/help" in screen.text
     assert "/menu" not in screen.text
+    assert "Отдел заботы" not in screen.text
+    assert "Мне только спросить" in screen.text
 
 
 def test_iiko_sync_retry_screen_contains_retry_action() -> None:

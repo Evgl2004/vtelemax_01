@@ -7,7 +7,7 @@ from typing import Any
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import CommandStart
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
@@ -436,7 +436,6 @@ def build_telegram_identity_router(
             "virtual_card_error",
             "virtual_card_unavailable",
             "vacancies",
-            "help",
             "about",
             "support_question_submitted",
             "support_question_error",
@@ -503,29 +502,6 @@ def build_telegram_identity_router(
         reply_markup = _choose_reply_markup(result)
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
-    @router.message(Command("legacy"))
-    async def legacy_start_handler(message: Message) -> None:
-        """Явный запуск legacy-ветки обновления профиля."""
-
-        event_logger = router_logger.bind(
-            stage="legacy_command",
-            user_id=str(message.from_user.id) if message.from_user else "-",
-        )
-        event_logger.debug("Получена команда /legacy.")
-        await _try_process_pending_deliveries(message.bot)
-        if message.from_user is None:
-            event_logger.warning("Не удалось определить пользователя Telegram в /legacy.")
-            await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
-            return
-
-        result = identity_adapter.start_interaction(
-            telegram_user_id=message.from_user.id,
-            force_legacy_upgrade=True,
-        )
-        support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
-        event_logger.info("Legacy-flow запущен. status={status}.", status=result.status)
-        await _answer_with_result(message=message, result=result, reply_markup=None)
-
     @router.message(F.contact)
     async def contact_handler(message: Message) -> None:
         """Обработчик сообщения с контактом от пользователя."""
@@ -579,30 +555,6 @@ def build_telegram_identity_router(
             reply_markup = None
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
 
-    @router.message(Command("menu"))
-    async def command_menu_handler(message: Message) -> None:
-        """Обработчик команды `/menu`."""
-
-        event_logger = router_logger.bind(
-            stage="menu_command",
-            user_id=str(message.from_user.id) if message.from_user else "-",
-        )
-        event_logger.debug("Получена команда /menu.")
-        await _try_process_pending_deliveries(message.bot)
-        if message.from_user is None:
-            event_logger.warning("Не удалось определить пользователя Telegram в /menu.")
-            await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
-            return
-
-        result = identity_adapter.handle_menu_action(
-            telegram_user_id=message.from_user.id,
-            action_text="/menu",
-        )
-        support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
-        event_logger.info("Ответ /menu сформирован. status={status}.", status=result.status)
-        reply_markup = _choose_reply_markup(result)
-        await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
-
     @router.message(F.text)
     async def text_menu_handler(message: Message) -> None:
         """Обработчик текстовых кнопок и команд меню."""
@@ -619,6 +571,15 @@ def build_telegram_identity_router(
         if message.from_user is None:
             event_logger.warning("Не удалось определить пользователя Telegram для текстового ввода.")
             await message.answer("Не удалось определить ваш Telegram-аккаунт. Повторите попытку.")
+            return
+
+        normalized_text = message.text.strip().lower()
+        if normalized_text == "начать":
+            result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
+            support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
+            event_logger.info("Текстовая команда 'Начать' обработана. status={status}.", status=result.status)
+            reply_markup = _choose_reply_markup(result)
+            await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
             return
 
         result = identity_adapter.handle_menu_action(

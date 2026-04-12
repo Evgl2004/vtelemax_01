@@ -506,7 +506,8 @@ class MaxIdentityAdapter:
             )
             return MaxAdapterResponse(
                 text=(
-                    "Команда не распознана. Используйте кнопки меню.\n\n"
+                    "Команда не распознана. Доступные команды: /start, Начать, /help, Помощь.\n"
+                    "Для навигации используйте кнопки меню.\n\n"
                     f"{main_screen.text}"
                 ),
                 screen=main_screen,

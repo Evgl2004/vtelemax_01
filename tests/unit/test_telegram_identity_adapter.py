@@ -675,7 +675,7 @@ def test_telegram_onboarding_iiko_failure_moves_to_retry_step() -> None:
     assert failure_result.status == "iiko_sync_retry"
     assert "синхронизац" in failure_result.message.lower()
 
-    pending_result = adapter.handle_menu_action(telegram_user_id=3003, action_text="/menu")
+    pending_result = adapter.handle_menu_action(telegram_user_id=3003, action_text="Главное меню")
     assert pending_result.status == "iiko_sync_retry_pending"
     assert "Повторить синхронизацию" in pending_result.message
 

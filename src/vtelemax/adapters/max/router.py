@@ -16,8 +16,7 @@ from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
 
-_START_COMMANDS = {"/start", "start", "начать"}
-_LEGACY_COMMANDS = {"/legacy", "legacy", "обновить профиль"}
+_START_COMMANDS = {"/start", "начать"}
 
 
 _VCF_PHONE_PATTERN = re.compile(r"TEL[^:]*:([^\r\n]+)", flags=re.IGNORECASE)
@@ -215,9 +214,6 @@ def register_max_guest_handlers(
         if lowered in _START_COMMANDS:
             support_prompt_message_id_by_user_id.pop(user_id, None)
             response = adapter.handle_start(max_user_id=user_id)
-        elif lowered in _LEGACY_COMMANDS:
-            support_prompt_message_id_by_user_id.pop(user_id, None)
-            response = adapter.handle_legacy_start(max_user_id=user_id)
         else:
             response = adapter.handle_incoming(
                 max_user_id=user_id,

@@ -551,7 +551,7 @@ def test_max_onboarding_iiko_failure_moves_to_retry_step() -> None:
     assert failure_result.screen.screen_id == "iiko_sync_retry"
     assert "синхронизац" in failure_result.text.lower()
 
-    pending_result = adapter.handle_incoming(max_user_id=2001, text="/menu", payload=None)
+    pending_result = adapter.handle_incoming(max_user_id=2001, text="Главное меню", payload=None)
     assert pending_result.screen is not None
     assert pending_result.screen.screen_id == "iiko_sync_retry"
     assert "Повторить синхронизацию" in pending_result.text

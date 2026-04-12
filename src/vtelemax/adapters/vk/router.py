@@ -292,7 +292,7 @@ def register_vk_guest_handlers(
                 delivery_logger.exception("Ошибка при обработке pending-сообщений модератора.")
                 return
 
-    @bot.on.private_message(text=["/start", "start", "Start", "начать", "Начать"])
+    @bot.on.private_message(text=["/start", "/Start", "начать", "Начать"])
     async def start_handler(message: Any) -> None:
         event_logger = router_logger.bind(stage="start_command", user_id=str(message.from_id))
         event_logger.debug("Получена стартовая команда.")
@@ -300,30 +300,6 @@ def register_vk_guest_handlers(
         support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
         response = adapter.handle_start(vk_user_id=int(message.from_id))
         event_logger.info("Стартовый ответ сформирован.")
-        await _send_response(message, response)
-
-    @bot.on.private_message(text=["/menu", "menu", "Меню", "меню", "Главное меню"])
-    async def menu_handler(message: Any) -> None:
-        event_logger = router_logger.bind(stage="menu_command", user_id=str(message.from_id))
-        event_logger.debug("Получена команда меню.")
-        await _try_process_pending_deliveries()
-        support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
-        response = adapter.handle_incoming(
-            vk_user_id=int(message.from_id),
-            text="/menu",
-            payload=None,
-        )
-        event_logger.info("Команда меню обработана.")
-        await _send_response(message, response)
-
-    @bot.on.private_message(text=["/legacy", "legacy", "Legacy", "обновить профиль"])
-    async def legacy_handler(message: Any) -> None:
-        event_logger = router_logger.bind(stage="legacy_command", user_id=str(message.from_id))
-        event_logger.debug("Получена команда legacy.")
-        await _try_process_pending_deliveries()
-        support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
-        response = adapter.handle_legacy_start(vk_user_id=int(message.from_id))
-        event_logger.info("Legacy-команда обработана.")
         await _send_response(message, response)
 
     @bot.on.private_message()
@@ -334,19 +310,11 @@ def register_vk_guest_handlers(
         text = message.text or ""
         event_logger.debug("Получено входящее сообщение. text={text}.", text=text)
 
-        # Защищаемся от дублирования start/menu обработчиков.
+        # Защищаемся от дублирования start-обработчика.
         lowered = text.strip().lower()
         if lowered in {
             "/start",
-            "start",
             "начать",
-            "/menu",
-            "menu",
-            "меню",
-            "главное меню",
-            "/legacy",
-            "legacy",
-            "обновить профиль",
         }:
             return
 

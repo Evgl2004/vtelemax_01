@@ -954,10 +954,8 @@ class TelegramIdentityAdapter:
             return TelegramMenuActionResult(
                 status="unknown_action",
                 message=(
-                    "Команда не распознана. Используйте кнопки меню: "
-                    f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_DELIVERY}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
-                    f"'{BUTTON_PROFILE}', '{BUTTON_HELP}', '{BUTTON_ABOUT}', '{BUTTON_MAIN_MENU}', "
-                    f"'{BUTTON_SEND_PHONE}', '{BUTTON_ACCEPT_RULES}'."
+                    "Команда не распознана. Доступные команды: /start, Начать, /help, Помощь.\n"
+                    "Для навигации используйте кнопки меню."
                 ),
             )
 
@@ -1141,10 +1139,8 @@ class TelegramIdentityAdapter:
         return TelegramMenuActionResult(
             status="unknown_action",
             message=(
-                "Команда не распознана. Используйте кнопки меню: "
-                f"'{BUTTON_BALANCE}', '{BUTTON_VIRTUAL_CARD}', '{BUTTON_DELIVERY}', '{BUTTON_SUPPORT}', '{BUTTON_VACANCIES}', "
-                f"'{BUTTON_PROFILE}', '{BUTTON_HELP}', '{BUTTON_ABOUT}', '{BUTTON_MAIN_MENU}', "
-                f"'{BUTTON_SEND_PHONE}', '{BUTTON_ACCEPT_RULES}'."
+                "Команда не распознана. Доступные команды: /start, Начать, /help, Помощь.\n"
+                "Для навигации используйте кнопки меню."
             ),
         )
 
