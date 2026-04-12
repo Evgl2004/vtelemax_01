@@ -1485,18 +1485,11 @@ class MaxIdentityAdapter:
             return MaxAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
 
         status_value = getattr(details.status, "value", str(details.status))
-        status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(details.linked_platforms) or "-"
-        message_lines = [
-            f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
-            f"ID: {details.ticket_id}",
-            f"Статус: {status_text}",
-            f"Канал создания: {details.source_platform}",
-            f"Последний канал гостя: {details.last_guest_platform or '-'}",
-            f"Каналы гостя: {linked}",
-            "",
-        ]
-        message_lines.extend(self._format_ticket_history_lines(messages, use_html=False))
+        message_lines = self._build_moderation_ticket_card_lines(
+            details=details,
+            messages=messages,
+            use_html=True,
+        )
         normalized_filter = self._normalize_moderation_filter(filter_key)
         safe_page = max(int(page), 1)
         self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
@@ -1506,6 +1499,7 @@ class MaxIdentityAdapter:
         }
         return MaxAdapterResponse(
             text="\n".join(message_lines),
+            parse_mode="html",
             screen=self._menu_adapter.build_moderation_ticket_details_screen(
                 ticket_id=str(details.ticket_id),
                 filter_key=normalized_filter,
@@ -1883,19 +1877,11 @@ class MaxIdentityAdapter:
 
         self._moderator_state_by_user_id[max_user_id] = _STATE_MOD_MENU
         self._moderator_context_by_user_id.pop(max_user_id, None)
-        status_value = getattr(details.status, "value", str(details.status))
-        status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(details.linked_platforms) or "-"
-        message_lines = [
-            f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
-            f"🧾 <b>ID:</b> <code>{html.escape(str(details.ticket_id))}</code>",
-            f"📌 <b>Статус:</b> {html.escape(status_text)}",
-            f"🧭 <b>Канал создания:</b> {html.escape(details.source_platform)}",
-            f"🔁 <b>Последний канал гостя:</b> {html.escape(details.last_guest_platform or '-')}",
-            f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
-            "",
-        ]
-        message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
+        message_lines = self._build_moderation_ticket_card_lines(
+            details=details,
+            messages=messages,
+            use_html=True,
+        )
         message_lines.extend(["", self._build_moderation_menu_text()])
         return MaxAdapterResponse(
             text="\n".join(message_lines),
@@ -2325,10 +2311,66 @@ class MaxIdentityAdapter:
         return "❓", status_value
 
     @staticmethod
+    def _extract_first_ticket_question(messages: tuple[object, ...]) -> str:
+        """Возвращает первый вопрос гостя из истории тикета."""
+
+        for message in messages:
+            author_value = getattr(getattr(message, "author", None), "value", "")
+            body = str(getattr(message, "body", "")).strip()
+            if author_value == "guest" and body:
+                return body
+        for message in messages:
+            body = str(getattr(message, "body", "")).strip()
+            if body:
+                return body
+        return "—"
+
+    def _build_moderation_ticket_card_lines(
+        self,
+        *,
+        details: object,
+        messages: tuple[object, ...],
+        use_html: bool,
+    ) -> list[str]:
+        """Формирует компактную карточку тикета модератора в стиле прототипов."""
+
+        status_emoji, status_text = self._format_ticket_status(getattr(details.status, "value", str(details.status)))
+        linked = ", ".join(details.linked_platforms) or "-"
+        question = self._extract_first_ticket_question(messages)
+        if use_html:
+            message_lines = [
+                f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
+                f"📌 <b>Статус:</b> {html.escape(status_text.capitalize())}",
+                f"🧭 <b>Канал создания:</b> {html.escape(details.source_platform)}",
+                f"🔁 <b>Последний канал гостя:</b> {html.escape(details.last_guest_platform or '-')}",
+                f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
+                "",
+                "❓ <b>Вопрос:</b>",
+                f"<blockquote>{html.escape(question)}</blockquote>",
+                "",
+            ]
+            message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
+            return message_lines
+
+        message_lines = [
+            f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
+            f"Статус: {status_text.capitalize()}",
+            f"Канал создания: {details.source_platform}",
+            f"Последний канал гостя: {details.last_guest_platform or '-'}",
+            f"Каналы гостя: {linked}",
+            "",
+            "❓ Вопрос:",
+            question,
+            "",
+        ]
+        message_lines.extend(self._format_ticket_history_lines(messages, use_html=False))
+        return message_lines
+
+    @staticmethod
     def _format_ticket_history_lines(messages: tuple[object, ...], *, use_html: bool = False) -> list[str]:
         """Форматирует блок истории переписки тикета."""
 
-        lines: list[str] = ["📨 <b>История переписки:</b>" if use_html else "📨 История переписки:"]
+        lines: list[str] = ["--- <b>История переписки</b> ---" if use_html else "--- История переписки ---"]
         if not messages:
             lines.append("Сообщений в тикете пока нет.")
             return lines
@@ -2341,16 +2383,21 @@ class MaxIdentityAdapter:
                 author_label = "👤 Гость" if author_value == "guest" else "👨‍💼 Модератор"
             source_platform = str(getattr(message, "source_platform", "-"))
             created_at = getattr(message, "created_at", None)
-            created_at_text = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "время не указано"
+            created_at_text = created_at.strftime("%d.%m %H:%M") if created_at else "время не указано"
             body = str(getattr(message, "body", "")).strip() or "—"
             if use_html:
                 lines.append(f"[{html.escape(created_at_text)}] {author_label} ({html.escape(source_platform)}):")
                 lines.append(f"<blockquote>{html.escape(body)}</blockquote>")
+                lines.append("")
                 continue
 
             lines.append(f"[{created_at_text}] {author_label} ({source_platform}):")
             for line in body.splitlines():
                 lines.append(f"» {line}" if line.strip() else "»")
+            lines.append("")
+
+        if lines and lines[-1] == "":
+            lines.pop()
 
         return lines
 

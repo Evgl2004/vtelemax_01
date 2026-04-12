@@ -1424,18 +1424,10 @@ class VkIdentityAdapter:
             return VkAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
 
         status_value = getattr(details.status, "value", str(details.status))
-        status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(details.linked_platforms) or "-"
-        message_lines = [
-            f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
-            f"ID: {details.ticket_id}",
-            f"Статус: {status_text}",
-            f"Канал создания: {details.source_platform}",
-            f"Последний канал гостя: {details.last_guest_platform or '-'}",
-            f"Каналы гостя: {linked}",
-            "",
-        ]
-        message_lines.extend(self._format_ticket_history_lines(messages))
+        message_lines = self._build_moderation_ticket_card_lines(
+            details=details,
+            messages=messages,
+        )
         normalized_filter = self._normalize_moderation_filter(filter_key)
         safe_page = max(int(page), 1)
         self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
@@ -1817,19 +1809,10 @@ class VkIdentityAdapter:
 
         self._moderator_state_by_user_id[vk_user_id] = _STATE_MOD_MENU
         self._moderator_context_by_user_id.pop(vk_user_id, None)
-        status_value = getattr(details.status, "value", str(details.status))
-        status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(details.linked_platforms) or "-"
-        message_lines = [
-            f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
-            f"ID: {details.ticket_id}",
-            f"Статус: {status_text}",
-            f"Канал создания: {details.source_platform}",
-            f"Последний канал гостя: {details.last_guest_platform or '-'}",
-            f"Каналы гостя: {linked}",
-            "",
-        ]
-        message_lines.extend(self._format_ticket_history_lines(messages))
+        message_lines = self._build_moderation_ticket_card_lines(
+            details=details,
+            messages=messages,
+        )
         message_lines.extend(["", self._build_moderation_menu_text()])
         return VkAdapterResponse(
             text="\n".join(message_lines)
@@ -2326,10 +2309,50 @@ class VkIdentityAdapter:
         return "❓", status_value
 
     @staticmethod
+    def _extract_first_ticket_question(messages: tuple[object, ...]) -> str:
+        """Возвращает первый вопрос гостя из истории тикета."""
+
+        for message in messages:
+            author_value = getattr(getattr(message, "author", None), "value", "")
+            body = str(getattr(message, "body", "")).strip()
+            if author_value == "guest" and body:
+                return body
+        for message in messages:
+            body = str(getattr(message, "body", "")).strip()
+            if body:
+                return body
+        return "—"
+
+    def _build_moderation_ticket_card_lines(
+        self,
+        *,
+        details: object,
+        messages: tuple[object, ...],
+    ) -> list[str]:
+        """Формирует компактную карточку тикета в стиле прототипов."""
+
+        status_emoji, status_text = self._format_ticket_status(getattr(details.status, "value", str(details.status)))
+        linked = ", ".join(details.linked_platforms) or "-"
+        question = self._extract_first_ticket_question(messages)
+        message_lines = [
+            f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
+            f"Статус: {status_text.capitalize()}",
+            f"Канал создания: {details.source_platform}",
+            f"Последний канал гостя: {details.last_guest_platform or '-'}",
+            f"Каналы гостя: {linked}",
+            "",
+            "❓ Вопрос:",
+            question,
+            "",
+        ]
+        message_lines.extend(self._format_ticket_history_lines(messages))
+        return message_lines
+
+    @staticmethod
     def _format_ticket_history_lines(messages: tuple[object, ...]) -> list[str]:
         """Форматирует блок истории переписки тикета."""
 
-        lines: list[str] = ["📨 История переписки:"]
+        lines: list[str] = ["--- История переписки ---"]
         if not messages:
             lines.append("Сообщений в тикете пока нет.")
             return lines
@@ -2339,11 +2362,15 @@ class VkIdentityAdapter:
             author_label = "👤 Гость" if author_value == "guest" else "👨‍💼 Модератор"
             source_platform = str(getattr(message, "source_platform", "-"))
             created_at = getattr(message, "created_at", None)
-            created_at_text = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "время не указано"
+            created_at_text = created_at.strftime("%d.%m %H:%M") if created_at else "время не указано"
             body = str(getattr(message, "body", "")).strip() or "—"
             lines.append(f"[{created_at_text}] {author_label} ({source_platform}):")
             for line in body.splitlines():
                 lines.append(f"» {line}" if line.strip() else "»")
+            lines.append("")
+
+        if lines and lines[-1] == "":
+            lines.pop()
 
         return lines
 
