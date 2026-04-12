@@ -55,3 +55,25 @@ def test_read_sql_statements_raises_on_empty_migration(monkeypatch: pytest.Monke
 
     with pytest.raises(ValueError):
         read_sql_statements(_PROJECT_ROOT / "migrations" / "sql" / "fake_empty.sql")
+
+
+def test_migration_0005_uses_non_destructive_upsert_for_platform_states() -> None:
+    """Проверяет, что 0005 не перетирает уже заполненные платформенные состояния."""
+
+    migration_file = _PROJECT_ROOT / "migrations" / "sql" / "0005_person_platform_states.sql"
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "ON CONFLICT (PERSON_ID, PLATFORM) DO UPDATE" in upper
+    assert "RULES_ACCEPTED = CASE" in upper
+    assert "NOTIFICATIONS_ALLOWED = CASE" in upper
+    assert "IS_REGISTERED = CASE" in upper
+    assert "COALESCE(" in upper
+    assert "PERSON_PLATFORM_STATES.RULES_ACCEPTED_AT" in upper
+    assert "PERSON_PLATFORM_STATES.NOTIFICATIONS_ALLOWED_AT" in upper
+    assert "PERSON_PLATFORM_STATES.REGISTERED_AT" in upper
+
+    # Защита от регрессии: нельзя возвращать жесткое затирание через EXCLUDED.*
+    assert "RULES_ACCEPTED = EXCLUDED.RULES_ACCEPTED" not in upper
+    assert "NOTIFICATIONS_ALLOWED = EXCLUDED.NOTIFICATIONS_ALLOWED" not in upper
+    assert "IS_REGISTERED = EXCLUDED.IS_REGISTERED" not in upper
