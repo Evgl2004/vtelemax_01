@@ -1480,7 +1480,8 @@ class VkIdentityAdapter:
             text=(
                 "Введите текст ответа модератора.\n"
                 "Отправьте ответ одним сообщением."
-            )
+            ),
+            screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
         )
 
     def _set_moderation_status_from_payload(
@@ -1709,7 +1710,8 @@ class VkIdentityAdapter:
             text=(
                 "Введите текст ответа модератора.\n"
                 "Отправьте ответ одним сообщением."
-            )
+            ),
+            screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
         )
 
     def _handle_moderator_wait_reply_text(self, *, vk_user_id: int, raw_message: str) -> VkAdapterResponse:
@@ -1725,13 +1727,22 @@ class VkIdentityAdapter:
 
         parsed = self._parse_target_and_reply_text(raw_message)
         if parsed is None:
-            return VkAdapterResponse(text="Текст ответа модератора не может быть пустым.")
+            return VkAdapterResponse(
+                text="Текст ответа модератора не может быть пустым.",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
         preferred_target, message_text = parsed
         if preferred_target is not None and preferred_target not in SUPPORTED_PLATFORMS:
-            return VkAdapterResponse(text="Недопустимая целевая платформа в --to.")
+            return VkAdapterResponse(
+                text="Недопустимая целевая платформа в --to.",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
 
         if self._moderator_reply_use_case is None:
-            return VkAdapterResponse(text="Маршрутизация ответа модератора пока недоступна.")
+            return VkAdapterResponse(
+                text="Маршрутизация ответа модератора пока недоступна.",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
 
         try:
             route = self._moderator_reply_use_case.execute(
@@ -1743,7 +1754,10 @@ class VkIdentityAdapter:
                 )
             )
         except ValueError as error:
-            return VkAdapterResponse(text=f"Не удалось маршрутизировать ответ: {error}")
+            return VkAdapterResponse(
+                text=f"Не удалось маршрутизировать ответ: {error}",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
 
         filter_key = self._normalize_moderation_filter(context.get("filter", _MOD_FILTER_NEW))
         try:

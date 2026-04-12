@@ -136,6 +136,7 @@ def build_telegram_identity_router(
     profile_keyboard = build_profile_inline_keyboard()
     delivery_lock = asyncio.Lock()
     support_prompt_message_id_by_user_id: dict[int, int] = {}
+    moderation_reply_prompt_message_id_by_user_id: dict[int, int] = {}
 
     def _with_reply_keyboard_cleanup(
         reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None,
@@ -183,6 +184,13 @@ def build_telegram_identity_router(
             return
         support_prompt_message_id_by_user_id[user_id] = message_id
 
+    def _remember_moderation_reply_prompt_message(*, user_id: int | None, message_id: int | None) -> None:
+        """Запоминает id технического экрана ввода ответа модератора."""
+
+        if user_id is None or message_id is None:
+            return
+        moderation_reply_prompt_message_id_by_user_id[user_id] = message_id
+
     async def _cleanup_support_prompt_message(
         *,
         bot: Bot,
@@ -200,6 +208,24 @@ def build_telegram_identity_router(
             await bot.delete_message(chat_id=chat_id, message_id=message_id)
         except Exception:  # noqa: BLE001
             router_logger.debug("Не удалось удалить техническое сообщение ввода вопроса.")
+
+    async def _cleanup_moderation_reply_prompt_message(
+        *,
+        bot: Bot,
+        chat_id: int,
+        user_id: int | None,
+    ) -> None:
+        """Удаляет технический экран «Введите ответ модератора», чтобы он не оставался в ленте."""
+
+        if user_id is None:
+            return
+        message_id = moderation_reply_prompt_message_id_by_user_id.pop(user_id, None)
+        if message_id is None:
+            return
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception:  # noqa: BLE001
+            router_logger.debug("Не удалось удалить техническое сообщение ввода ответа модератора.")
 
     async def _answer_with_result(
         *,
@@ -515,6 +541,7 @@ def build_telegram_identity_router(
 
         result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
         support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
+        moderation_reply_prompt_message_id_by_user_id.pop(message.from_user.id, None)
         event_logger.info("Ответ /start сформирован. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
@@ -594,6 +621,7 @@ def build_telegram_identity_router(
         if normalized_text == "начать":
             result = identity_adapter.start_interaction(telegram_user_id=message.from_user.id)
             support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
+            moderation_reply_prompt_message_id_by_user_id.pop(message.from_user.id, None)
             event_logger.info("Текстовая команда 'Начать' обработана. status={status}.", status=result.status)
             reply_markup = _choose_reply_markup(result)
             await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
@@ -611,6 +639,23 @@ def build_telegram_identity_router(
             )
         elif result.status != "support_question_input":
             support_prompt_message_id_by_user_id.pop(message.from_user.id, None)
+
+        moderation_wait_statuses = {"moderation_wait_reply_text", "moderation_empty_reply", "moderation_bad_platform"}
+        moderation_cleanup_statuses = {
+            "moderation_ticket_details",
+            "moderation_routed",
+            "moderation_menu",
+            "moderation_closed",
+            "moderation_state_error",
+        }
+        if result.status in moderation_cleanup_statuses:
+            await _cleanup_moderation_reply_prompt_message(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                user_id=message.from_user.id,
+            )
+        elif result.status not in moderation_wait_statuses:
+            moderation_reply_prompt_message_id_by_user_id.pop(message.from_user.id, None)
         event_logger.info("Текстовый ввод обработан. status={status}.", status=result.status)
         reply_markup = _choose_reply_markup(result)
         await _answer_with_result(message=message, result=result, reply_markup=reply_markup)
@@ -933,6 +978,15 @@ def build_telegram_identity_router(
             action_text=callback.data,
         )
         event_logger.info("Callback меню обработан. status={status}.", status=result.status)
+
+        moderation_wait_statuses = {"moderation_wait_reply_text", "moderation_empty_reply", "moderation_bad_platform"}
+        if result.status in moderation_wait_statuses and callback.message is not None:
+            _remember_moderation_reply_prompt_message(
+                user_id=callback.from_user.id,
+                message_id=callback.message.message_id,
+            )
+        elif result.status != "moderation_error":
+            moderation_reply_prompt_message_id_by_user_id.pop(callback.from_user.id, None)
 
         reply_markup = _choose_reply_markup(result)
 

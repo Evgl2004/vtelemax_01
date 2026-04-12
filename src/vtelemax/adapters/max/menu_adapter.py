@@ -536,6 +536,12 @@ class MaxGuestMenuAdapter:
         )
         return MaxScreen(screen_id="moderation_ticket_details", text="", rows=tuple(rows))
 
+    def build_moderation_reply_cancel_screen(self) -> MaxScreen:
+        """Создает экран ввода ответа модератора с кнопкой отмены."""
+
+        rows = ((MaxButton(label="❌ Отмена", payload=MOD_MAIN_CALLBACK),),)
+        return MaxScreen(screen_id="moderation_reply_cancel", text="", rows=rows)
+
     def resolve_action_screen(
         self,
         action: GuestMenuAction,

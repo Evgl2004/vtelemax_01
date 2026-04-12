@@ -549,6 +549,12 @@ class VkGuestMenuAdapter:
         )
         return VkScreen(screen_id="moderation_ticket_details", text="", rows=tuple(rows))
 
+    def build_moderation_reply_cancel_screen(self) -> VkScreen:
+        """Создает экран ввода ответа модератора с кнопкой отмены."""
+
+        rows = ((VkButton(label="❌ Отмена", payload={"cmd": MOD_MAIN_CALLBACK}),),)
+        return VkScreen(screen_id="moderation_reply_cancel", text="", rows=rows)
+
     def resolve_action_screen(
         self,
         action: GuestMenuAction,

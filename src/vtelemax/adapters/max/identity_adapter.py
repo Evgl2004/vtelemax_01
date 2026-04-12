@@ -1541,7 +1541,8 @@ class MaxIdentityAdapter:
             text=(
                 "Введите текст ответа модератора.\n"
                 "Отправьте ответ одним сообщением."
-            )
+            ),
+            screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
         )
 
     def _set_moderation_status_from_payload(
@@ -1770,7 +1771,8 @@ class MaxIdentityAdapter:
             text=(
                 "Введите текст ответа модератора.\n"
                 "Отправьте ответ одним сообщением."
-            )
+            ),
+            screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
         )
 
     def _handle_moderator_wait_reply_text(
@@ -1791,13 +1793,22 @@ class MaxIdentityAdapter:
 
         parsed = self._parse_target_and_reply_text(raw_message)
         if parsed is None:
-            return MaxAdapterResponse(text="Текст ответа модератора не может быть пустым.")
+            return MaxAdapterResponse(
+                text="Текст ответа модератора не может быть пустым.",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
         preferred_target, message_text = parsed
         if preferred_target is not None and preferred_target not in SUPPORTED_PLATFORMS:
-            return MaxAdapterResponse(text="Недопустимая целевая платформа в --to.")
+            return MaxAdapterResponse(
+                text="Недопустимая целевая платформа в --to.",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
 
         if self._moderator_reply_use_case is None:
-            return MaxAdapterResponse(text="Маршрутизация ответа модератора пока недоступна.")
+            return MaxAdapterResponse(
+                text="Маршрутизация ответа модератора пока недоступна.",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
 
         try:
             route = self._moderator_reply_use_case.execute(
@@ -1809,7 +1820,10 @@ class MaxIdentityAdapter:
                 )
             )
         except ValueError as error:
-            return MaxAdapterResponse(text=f"Не удалось маршрутизировать ответ: {error}")
+            return MaxAdapterResponse(
+                text=f"Не удалось маршрутизировать ответ: {error}",
+                screen=self._menu_adapter.build_moderation_reply_cancel_screen(),
+            )
 
         filter_key = self._normalize_moderation_filter(context.get("filter", _MOD_FILTER_NEW))
         try:

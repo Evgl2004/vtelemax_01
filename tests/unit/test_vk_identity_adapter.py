@@ -935,6 +935,13 @@ def test_vk_moderation_callback_menu_supports_pagination_and_ticket_actions() ->
     assert details.screen.screen_id == "moderation_ticket_details"
     assert "Канал создания: vk" in details.text
     assert "Введите текст ответа модератора" in start_reply.text
+    assert start_reply.screen is not None
+    assert start_reply.screen.screen_id == "moderation_reply_cancel"
+    assert any(
+        button.label == "❌ Отмена"
+        for row in start_reply.screen.rows
+        for button in row
+    )
     assert "Ответ модератора зарегистрирован" in routed.text
 
 
