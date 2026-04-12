@@ -94,10 +94,10 @@ def test_main_menu_labels_are_identical_between_core_vk_max() -> None:
     vk_labels = [button.label for button in _flatten_rows(vk_screen.rows)]
     max_labels = [button.label for button in _flatten_rows(max_screen.rows)]
 
-    # VK intentionally groups rows in a platform-specific order.
-    # Contract requirement here is parity of available labels, not strict order.
+    # VK и MAX могут группировать строки платформенно (в рамках UX/ограничений SDK).
+    # Контракт здесь — паритет доступных пунктов меню, а не строгий порядок.
     assert Counter(vk_labels) == Counter(core_labels)
-    assert max_labels == core_labels
+    assert Counter(max_labels) == Counter(core_labels)
 
 
 def test_support_menu_labels_are_identical_without_tickets() -> None:

@@ -23,7 +23,7 @@ def test_main_menu_screen_contains_prototype_buttons() -> None:
     labels = [button.label for button in screen.buttons]
 
     assert "💰 Мой баланс" in labels
-    assert "🪪 Виртуальная карта" in labels
+    assert "🪪 Карта" in labels
     assert "🚚 Доставка" in labels
     assert "❓ Мне только спросить" in labels
     assert "💼 Вакансии" in labels
@@ -96,8 +96,19 @@ def test_support_feedback_screen_uses_actual_review_link() -> None:
     screen = build_support_feedback_screen()
 
     assert "https://rdata.one/Nyyl" not in screen.text
-    assert len(screen.buttons) == 2
-    assert screen.buttons[0].url == "https://rdata.one/Nyyl"
+    assert len(screen.buttons) == 5  # 4 заведения + кнопка "Назад в меню"
+    # Проверяем, что первые четыре кнопки — это ссылки на отзывы заведений
+    expected_urls = {
+        "https://rdata.one/nwKl",
+        "https://rdata.one/pwKl",
+        "https://rdata.one/xxKl",
+        "https://rdata.one/vxKl",
+    }
+    actual_urls = {button.url for button in screen.buttons if button.url}
+    assert actual_urls == expected_urls
+    # Последняя кнопка — "Назад в меню" без URL
+    assert screen.buttons[-1].action == GuestMenuAction.BACK_TO_MAIN
+    assert screen.buttons[-1].url is None
 
 
 def test_delivery_screen_contains_expected_links() -> None:

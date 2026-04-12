@@ -95,16 +95,28 @@ def test_build_iiko_sync_retry_keyboard_contains_retry_button() -> None:
 
 
 def test_build_support_feedback_keyboard_contains_link_and_back_button() -> None:
-    """Проверяет клавиатуру экрана «Оставить отзыв»: ссылка и кнопка возврата."""
+    """Проверяет клавиатуру экрана «Оставить отзыв»: 4 ссылки на заведения и кнопка возврата в меню."""
 
     keyboard = build_support_feedback_inline_keyboard()
 
-    assert len(keyboard.inline_keyboard) == 2
-    link_button = keyboard.inline_keyboard[0][0]
-    back_button = keyboard.inline_keyboard[1][0]
-
-    assert link_button.url == "https://rdata.one/Nyyl"
-    assert back_button.callback_data == GuestMenuAction.BACK_TO_SUPPORT.value
+    assert len(keyboard.inline_keyboard) == 5  # 4 заведения + назад
+    # Проверяем кнопки заведений
+    expected_urls = {
+        "https://rdata.one/nwKl",
+        "https://rdata.one/pwKl",
+        "https://rdata.one/xxKl",
+        "https://rdata.one/vxKl",
+    }
+    actual_urls = {row[0].url for row in keyboard.inline_keyboard[:4]}
+    assert actual_urls == expected_urls
+    # Проверяем, что callback_data у ссылок None
+    for row in keyboard.inline_keyboard[:4]:
+        assert row[0].callback_data is None
+    # Проверяем кнопку "Назад в меню"
+    back_button = keyboard.inline_keyboard[4][0]
+    assert back_button.text == "🔙 Назад в меню"
+    assert back_button.url is None
+    assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value
 
 
 def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
@@ -114,7 +126,7 @@ def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
 
     assert len(keyboard.inline_keyboard) == 5
     first_button = keyboard.inline_keyboard[0][0]
-    assert first_button.text == "Грузика Нани"
+    assert first_button.text == "💃 Грузинка Нани"
     assert first_button.url == "https://gruzinka.rest.market/"
     assert first_button.callback_data is None
     for row in keyboard.inline_keyboard[:4]:
@@ -128,17 +140,55 @@ def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
 
 
 def test_build_main_menu_keyboard_contains_support_question_and_feedback_link() -> None:
-    """Проверяет, что главное inline-меню содержит вопрос и ссылку на отзыв напрямую."""
+    """Проверяет, что главное inline-меню содержит вопрос, ссылку на отзыв и новую группировку."""
 
     keyboard = build_main_menu_inline_keyboard()
-    labels = [row[0].text for row in keyboard.inline_keyboard]
-    buttons = [row[0] for row in keyboard.inline_keyboard]
-
-    assert "❓ Мне только спросить" in labels
-    assert "✍️ Оставить отзыв" in labels
-    feedback_button = next(button for button in buttons if button.text == "✍️ Оставить отзыв")
-    assert feedback_button.url == "https://rdata.one/Nyyl"
-    assert feedback_button.callback_data is None
+    
+    # Проверяем структуру: 6 строк
+    assert len(keyboard.inline_keyboard) == 6
+    
+    # Строка 1: Баланс | Виртуальная карта (2 кнопки)
+    row1 = keyboard.inline_keyboard[0]
+    assert len(row1) == 2
+    assert row1[0].text == "💰 Мой баланс"
+    assert row1[0].callback_data == GuestMenuAction.BALANCE.value
+    assert row1[1].text == "🪪 Карта"
+    assert row1[1].callback_data == GuestMenuAction.VIRTUAL_CARD.value
+    
+    # Строка 2: Мне только спросить (1 кнопка)
+    row2 = keyboard.inline_keyboard[1]
+    assert len(row2) == 1
+    assert row2[0].text == "❓ Мне только спросить"
+    assert row2[0].callback_data == GuestMenuAction.SUPPORT_QUESTION.value
+    
+    # Строка 3: Оставить отзыв (теперь подменю с выбором заведения)
+    row3 = keyboard.inline_keyboard[2]
+    assert len(row3) == 1
+    assert row3[0].text == "✍️ Оставить отзыв"
+    assert row3[0].url is None
+    assert row3[0].callback_data == GuestMenuAction.SUPPORT_FEEDBACK.value
+    
+    # Строка 4: Бизнес-ланч | Бронь стола (2 кнопки)
+    row4 = keyboard.inline_keyboard[3]
+    assert len(row4) == 2
+    assert row4[0].text == "🍽️ Бизнес-ланч"
+    assert row4[0].callback_data == GuestMenuAction.BUSINESS_LUNCH.value
+    assert row4[1].text == "🪑 Бронь стола"
+    assert row4[1].callback_data == GuestMenuAction.TABLE_BOOKING.value
+    
+    # Строка 5: Доставка | Вакансии (2 кнопки)
+    row5 = keyboard.inline_keyboard[4]
+    assert len(row5) == 2
+    assert row5[0].text == "🚚 Доставка"
+    assert row5[0].callback_data == GuestMenuAction.DELIVERY.value
+    assert row5[1].text == "💼 Вакансии"
+    assert row5[1].callback_data == GuestMenuAction.VACANCIES.value
+    
+    # Строка 6: Профиль (1 кнопка)
+    row6 = keyboard.inline_keyboard[5]
+    assert len(row6) == 1
+    assert row6[0].text == "👤 Профиль"
+    assert row6[0].callback_data == GuestMenuAction.PROFILE.value
 
 
 def test_all_telegram_callback_data_fit_telegram_limits() -> None:

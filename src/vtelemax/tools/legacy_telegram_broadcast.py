@@ -349,4 +349,3 @@ def select_legacy_broadcast_targets(
         skipped_by_phone_filter=skipped_by_phone_filter,
         duplicate_telegram_id_rows=duplicate_id_rows,
     )
-

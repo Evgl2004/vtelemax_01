@@ -15,6 +15,7 @@ from vtelemax.core import (
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_BALANCE,
+    BUTTON_BUSINESS_LUNCH,
     BUTTON_DELIVERY,
     BUTTON_DOCS_LINK,
     BUTTON_HELP,
@@ -41,15 +42,26 @@ from vtelemax.core import (
     BUTTON_SUPPORT_CONTACTS,
     BUTTON_SUPPORT_FEEDBACK,
     BUTTON_SUPPORT_QUESTION,
+    BUTTON_TABLE_BOOKING,
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
+    BUTTON_FEEDBACK_GRUZINKA,
+    BUTTON_FEEDBACK_SUSAMI,
+    BUTTON_FEEDBACK_CHINA,
+    BUTTON_FEEDBACK_UZBECHKA,
+    FEEDBACK_URL_GRUZINKA,
+    FEEDBACK_URL_SUSAMI,
+    FEEDBACK_URL_CHINA,
+    FEEDBACK_URL_UZBECHKA,
     GuestMenuAction,
     MAILING_CONSENT_URLS,
     PERSONAL_DATA_CONSENT_URLS,
     OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     PRIVACY_POLICY_URLS,
+    build_business_lunch_screen,
     build_delivery_screen,
+    build_table_booking_screen,
 )
 
 RULES_ACCEPT_CALLBACK = "rules_accept"
@@ -146,16 +158,30 @@ def build_iiko_sync_retry_inline_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
-    """Создает inline-клавиатуру главного меню (вертикальный список разделов)."""
+    """Создает inline-клавиатуру главного меню (группировка как в VK/MAX)."""
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=BUTTON_BALANCE, callback_data=_action_callback(GuestMenuAction.BALANCE))],
-            [InlineKeyboardButton(text=BUTTON_VIRTUAL_CARD, callback_data=_action_callback(GuestMenuAction.VIRTUAL_CARD))],
-            [InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY))],
+            # Строка 1: Баланс | Виртуальная карта
+            [
+                InlineKeyboardButton(text=BUTTON_BALANCE, callback_data=_action_callback(GuestMenuAction.BALANCE)),
+                InlineKeyboardButton(text=BUTTON_VIRTUAL_CARD, callback_data=_action_callback(GuestMenuAction.VIRTUAL_CARD)),
+            ],
+            # Строка 2: Мне только спросить
             [InlineKeyboardButton(text=BUTTON_SUPPORT_QUESTION, callback_data=_action_callback(GuestMenuAction.SUPPORT_QUESTION))],
-            [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
-            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, url=SUPPORT_FEEDBACK_URL)],
+            # Строка 3: Оставить отзыв
+            [InlineKeyboardButton(text=BUTTON_SUPPORT_FEEDBACK, callback_data=_action_callback(GuestMenuAction.SUPPORT_FEEDBACK))],
+            # Строка 4: Бизнес-ланч | Бронь стола
+            [
+                InlineKeyboardButton(text=BUTTON_BUSINESS_LUNCH, callback_data=_action_callback(GuestMenuAction.BUSINESS_LUNCH)),
+                InlineKeyboardButton(text=BUTTON_TABLE_BOOKING, callback_data=_action_callback(GuestMenuAction.TABLE_BOOKING)),
+            ],
+            # Строка 5: Доставка | Вакансии
+            [
+                InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY)),
+                InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES)),
+            ],
+            # Строка 6: Профиль
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
         ]
     )
@@ -165,6 +191,46 @@ def build_delivery_inline_keyboard() -> InlineKeyboardMarkup:
     """Создает inline-клавиатуру подменю «Доставка» с URL-кнопками заведений."""
 
     screen = build_delivery_screen()
+    rows: list[list[InlineKeyboardButton]] = []
+    for button in screen.buttons:
+        if button.url is not None:
+            rows.append([InlineKeyboardButton(text=button.label, url=button.url)])
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button.label,
+                        callback_data=_action_callback(button.action),
+                    )
+                ]
+            )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_business_lunch_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру подменю «Бизнес-ланч» с URL-кнопками заведений."""
+
+    screen = build_business_lunch_screen()
+    rows: list[list[InlineKeyboardButton]] = []
+    for button in screen.buttons:
+        if button.url is not None:
+            rows.append([InlineKeyboardButton(text=button.label, url=button.url)])
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button.label,
+                        callback_data=_action_callback(button.action),
+                    )
+                ]
+            )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_table_booking_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру подменю «Бронь стола» с URL-кнопками заведений."""
+
+    screen = build_table_booking_screen()
     rows: list[list[InlineKeyboardButton]] = []
     for button in screen.buttons:
         if button.url is not None:
@@ -200,12 +266,15 @@ def build_support_menu_inline_keyboard(has_tickets: bool = False) -> InlineKeybo
 
 
 def build_support_feedback_inline_keyboard() -> InlineKeyboardMarkup:
-    """Создает inline-клавиатуру экрана «Оставить отзыв»."""
+    """Создает inline-клавиатуру экрана «Оставить отзыв» с выбором заведения."""
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=SUPPORT_FEEDBACK_BUTTON_LABEL, url=SUPPORT_FEEDBACK_URL)],
-            [InlineKeyboardButton(text=BUTTON_BACK_TO_SUPPORT, callback_data=_action_callback(GuestMenuAction.BACK_TO_SUPPORT))],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_GRUZINKA, url=FEEDBACK_URL_GRUZINKA)],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_SUSAMI, url=FEEDBACK_URL_SUSAMI)],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_CHINA, url=FEEDBACK_URL_CHINA)],
+            [InlineKeyboardButton(text=BUTTON_FEEDBACK_UZBECHKA, url=FEEDBACK_URL_UZBECHKA)],
+            [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))],
         ]
     )
 

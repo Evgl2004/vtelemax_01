@@ -41,7 +41,10 @@ from .menu import (
     USER_TICKET_REPLY_PREFIX,
     BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
+    BUTTON_BALANCE,
+    BUTTON_BUSINESS_LUNCH,
     BUTTON_DELIVERY,
+    BUTTON_PROFILE,
     BUTTON_PROFILE_EDIT,
     BUTTON_PROFILE_EDIT_BIRTH_DATE,
     BUTTON_PROFILE_EDIT_CANCEL,
@@ -51,14 +54,21 @@ from .menu import (
     BUTTON_PROFILE_EDIT_GENDER_FEMALE,
     BUTTON_PROFILE_EDIT_GENDER_MALE,
     BUTTON_PROFILE_EDIT_LAST_NAME,
+    BUTTON_RETRY_IIKO_SYNC,
+    BUTTON_SUPPORT,
     BUTTON_SUPPORT_CONTACTS,
     BUTTON_SUPPORT_FEEDBACK,
     BUTTON_SUPPORT_QUESTION,
+    BUTTON_TABLE_BOOKING,
     BUTTON_MY_TICKETS,
+    BUTTON_VACANCIES,
+    BUTTON_VIRTUAL_CARD,
     build_back_to_main_inline_keyboard,
     build_back_to_tickets_list_inline_keyboard,
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
+    build_business_lunch_inline_keyboard,
+    build_table_booking_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_moderation_main_inline_keyboard,
@@ -73,12 +83,6 @@ from .menu import (
     build_support_menu_inline_keyboard,
     build_ticket_details_inline_keyboard,
     build_user_tickets_pagination_keyboard,
-    BUTTON_PROFILE,
-    BUTTON_RETRY_IIKO_SYNC,
-    BUTTON_SUPPORT,
-    BUTTON_BALANCE,
-    BUTTON_VIRTUAL_CARD,
-    BUTTON_VACANCIES,
 )
 
 
@@ -421,6 +425,10 @@ def build_telegram_identity_router(
             return build_back_to_tickets_list_inline_keyboard()
         if result.status == "delivery":
             return build_delivery_inline_keyboard()
+        if result.status == "business_lunch":
+            return build_business_lunch_inline_keyboard()
+        if result.status == "table_booking":
+            return build_table_booking_inline_keyboard()
         if result.status in {
             "balance",
             "balance_unavailable",
@@ -840,6 +848,8 @@ def build_telegram_identity_router(
                 GuestMenuAction.BALANCE.value,
                 GuestMenuAction.VIRTUAL_CARD.value,
                 GuestMenuAction.DELIVERY.value,
+                GuestMenuAction.BUSINESS_LUNCH.value,
+                GuestMenuAction.TABLE_BOOKING.value,
                 GuestMenuAction.SUPPORT.value,
                 GuestMenuAction.VACANCIES.value,
                 GuestMenuAction.PROFILE.value,
@@ -864,6 +874,8 @@ def build_telegram_identity_router(
                 BUTTON_BALANCE,
                 BUTTON_VIRTUAL_CARD,
                 BUTTON_DELIVERY,
+                BUTTON_BUSINESS_LUNCH,
+                BUTTON_TABLE_BOOKING,
                 BUTTON_SUPPORT,
                 BUTTON_VACANCIES,
                 BUTTON_PROFILE,

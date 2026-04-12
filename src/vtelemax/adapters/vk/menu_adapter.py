@@ -31,6 +31,8 @@ from vtelemax.core import (
     build_support_menu_screen,
     build_support_question_screen,
     build_support_question_confirmation_screen,
+    build_business_lunch_screen,
+    build_table_booking_screen,
     build_vacancies_screen,
 )
 
@@ -102,13 +104,14 @@ class VkGuestMenuAdapter:
         # и логическому объединению кнопок поддержки.
         # Порядок кнопок из guest_content:
         # 0: Баланс, 1: Виртуальная карта, 2: Доставка, 3: Мне только спросить,
-        # 4: Вакансии, 5: Обратная связь, 6: Профиль
+        # 4: Вакансии, 5: Обратная связь, 6: Бизнес-ланч, 7: Бронь стола, 8: Профиль
         rows: list[tuple[VkButton, ...]] = [
             (vk_buttons[0], vk_buttons[1]),                     # Баланс | Виртуальная карта
             (vk_buttons[3],),                                   # Мне только спросить
             (vk_buttons[5],),                                   # Обратная связь
+            (vk_buttons[6], vk_buttons[7]),                     # Бизнес-ланч | Бронь стола
             (vk_buttons[2], vk_buttons[4]),                     # Доставка | Вакансии
-            (vk_buttons[6],),                                   # Профиль
+            (vk_buttons[8],),                                   # Профиль
         ]
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=tuple(rows))
 
@@ -239,6 +242,30 @@ class VkGuestMenuAdapter:
         """Экран подменю «Доставка» со ссылками на заведения."""
 
         screen = build_delivery_screen()
+        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
+        return VkScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def build_business_lunch_screen(self) -> VkScreen:
+        """Экран подменю «Бизнес-ланч» со ссылками на изображения бизнес-ланча."""
+
+        screen = build_business_lunch_screen()
+        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
+        return VkScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def build_table_booking_screen(self) -> VkScreen:
+        """Экран подменю «Бронь стола» со ссылками на страницы бронирования."""
+
+        screen = build_table_booking_screen()
         rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(
             screen_id=screen.screen_id,
@@ -543,6 +570,10 @@ class VkGuestMenuAdapter:
             return self.build_vacancies_screen()
         if action == GuestMenuAction.DELIVERY:
             return self.build_delivery_screen()
+        if action == GuestMenuAction.BUSINESS_LUNCH:
+            return self.build_business_lunch_screen()
+        if action == GuestMenuAction.TABLE_BOOKING:
+            return self.build_table_booking_screen()
         if action == GuestMenuAction.SUPPORT_FEEDBACK:
             return self.build_support_feedback_screen()
         if action == GuestMenuAction.SUPPORT_QUESTION:

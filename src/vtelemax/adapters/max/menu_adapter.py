@@ -12,6 +12,7 @@ from vtelemax.core import (
     PersonSupportTicketSummary,
     build_about_screen,
     build_balance_screen,
+    build_business_lunch_screen,
     build_delivery_screen,
     build_notifications_consent_screen,
     build_iiko_sync_pending_screen,
@@ -22,6 +23,7 @@ from vtelemax.core import (
     build_profile_gender_screen,
     build_profile_not_found_screen,
     build_profile_screen,
+    build_table_booking_screen,
     build_virtual_card_result_screen,
     build_start_contact_screen,
     build_start_rules_screen,
@@ -95,11 +97,22 @@ class MaxGuestMenuAdapter:
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
     def build_main_menu_screen(self, user_name: str = "Гость") -> MaxScreen:
-        """Главное меню гостя (пять разделов, вертикальный список)."""
+        """Главное меню гостя (группировка как в VK)."""
 
         screen = build_main_menu_screen(user_name=user_name)
-        rows = tuple((_to_max_button(button),) for button in screen.buttons)
-        return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+        max_buttons = [_to_max_button(button) for button in screen.buttons]
+        # Порядок кнопок из guest_content:
+        # 0: Баланс, 1: Виртуальная карта, 2: Доставка, 3: Мне только спросить,
+        # 4: Вакансии, 5: Обратная связь, 6: Бизнес-ланч, 7: Бронь стола, 8: Профиль
+        rows: list[tuple[MaxButton, ...]] = [
+            (max_buttons[0], max_buttons[1]),                     # Баланс | Виртуальная карта
+            (max_buttons[3],),                                   # Мне только спросить
+            (max_buttons[5],),                                   # Обратная связь
+            (max_buttons[6], max_buttons[7]),                     # Бизнес-ланч | Бронь стола
+            (max_buttons[2], max_buttons[4]),                     # Доставка | Вакансии
+            (max_buttons[8],),                                   # Профиль
+        ]
+        return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=tuple(rows))
 
     def build_support_menu_screen(self, has_tickets: bool) -> MaxScreen:
         """Экран поддержки с условной кнопкой «Мои обращения»."""
@@ -226,6 +239,30 @@ class MaxGuestMenuAdapter:
         """Экран подменю «Доставка» со ссылками на заведения."""
 
         screen = build_delivery_screen()
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
+        return MaxScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def build_business_lunch_screen(self) -> MaxScreen:
+        """Экран подменю «Бизнес-ланч» со ссылками на изображения бизнес-ланча."""
+
+        screen = build_business_lunch_screen()
+        rows = tuple((_to_max_button(button),) for button in screen.buttons)
+        return MaxScreen(
+            screen_id=screen.screen_id,
+            text=screen.text,
+            rows=rows,
+            parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def build_table_booking_screen(self) -> MaxScreen:
+        """Экран подменю «Бронь стола» со ссылками на страницы бронирования."""
+
+        screen = build_table_booking_screen()
         rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(
             screen_id=screen.screen_id,
@@ -520,6 +557,10 @@ class MaxGuestMenuAdapter:
             return self.build_vacancies_screen()
         if action == GuestMenuAction.DELIVERY:
             return self.build_delivery_screen()
+        if action == GuestMenuAction.BUSINESS_LUNCH:
+            return self.build_business_lunch_screen()
+        if action == GuestMenuAction.TABLE_BOOKING:
+            return self.build_table_booking_screen()
         if action == GuestMenuAction.SUPPORT_FEEDBACK:
             return self.build_support_feedback_screen()
         if action == GuestMenuAction.SUPPORT_QUESTION:

@@ -362,7 +362,7 @@ def test_telegram_adapter_returns_virtual_card_from_loyalty_use_case() -> None:
     )
 
     adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
-    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="🪪 Виртуальная карта")
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="🪪 Карта")
 
     assert result.status == "virtual_card"
     assert "Назад в меню" in result.message
