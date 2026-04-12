@@ -18,6 +18,7 @@ from uuid import UUID
 from loguru import logger
 
 from vtelemax.core import (
+    PendingModeratorDelivery,
     PlatformName,
     PullPendingModeratorMessagesTransactionalUseCase,
     SupportDeliveryStatus,
@@ -38,13 +39,13 @@ class PendingModeratorDeliveryProcessor:
     async def process_once(
         self,
         *,
-        sender: Callable[[str, str], Awaitable[None]],
+        sender: Callable[[PendingModeratorDelivery, str], Awaitable[None]],
         limit: int = 20,
     ) -> tuple[int, int]:
         """Выполняет одну доставку очереди pending-сообщений.
 
         Args:
-            sender: Асинхронный callback отправки (external_id, text).
+            sender: Асинхронный callback отправки (`delivery`, `text`).
             limit: Максимум сообщений за один проход.
 
         Returns:
@@ -91,7 +92,7 @@ class PendingModeratorDeliveryProcessor:
 
             text = self._build_delivery_text(author=delivery.author, body=delivery.body)
             try:
-                await sender(external_id, text)
+                await sender(delivery, text)
             except Exception as error:  # noqa: BLE001
                 self._mark_failed(
                     message_id=delivery.message_id,

@@ -19,6 +19,7 @@ from vtelemax.core import (
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
+    PendingModeratorDelivery,
     PersonProfilePatch,
     SupportDeliveryStatus,
     SupportMessageAuthor,
@@ -126,16 +127,18 @@ def test_delivery_processor_marks_message_as_sent_on_success() -> None:
     """Проверяет успешную доставку pending-сообщения в один проход."""
 
     processor, support_repository, ticket_id = _build_pending_delivery_processor(target_external_id="1001")
-    sent_payloads: list[tuple[str, str]] = []
+    sent_payloads: list[tuple[PendingModeratorDelivery, str]] = []
 
-    async def sender(external_id: str, text: str) -> None:
-        sent_payloads.append((external_id, text))
+    async def sender(delivery: PendingModeratorDelivery, text: str) -> None:
+        sent_payloads.append((delivery, text))
 
     sent_count, failed_count = asyncio.run(processor.process_once(sender=sender, limit=10))
 
     assert sent_count == 1
     assert failed_count == 0
-    assert sent_payloads == [("1001", "📬 Ответ модератора:\nОтвет модератора")]
+    assert len(sent_payloads) == 1
+    assert sent_payloads[0][0].target_external_id == "1001"
+    assert sent_payloads[0][1] == "📬 Ответ модератора:\nОтвет модератора"
     status, error_text = _get_last_moderator_message_status(support_repository, ticket_id=ticket_id)
     assert status == SupportDeliveryStatus.SENT
     assert error_text is None
@@ -148,8 +151,8 @@ def test_delivery_processor_marks_message_as_failed_without_retry() -> None:
         target_external_id="vk-user-not-int"
     )
 
-    async def sender(external_id: str, text: str) -> None:  # noqa: ARG001
-        int(external_id)
+    async def sender(delivery: PendingModeratorDelivery, text: str) -> None:  # noqa: ARG001
+        int(delivery.target_external_id)
 
     first_sent, first_failed = asyncio.run(processor.process_once(sender=sender, limit=10))
     second_sent, second_failed = asyncio.run(processor.process_once(sender=sender, limit=10))
@@ -212,15 +215,19 @@ def test_delivery_processor_sends_system_notification_without_moderator_prefix()
         update_status_use_case=update_status_use_case,
     )
 
-    sent_payloads: list[tuple[str, str]] = []
+    sent_payloads: list[tuple[PendingModeratorDelivery, str]] = []
 
-    async def sender(external_id: str, text: str) -> None:
-        sent_payloads.append((external_id, text))
+    async def sender(delivery: PendingModeratorDelivery, text: str) -> None:
+        sent_payloads.append((delivery, text))
 
     sent_count, failed_count = asyncio.run(processor.process_once(sender=sender, limit=10))
 
     assert sent_count == 1
     assert failed_count == 0
-    assert sent_payloads[0][0] == "vk-mod-9001"
+    assert sent_payloads[0][0].target_external_id == "vk-mod-9001"
     assert "🔔 Новое обращение от гостя" in sent_payloads[0][1]
+    assert "Тикет: #" in sent_payloads[0][1]
+    assert "Гость:" in sent_payloads[0][1]
+    assert "Нажмите «✍️ Ответить»" in sent_payloads[0][1]
+    assert "откройте меню модератора командой /mod." in sent_payloads[0][1]
     assert "Ответ модератора" not in sent_payloads[0][1]

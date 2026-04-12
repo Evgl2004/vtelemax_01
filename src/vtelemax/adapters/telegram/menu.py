@@ -529,6 +529,27 @@ def build_moderation_main_inline_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def build_moderation_notification_inline_keyboard(ticket_id: str) -> InlineKeyboardMarkup:
+    """Создает inline-кнопку быстрого ответа из уведомления модератору."""
+
+    callback_data = f"{MOD_REPLY_PREFIX}{ticket_id}_new_1"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✍️ Ответить", callback_data=callback_data)],
+        ]
+    )
+
+
+def build_moderation_reply_cancel_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-кнопку отмены при вводе ответа модератора."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=MOD_MAIN_CALLBACK)],
+        ]
+    )
+
+
 def build_moderation_tickets_inline_keyboard(
     *,
     filter_key: str,

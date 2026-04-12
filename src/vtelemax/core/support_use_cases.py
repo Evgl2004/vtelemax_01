@@ -69,6 +69,9 @@ class CreateSupportTicketTransactionalUseCase:
                 raise ValueError(
                     "Нельзя создать тикет: аккаунт не зарегистрирован в strict identity."
                 )
+            guest_display_name = self._resolve_guest_display_name(
+                first_name_input=getattr(person, "first_name_input", None)
+            )
 
             ticket_id = uuid4()
             message_id = uuid4()
@@ -96,6 +99,7 @@ class CreateSupportTicketTransactionalUseCase:
                 ticket_id=ticket_id,
                 source_platform=command.platform,
                 source_external_id=external_id,
+                guest_display_name=guest_display_name,
                 question_text=question_text,
             )
             unit_of_work.commit()
@@ -122,6 +126,7 @@ class CreateSupportTicketTransactionalUseCase:
     def _build_moderator_notification_text(
         *,
         ticket_id: UUID,
+        guest_display_name: str,
         source_platform: PlatformName,
         question_text: str,
     ) -> str:
@@ -131,13 +136,14 @@ class CreateSupportTicketTransactionalUseCase:
         return "\n".join(
             (
                 "🔔 Новое обращение от гостя",
-                f"Тикет: #{short_id} ({ticket_id})",
+                f"Гость: {guest_display_name}",
+                f"Тикет: #{short_id}",
                 f"Канал: {source_platform}",
                 "",
                 "Сообщение:",
                 question_text,
                 "",
-                "Откройте меню модератора командой /mod.",
+                "Нажмите «✍️ Ответить» или откройте меню модератора командой /mod.",
             )
         )
 
@@ -149,6 +155,7 @@ class CreateSupportTicketTransactionalUseCase:
         ticket_id: UUID,
         source_platform: PlatformName,
         source_external_id: str,
+        guest_display_name: str,
         question_text: str,
     ) -> None:
         """Ставит в outbox уведомления модераторам о новом сообщении гостя."""
@@ -159,6 +166,7 @@ class CreateSupportTicketTransactionalUseCase:
 
         notification_body = self._build_moderator_notification_text(
             ticket_id=ticket_id,
+            guest_display_name=guest_display_name,
             source_platform=source_platform,
             question_text=question_text,
         )
@@ -186,6 +194,15 @@ class CreateSupportTicketTransactionalUseCase:
                     delivery_status=SupportDeliveryStatus.CREATED,
                 )
             )
+
+    @staticmethod
+    def _resolve_guest_display_name(*, first_name_input: str | None) -> str:
+        """Возвращает отображаемое имя гостя для уведомления модератору."""
+
+        value = (first_name_input or "").strip()
+        if value:
+            return value
+        return "Гость"
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +255,9 @@ class AddGuestMessageToTicketTransactionalUseCase:
                 raise ValueError(
                     "Нельзя добавить сообщение: аккаунт не зарегистрирован в strict identity."
                 )
+            guest_display_name = self._resolve_guest_display_name(
+                first_name_input=getattr(person, "first_name_input", None)
+            )
 
             ticket = unit_of_work.support_repository.get_ticket(command.ticket_id)
             if ticket is None:
@@ -269,6 +289,7 @@ class AddGuestMessageToTicketTransactionalUseCase:
                 ticket_id=ticket.ticket_id,
                 source_platform=command.platform,
                 source_external_id=external_id,
+                guest_display_name=guest_display_name,
                 message_text=message_text,
             )
             unit_of_work.commit()
@@ -295,6 +316,7 @@ class AddGuestMessageToTicketTransactionalUseCase:
     def _build_moderator_notification_text(
         *,
         ticket_id: UUID,
+        guest_display_name: str,
         source_platform: PlatformName,
         message_text: str,
     ) -> str:
@@ -304,13 +326,14 @@ class AddGuestMessageToTicketTransactionalUseCase:
         return "\n".join(
             (
                 "📨 Новое сообщение гостя в обращении",
-                f"Тикет: #{short_id} ({ticket_id})",
+                f"Гость: {guest_display_name}",
+                f"Тикет: #{short_id}",
                 f"Канал: {source_platform}",
                 "",
                 "Сообщение:",
                 message_text,
                 "",
-                "Откройте меню модератора командой /mod.",
+                "Нажмите «✍️ Ответить» или откройте меню модератора командой /mod.",
             )
         )
 
@@ -322,6 +345,7 @@ class AddGuestMessageToTicketTransactionalUseCase:
         ticket_id: UUID,
         source_platform: PlatformName,
         source_external_id: str,
+        guest_display_name: str,
         message_text: str,
     ) -> None:
         """Ставит в outbox уведомления модераторам о новом сообщении гостя в тикете."""
@@ -332,6 +356,7 @@ class AddGuestMessageToTicketTransactionalUseCase:
 
         notification_body = self._build_moderator_notification_text(
             ticket_id=ticket_id,
+            guest_display_name=guest_display_name,
             source_platform=source_platform,
             message_text=message_text,
         )
@@ -359,6 +384,15 @@ class AddGuestMessageToTicketTransactionalUseCase:
                     delivery_status=SupportDeliveryStatus.CREATED,
                 )
             )
+
+    @staticmethod
+    def _resolve_guest_display_name(*, first_name_input: str | None) -> str:
+        """Возвращает отображаемое имя гостя для уведомления модератору."""
+
+        value = (first_name_input or "").strip()
+        if value:
+            return value
+        return "Гость"
 
 
 @dataclass(frozen=True, slots=True)

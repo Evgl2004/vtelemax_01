@@ -18,7 +18,13 @@ from aiogram.types import (
 )
 from loguru import logger
 
-from vtelemax.core import BUTTON_ACCEPT_RULES, GuestMenuAction, build_iiko_sync_pending_screen
+from vtelemax.core import (
+    BUTTON_ACCEPT_RULES,
+    GuestMenuAction,
+    PendingModeratorDelivery,
+    SupportMessageAuthor,
+    build_iiko_sync_pending_screen,
+)
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
@@ -72,6 +78,8 @@ from .menu import (
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_moderation_main_inline_keyboard,
+    build_moderation_notification_inline_keyboard,
+    build_moderation_reply_cancel_inline_keyboard,
     build_moderation_ticket_details_inline_keyboard,
     build_moderation_tickets_inline_keyboard,
     build_notifications_consent_inline_keyboard,
@@ -396,6 +404,8 @@ def build_telegram_identity_router(
             "moderation_wait_ticket_for_in_progress",
         }:
             return build_moderation_main_inline_keyboard()
+        if result.status in {"moderation_wait_reply_text", "moderation_empty_reply", "moderation_bad_platform"}:
+            return build_moderation_reply_cancel_inline_keyboard()
         if result.status == "tickets_list" and result.current_page is not None and result.total_pages is not None:
             # Показываем пагинацию для списка тикетов
             return build_user_tickets_pagination_keyboard(
@@ -466,8 +476,15 @@ def build_telegram_identity_router(
             return
 
         async with delivery_lock:
-            async def _send_message(target_external_id: str, text: str) -> None:
-                await bot.send_message(chat_id=int(target_external_id), text=text)
+            async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
+                reply_markup = None
+                if delivery.author == SupportMessageAuthor.SYSTEM:
+                    reply_markup = build_moderation_notification_inline_keyboard(str(delivery.ticket_id))
+                await bot.send_message(
+                    chat_id=int(delivery.target_external_id),
+                    text=text,
+                    reply_markup=reply_markup,
+                )
 
             try:
                 sent_count, failed_count = await delivery_processor.process_once(sender=_send_message, limit=20)

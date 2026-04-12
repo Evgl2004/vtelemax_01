@@ -652,7 +652,10 @@ def test_create_support_ticket_enqueues_system_notifications_for_moderators() ->
     assert vk_pending[0].author == SupportMessageAuthor.SYSTEM
     assert max_pending[0].author == SupportMessageAuthor.SYSTEM
     assert "Новое обращение" in vk_pending[0].body
-    assert "Откройте меню модератора командой /mod" in max_pending[0].body
+    assert "Гость:" in max_pending[0].body
+    assert "Тикет: #" in max_pending[0].body
+    assert str(created.ticket_id) not in max_pending[0].body
+    assert "Нажмите «✍️ Ответить»" in max_pending[0].body
 
     conversation_use_case = GetSupportTicketConversationTransactionalUseCase(unit_of_work_factory=uow_factory)
     conversation = conversation_use_case.execute(created.ticket_id)

@@ -12,7 +12,12 @@ from vkbottle.bot import MessageEvent
 from vkbottle_types.events import GroupEventType
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
-from vtelemax.core import GuestMenuAction, build_iiko_sync_pending_screen
+from vtelemax.core import (
+    GuestMenuAction,
+    PendingModeratorDelivery,
+    SupportMessageAuthor,
+    build_iiko_sync_pending_screen,
+)
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import (
@@ -33,6 +38,31 @@ _VK_REMOVE_KEYBOARD_JSON = json.dumps(
     },
     ensure_ascii=False,
 )
+
+
+def _build_vk_moderation_notification_keyboard_json(ticket_id: str) -> str:
+    """Возвращает inline-клавиатуру VK с кнопкой быстрого ответа модератора."""
+
+    payload = {"cmd": f"mod_reply_{ticket_id}_new_1"}
+    return json.dumps(
+        {
+            "one_time": False,
+            "inline": True,
+            "buttons": [
+                [
+                    {
+                        "action": {
+                            "type": "callback",
+                            "label": "✍️ Ответить",
+                            "payload": json.dumps(payload, ensure_ascii=False),
+                        },
+                        "color": "primary",
+                    }
+                ]
+            ],
+        },
+        ensure_ascii=False,
+    )
 
 
 def _normalize_vk_message(
@@ -273,11 +303,17 @@ def register_vk_guest_handlers(
             return
 
         async with delivery_lock:
-            async def _send_message(target_external_id: str, text: str) -> None:
+            async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
+                kwargs: dict[str, Any] = {}
+                if delivery.author == SupportMessageAuthor.SYSTEM:
+                    kwargs["keyboard"] = _build_vk_moderation_notification_keyboard_json(
+                        str(delivery.ticket_id)
+                    )
                 await bot.api.messages.send(
-                    user_id=int(target_external_id),
+                    user_id=int(delivery.target_external_id),
                     random_id=0,
                     message=text,
+                    **kwargs,
                 )
 
             try:

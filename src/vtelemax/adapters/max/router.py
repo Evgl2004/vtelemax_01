@@ -10,7 +10,12 @@ import aiohttp
 from loguru import logger
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
-from vtelemax.core import GuestMenuAction, build_iiko_sync_pending_screen
+from vtelemax.core import (
+    GuestMenuAction,
+    PendingModeratorDelivery,
+    SupportMessageAuthor,
+    build_iiko_sync_pending_screen,
+)
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
@@ -66,6 +71,21 @@ def _extract_max_upload_token(upload_response: dict[str, Any]) -> str | None:
     if isinstance(token, str) and token:
         return token
     return None
+
+
+def _build_max_moderation_notification_keyboard(ticket_id: str) -> object | None:
+    """Возвращает inline-кнопку MAX для быстрого ответа модератора."""
+
+    callback_payload = f"mod_reply_{ticket_id}_new_1"
+    try:
+        from maxapi.types import CallbackButton
+        from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+    except Exception:
+        return None
+
+    builder = InlineKeyboardBuilder()
+    builder.row(CallbackButton(text="✍️ Ответить", payload=callback_payload))
+    return builder.as_markup()
 
 
 async def _send_virtual_card_qr_messages(*, bot: Any, chat_id: int, card_numbers: tuple[str, ...]) -> None:
@@ -180,8 +200,13 @@ def register_max_guest_handlers(
             return
 
         async with delivery_lock:
-            async def _send_message(target_external_id: str, text: str) -> None:
-                await bot.send_message(user_id=int(target_external_id), text=text)
+            async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
+                kwargs: dict[str, Any] = {}
+                if delivery.author == SupportMessageAuthor.SYSTEM:
+                    keyboard = _build_max_moderation_notification_keyboard(str(delivery.ticket_id))
+                    if keyboard is not None:
+                        kwargs["attachments"] = [keyboard]
+                await bot.send_message(user_id=int(delivery.target_external_id), text=text, **kwargs)
 
             try:
                 sent_count, failed_count = await delivery_processor.process_once(sender=_send_message, limit=20)
