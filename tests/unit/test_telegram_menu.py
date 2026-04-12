@@ -360,6 +360,7 @@ def test_build_moderation_keyboards_use_expected_callback_prefixes() -> None:
         total_pages=4,
         tickets=tickets,
     )
+    main_keyboard = build_moderation_main_inline_keyboard()
     details_keyboard = build_moderation_ticket_details_inline_keyboard(
         ticket_id=str(ticket_id),
         filter_key="new",
@@ -369,7 +370,7 @@ def test_build_moderation_keyboards_use_expected_callback_prefixes() -> None:
 
     callbacks = [
         button.callback_data
-        for row in tickets_keyboard.inline_keyboard + details_keyboard.inline_keyboard
+        for row in main_keyboard.inline_keyboard + tickets_keyboard.inline_keyboard + details_keyboard.inline_keyboard
         for button in row
         if button.callback_data is not None
     ]

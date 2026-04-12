@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
+from uuid import uuid4
 
 from vtelemax.adapters.vk import VkGuestMenuAdapter, render_vk_keyboard
+from vtelemax.core import OpenSupportTicketSummary, SupportTicketStatus
 
 
 def test_render_vk_keyboard_returns_json_for_screen_with_buttons() -> None:
@@ -81,3 +84,28 @@ def test_vk_keyboard_button_colors() -> None:
         button = VkButton(label="Тест", payload=payload, url=None)
         color = _resolve_button_color(button)
         assert color == expected_color, f"Для действия {action} ожидался цвет {expected_color}, получен {color}"
+
+
+def test_vk_moderation_tickets_keyboard_does_not_exceed_inline_row_limit() -> None:
+    """Проверяет, что экран списка тикетов модератора не превышает лимит VK inline-строк."""
+
+    adapter = VkGuestMenuAdapter()
+    tickets = tuple(
+        OpenSupportTicketSummary(
+            ticket_id=uuid4(),
+            status=SupportTicketStatus.OPEN,
+            source_platform="vk",
+            last_guest_platform="vk",
+            created_at=datetime(2026, 4, 13, tzinfo=timezone.utc),
+        )
+        for _ in range(12)
+    )
+    screen = adapter.build_moderation_tickets_screen(
+        filter_key="all",
+        current_page=1,
+        total_pages=3,
+        tickets=tickets,
+    )
+
+    assert len(screen.rows) <= 6
+    assert screen.rows[-1][0].label == "⬅️ К фильтрам"

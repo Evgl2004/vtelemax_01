@@ -1357,7 +1357,7 @@ class VkIdentityAdapter:
         vk_user_id: int,
         filter_key: str,
         page: int,
-        per_page: int = 5,
+        per_page: int = 4,
     ) -> VkAdapterResponse:
         """Показывает страницу списка тикетов модератора."""
 

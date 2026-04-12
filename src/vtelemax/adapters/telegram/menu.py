@@ -570,16 +570,7 @@ def build_moderation_tickets_inline_keyboard(
 ) -> InlineKeyboardMarkup:
     """Создает inline-клавиатуру пагинации тикетов модератора."""
 
-    buttons: list[list[InlineKeyboardButton]] = [
-        [
-            InlineKeyboardButton(text="🆕 Новые", callback_data=f"{MOD_LIST_PREFIX}new"),
-            InlineKeyboardButton(text="🛠 В работе", callback_data=f"{MOD_LIST_PREFIX}work"),
-        ],
-        [
-            InlineKeyboardButton(text="✅ Закрытые", callback_data=f"{MOD_LIST_PREFIX}closed"),
-            InlineKeyboardButton(text="📚 Все", callback_data=f"{MOD_LIST_PREFIX}all"),
-        ],
-    ]
+    buttons: list[list[InlineKeyboardButton]] = []
 
     status_emoji_map = {"open": "🆕", "in_progress": "🛠", "closed": "✅"}
     for ticket in tickets:
@@ -623,7 +614,7 @@ def build_moderation_tickets_inline_keyboard(
             )
         buttons.append(navigation_row)
 
-    buttons.append([InlineKeyboardButton(text="🏠 Меню модератора", callback_data=MOD_MAIN_CALLBACK)])
+    buttons.append([InlineKeyboardButton(text="⬅️ К фильтрам", callback_data=MOD_MAIN_CALLBACK)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

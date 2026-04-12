@@ -471,16 +471,7 @@ class MaxGuestMenuAdapter:
     ) -> MaxScreen:
         """Создает экран списка обращений модератора с пагинацией."""
 
-        rows: list[tuple[MaxButton, ...]] = [
-            (
-                MaxButton(label="🆕 Новые", payload=f"{MOD_LIST_PREFIX}new"),
-                MaxButton(label="🛠 В работе", payload=f"{MOD_LIST_PREFIX}work"),
-            ),
-            (
-                MaxButton(label="✅ Закрытые", payload=f"{MOD_LIST_PREFIX}closed"),
-                MaxButton(label="📚 Все", payload=f"{MOD_LIST_PREFIX}all"),
-            ),
-        ]
+        rows: list[tuple[MaxButton, ...]] = []
         status_emoji = {"open": "🆕", "in_progress": "🛠", "closed": "✅"}
         for ticket in tickets:
             label = f"{status_emoji.get(ticket.status.value, '❓')} #{str(ticket.ticket_id)[-4:].upper()}"
@@ -504,7 +495,7 @@ class MaxGuestMenuAdapter:
                 nav_row.append(MaxButton(label="Вперед ▶️", payload=f"{MOD_PAGE_PREFIX}{filter_key}_{current_page + 1}"))
             rows.append(tuple(nav_row))
 
-        rows.append((MaxButton(label="🏠 Меню модератора", payload=MOD_MAIN_CALLBACK),))
+        rows.append((MaxButton(label="⬅️ К фильтрам", payload=MOD_MAIN_CALLBACK),))
         return MaxScreen(screen_id="moderation_tickets", text="", rows=tuple(rows))
 
     def build_moderation_ticket_details_screen(

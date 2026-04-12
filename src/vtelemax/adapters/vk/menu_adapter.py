@@ -474,18 +474,14 @@ class VkGuestMenuAdapter:
     ) -> VkScreen:
         """Создает экран списка обращений модератора с пагинацией."""
 
-        rows: list[tuple[VkButton, ...]] = [
-            (
-                VkButton(label="🆕 Новые", payload={"cmd": f"{MOD_LIST_PREFIX}new"}),
-                VkButton(label="🛠 В работе", payload={"cmd": f"{MOD_LIST_PREFIX}work"}),
-            ),
-            (
-                VkButton(label="✅ Закрытые", payload={"cmd": f"{MOD_LIST_PREFIX}closed"}),
-                VkButton(label="📚 Все", payload={"cmd": f"{MOD_LIST_PREFIX}all"}),
-            ),
-        ]
+        rows: list[tuple[VkButton, ...]] = []
+        max_inline_rows = 6
+        reserved_rows = 1 + (1 if total_pages > 1 else 0)  # "К фильтрам" + пагинация (опционально)
+        max_ticket_rows = max(max_inline_rows - reserved_rows, 0)
         status_emoji = {"open": "🆕", "in_progress": "🛠", "closed": "✅"}
-        for ticket in tickets:
+        for index, ticket in enumerate(tickets):
+            if index >= max_ticket_rows:
+                break
             label = f"{status_emoji.get(ticket.status.value, '❓')} #{str(ticket.ticket_id)[-4:].upper()}"
             if ticket.created_at is not None:
                 label += f" от {ticket.created_at.strftime('%d.%m')}"
@@ -517,7 +513,7 @@ class VkGuestMenuAdapter:
                 )
             rows.append(tuple(nav_row))
 
-        rows.append((VkButton(label="🏠 Меню модератора", payload={"cmd": MOD_MAIN_CALLBACK}),))
+        rows.append((VkButton(label="⬅️ К фильтрам", payload={"cmd": MOD_MAIN_CALLBACK}),))
         return VkScreen(screen_id="moderation_tickets", text="", rows=tuple(rows))
 
     def build_moderation_ticket_details_screen(
