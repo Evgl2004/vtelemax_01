@@ -185,6 +185,7 @@ def register_max_guest_handlers(
     router_logger = logger.bind(platform="max", component="router")
     delivery_lock = asyncio.Lock()
     support_prompt_message_id_by_user_id: dict[int, str | int] = {}
+    moderation_reply_prompt_message_id_by_user_id: dict[int, str | int] = {}
 
     def _remember_support_prompt(*, max_user_id: int, message_id: str | int | None) -> None:
         """Запоминает id технического экрана ввода вопроса."""
@@ -192,6 +193,13 @@ def register_max_guest_handlers(
         if message_id is None:
             return
         support_prompt_message_id_by_user_id[max_user_id] = message_id
+
+    def _remember_moderation_reply_prompt(*, max_user_id: int, message_id: str | int | None) -> None:
+        """Запоминает id технического экрана ввода ответа модератора."""
+
+        if message_id is None:
+            return
+        moderation_reply_prompt_message_id_by_user_id[max_user_id] = message_id
 
     async def _cleanup_support_prompt(*, bot: Any | None, max_user_id: int) -> None:
         """Удаляет технический экран «Введите ваш вопрос» после создания тикета."""
@@ -203,6 +211,24 @@ def register_max_guest_handlers(
             await bot.delete_message(message_id=message_id)
         except Exception:  # noqa: BLE001
             router_logger.debug("Не удалось удалить технический экран ввода вопроса в MAX.")
+
+    async def _cleanup_moderation_reply_prompt(
+        *,
+        bot: Any | None,
+        max_user_id: int,
+        keep_message_id: str | int | None = None,
+    ) -> None:
+        """Удаляет технический экран «Введите текст ответа модератора»."""
+
+        message_id = moderation_reply_prompt_message_id_by_user_id.pop(max_user_id, None)
+        if bot is None or message_id is None:
+            return
+        if keep_message_id is not None and str(message_id) == str(keep_message_id):
+            return
+        try:
+            await bot.delete_message(message_id=message_id)
+        except Exception:  # noqa: BLE001
+            router_logger.debug("Не удалось удалить технический экран ввода ответа модератора в MAX.")
 
     async def _try_process_pending_deliveries(bot: Any | None) -> None:
         """Пытается доставить pending-сообщения модератора без влияния на UX пользователя."""
@@ -257,6 +283,7 @@ def register_max_guest_handlers(
 
         if lowered in _START_COMMANDS:
             support_prompt_message_id_by_user_id.pop(user_id, None)
+            moderation_reply_prompt_message_id_by_user_id.pop(user_id, None)
             response = adapter.handle_start(max_user_id=user_id)
         else:
             response = adapter.handle_incoming(
@@ -270,6 +297,15 @@ def register_max_guest_handlers(
                 await _cleanup_support_prompt(bot=getattr(event, "bot", None), max_user_id=user_id)
             elif screen_id != "support_question":
                 support_prompt_message_id_by_user_id.pop(user_id, None)
+            if screen_id == "moderation_reply_cancel":
+                pass
+            elif screen_id is not None and screen_id.startswith("moderation_"):
+                await _cleanup_moderation_reply_prompt(
+                    bot=getattr(event, "bot", None),
+                    max_user_id=user_id,
+                )
+            else:
+                moderation_reply_prompt_message_id_by_user_id.pop(user_id, None)
         event_logger.info("Входящее сообщение обработано.")
         await _send_response(event, response)
 
@@ -279,6 +315,8 @@ def register_max_guest_handlers(
         user_id = _extract_user_id(event)
         if user_id is None:
             return
+        support_prompt_message_id_by_user_id.pop(user_id, None)
+        moderation_reply_prompt_message_id_by_user_id.pop(user_id, None)
         event_logger = router_logger.bind(stage="bot_started", user_id=str(user_id))
         event_logger.debug("Получено событие bot_started.")
         response = adapter.handle_start(max_user_id=user_id)
@@ -339,6 +377,16 @@ def register_max_guest_handlers(
             GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value,
         }:
             support_prompt_message_id_by_user_id.pop(user_id, None)
+        if screen_id == "moderation_reply_cancel" and callback_mid is not None:
+            _remember_moderation_reply_prompt(max_user_id=user_id, message_id=callback_mid)
+        elif screen_id is not None and screen_id.startswith("moderation_"):
+            await _cleanup_moderation_reply_prompt(
+                bot=getattr(event, "bot", None),
+                max_user_id=user_id,
+                keep_message_id=callback_mid,
+            )
+        else:
+            moderation_reply_prompt_message_id_by_user_id.pop(user_id, None)
         event_logger.info("Callback обработан.")
         await _send_response(event, response)
 

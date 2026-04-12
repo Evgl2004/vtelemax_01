@@ -476,6 +476,10 @@ class RouteModeratorReplyTransactionalUseCase:
                     ticket_id=ticket.ticket_id,
                     status=SupportTicketStatus.IN_PROGRESS,
                 )
+            self._mark_system_notifications_as_sent(
+                unit_of_work=unit_of_work,
+                ticket_id=ticket.ticket_id,
+            )
             unit_of_work.commit()
 
             guest_source = ticket.last_guest_platform or ticket.source_platform
@@ -502,6 +506,24 @@ class RouteModeratorReplyTransactionalUseCase:
             return last_guest
         # Детерминированный fallback, чтобы маршрутизация не зависела от порядка set.
         return sorted(available_platforms)[0]
+
+    @staticmethod
+    def _mark_system_notifications_as_sent(
+        *,
+        unit_of_work: SupportUnitOfWork,
+        ticket_id: UUID,
+    ) -> None:
+        """Closes stale pending system notifications for the ticket after a moderator reply."""
+
+        for message in unit_of_work.support_repository.list_messages(ticket_id):
+            if message.author != SupportMessageAuthor.SYSTEM:
+                continue
+            if message.delivery_status != SupportDeliveryStatus.CREATED:
+                continue
+            unit_of_work.support_repository.update_message_delivery(
+                message_id=message.message_id,
+                status=SupportDeliveryStatus.SENT,
+            )
 
 
 @dataclass(frozen=True, slots=True)

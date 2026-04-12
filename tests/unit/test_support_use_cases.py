@@ -239,6 +239,77 @@ def test_route_moderator_reply_allows_cross_platform_override() -> None:
     assert routing.target_external_id == "tg-1001"
 
 
+def test_route_moderator_reply_closes_stale_system_pending_notifications() -> None:
+    """Проверяет, что после ответа модератора старые system-pending уведомления по тикету закрываются."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-guest-3001",
+            raw_phone="+79129993001",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-mod-3001",
+            raw_phone="+79129994001",
+        )
+    )
+    vk_moderator = identity_repository.get_person_by_account("vk", "vk-mod-3001")
+    assert vk_moderator is not None
+    identity_repository.update_person_profile(
+        vk_moderator.person_id,
+        PersonProfilePatch(is_moderator=True),
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="telegram",
+            external_id="tg-guest-3001",
+            question_text="Нужна помощь по заказу, проверьте статус, пожалуйста.",
+        )
+    )
+
+    pull_pending_use_case = PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
+    vk_pending_before = pull_pending_use_case.execute(target_platform="vk", limit=10)
+    assert len(vk_pending_before) == 1
+    assert vk_pending_before[0].author == SupportMessageAuthor.SYSTEM
+    system_messages_before = [
+        message
+        for message in support_repository.list_messages(created.ticket_id)
+        if message.author == SupportMessageAuthor.SYSTEM
+    ]
+    assert system_messages_before
+    assert all(message.delivery_status == SupportDeliveryStatus.CREATED for message in system_messages_before)
+
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case.execute(
+        ModeratorReplyCommand(
+            ticket_id=created.ticket_id,
+            moderator_platform="vk",
+            reply_text="Приняли обращение, уже работаем по вашему вопросу.",
+        )
+    )
+
+    vk_pending_after = pull_pending_use_case.execute(target_platform="vk", limit=10)
+    assert len(vk_pending_after) == 0
+
+    system_messages = [
+        message
+        for message in support_repository.list_messages(created.ticket_id)
+        if message.author == SupportMessageAuthor.SYSTEM
+    ]
+    assert system_messages
+    assert all(message.delivery_status == SupportDeliveryStatus.SENT for message in system_messages)
+
+
 def test_get_support_ticket_details_returns_linked_platforms() -> None:
     """Проверяет карточку тикета с перечнем подключенных мессенджеров."""
 

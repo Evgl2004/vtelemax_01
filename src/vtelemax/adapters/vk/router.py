@@ -297,6 +297,7 @@ def register_vk_guest_handlers(
     router_logger = logger.bind(platform="vk", component="router")
     delivery_lock = asyncio.Lock()
     support_prompt_cmid_by_user_id: dict[int, int] = {}
+    moderation_reply_prompt_cmid_by_user_id: dict[int, int] = {}
 
     def _remember_support_prompt(*, vk_user_id: int, cmid: int | None) -> None:
         """Запоминает cmid технического экрана ввода вопроса."""
@@ -304,6 +305,13 @@ def register_vk_guest_handlers(
         if cmid is None:
             return
         support_prompt_cmid_by_user_id[vk_user_id] = int(cmid)
+
+    def _remember_moderation_reply_prompt(*, vk_user_id: int, cmid: int | None) -> None:
+        """Запоминает cmid технического экрана ввода ответа модератора."""
+
+        if cmid is None:
+            return
+        moderation_reply_prompt_cmid_by_user_id[vk_user_id] = int(cmid)
 
     async def _cleanup_support_prompt(
         *,
@@ -315,6 +323,22 @@ def register_vk_guest_handlers(
 
         cmid = support_prompt_cmid_by_user_id.pop(vk_user_id, None)
         if cmid is None or ctx_api is None or peer_id is None:
+            return
+        await _try_delete_message_by_cmid(ctx_api=ctx_api, peer_id=int(peer_id), cmid=cmid)
+
+    async def _cleanup_moderation_reply_prompt(
+        *,
+        vk_user_id: int,
+        ctx_api: Any | None,
+        peer_id: int | None,
+        keep_cmid: int | None = None,
+    ) -> None:
+        """Удаляет технический экран ввода ответа модератора."""
+
+        cmid = moderation_reply_prompt_cmid_by_user_id.pop(vk_user_id, None)
+        if cmid is None or ctx_api is None or peer_id is None:
+            return
+        if keep_cmid is not None and int(cmid) == int(keep_cmid):
             return
         await _try_delete_message_by_cmid(ctx_api=ctx_api, peer_id=int(peer_id), cmid=cmid)
 
@@ -362,6 +386,7 @@ def register_vk_guest_handlers(
         event_logger.debug("Получена стартовая команда.")
         await _try_process_pending_deliveries()
         support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
+        moderation_reply_prompt_cmid_by_user_id.pop(int(message.from_id), None)
         response = adapter.handle_start(vk_user_id=int(message.from_id))
         event_logger.info("Стартовый ответ сформирован.")
         await _send_response(message, response)
@@ -398,6 +423,16 @@ def register_vk_guest_handlers(
             )
         elif screen_id != "support_question":
             support_prompt_cmid_by_user_id.pop(int(message.from_id), None)
+        if screen_id == "moderation_reply_cancel":
+            pass
+        elif screen_id is not None and screen_id.startswith("moderation_"):
+            await _cleanup_moderation_reply_prompt(
+                vk_user_id=int(message.from_id),
+                ctx_api=getattr(message, "ctx_api", None),
+                peer_id=getattr(message, "peer_id", None),
+            )
+        else:
+            moderation_reply_prompt_cmid_by_user_id.pop(int(message.from_id), None)
         event_logger.info("Входящее сообщение обработано.")
         await _send_response(message, response)
 
@@ -440,6 +475,21 @@ def register_vk_guest_handlers(
                 )
             elif cmd != GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value:
                 support_prompt_cmid_by_user_id.pop(int(event.user_id), None)
+            current_cmid = int(event.conversation_message_id) if event.conversation_message_id is not None else None
+            if screen_id == "moderation_reply_cancel" and current_cmid is not None:
+                _remember_moderation_reply_prompt(
+                    vk_user_id=int(event.user_id),
+                    cmid=current_cmid,
+                )
+            elif screen_id is not None and screen_id.startswith("moderation_"):
+                await _cleanup_moderation_reply_prompt(
+                    vk_user_id=int(event.user_id),
+                    ctx_api=getattr(event, "ctx_api", None),
+                    peer_id=_extract_vk_peer_id(event),
+                    keep_cmid=current_cmid,
+                )
+            else:
+                moderation_reply_prompt_cmid_by_user_id.pop(int(event.user_id), None)
             event_logger.info("Callback тикета обработан. cmd={cmd}.", cmd=cmd)
             await event.send_empty_answer()
             await _send_event_response(event, response)
@@ -481,6 +531,21 @@ def register_vk_guest_handlers(
             )
         elif action not in {GuestMenuAction.SUPPORT_QUESTION, GuestMenuAction.SUPPORT_QUESTION_FROM_LIST}:
             support_prompt_cmid_by_user_id.pop(int(event.user_id), None)
+        current_cmid = int(event.conversation_message_id) if event.conversation_message_id is not None else None
+        if screen_id == "moderation_reply_cancel" and current_cmid is not None:
+            _remember_moderation_reply_prompt(
+                vk_user_id=int(event.user_id),
+                cmid=current_cmid,
+            )
+        elif screen_id is not None and screen_id.startswith("moderation_"):
+            await _cleanup_moderation_reply_prompt(
+                vk_user_id=int(event.user_id),
+                ctx_api=getattr(event, "ctx_api", None),
+                peer_id=_extract_vk_peer_id(event),
+                keep_cmid=current_cmid,
+            )
+        else:
+            moderation_reply_prompt_cmid_by_user_id.pop(int(event.user_id), None)
         event_logger.info("Callback обработан. action={action}.", action=action.value)
         await _send_event_response(event, response)
 
