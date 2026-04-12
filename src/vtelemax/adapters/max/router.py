@@ -22,6 +22,7 @@ from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
 
 _START_COMMANDS = {"/start", "начать"}
+_GUEST_MESSAGE_CLOSE_PAYLOAD = "guest_msg_close"
 
 
 _VCF_PHONE_PATTERN = re.compile(r"TEL[^:]*:([^\r\n]+)", flags=re.IGNORECASE)
@@ -85,6 +86,20 @@ def _build_max_moderation_notification_keyboard(ticket_id: str) -> object | None
 
     builder = InlineKeyboardBuilder()
     builder.row(CallbackButton(text="✍️ Ответить", payload=callback_payload))
+    return builder.as_markup()
+
+
+def _build_max_guest_message_close_keyboard() -> object | None:
+    """Возвращает inline-кнопку MAX для закрытия входящего сообщения гостем."""
+
+    try:
+        from maxapi.types import CallbackButton
+        from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+    except Exception:
+        return None
+
+    builder = InlineKeyboardBuilder()
+    builder.row(CallbackButton(text="❌ Закрыть", payload=_GUEST_MESSAGE_CLOSE_PAYLOAD))
     return builder.as_markup()
 
 
@@ -206,6 +221,10 @@ def register_max_guest_handlers(
                     keyboard = _build_max_moderation_notification_keyboard(str(delivery.ticket_id))
                     if keyboard is not None:
                         kwargs["attachments"] = [keyboard]
+                elif delivery.author == SupportMessageAuthor.MODERATOR:
+                    keyboard = _build_max_guest_message_close_keyboard()
+                    if keyboard is not None:
+                        kwargs["attachments"] = [keyboard]
                 await bot.send_message(user_id=int(delivery.target_external_id), text=text, **kwargs)
 
             try:
@@ -268,7 +287,6 @@ def register_max_guest_handlers(
 
     @router.message_callback()
     async def callback_handler(event: Any, context: Any = None) -> None:  # noqa: ARG001
-        await _try_process_pending_deliveries(getattr(event, "bot", None))
         user_id = _extract_user_id(event)
         if user_id is None:
             return
@@ -276,6 +294,19 @@ def register_max_guest_handlers(
         event_logger = router_logger.bind(stage="callback", user_id=str(user_id))
         callback_payload = _extract_callback_payload(event)
         event_logger.debug("Получен callback. payload={payload}.", payload=callback_payload)
+        if (callback_payload or "").strip() == _GUEST_MESSAGE_CLOSE_PAYLOAD:
+            if hasattr(event, "answer"):
+                await event.answer("")
+            callback_mid = _extract_callback_message_id(event)
+            bot = getattr(event, "bot", None)
+            if callback_mid is not None and bot is not None:
+                try:
+                    await bot.delete_message(message_id=callback_mid)
+                except Exception:  # noqa: BLE001
+                    event_logger.debug("Не удалось удалить сообщение гостя по кнопке закрытия в MAX.")
+            return
+
+        await _try_process_pending_deliveries(getattr(event, "bot", None))
         if hasattr(event, "answer"):
             await event.answer("")
         if callback_payload is not None and callback_payload.strip() == "noop":

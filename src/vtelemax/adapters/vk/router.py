@@ -38,6 +38,7 @@ _VK_REMOVE_KEYBOARD_JSON = json.dumps(
     },
     ensure_ascii=False,
 )
+_GUEST_MESSAGE_CLOSE_CMD = "guest_msg_close"
 
 
 def _build_vk_moderation_notification_keyboard_json(ticket_id: str) -> str:
@@ -57,6 +58,31 @@ def _build_vk_moderation_notification_keyboard_json(ticket_id: str) -> str:
                             "payload": json.dumps(payload, ensure_ascii=False),
                         },
                         "color": "primary",
+                    }
+                ]
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+def _build_vk_guest_message_close_keyboard_json() -> str:
+    """Возвращает inline-клавиатуру VK с кнопкой закрытия входящего сообщения."""
+
+    payload = {"cmd": _GUEST_MESSAGE_CLOSE_CMD}
+    return json.dumps(
+        {
+            "one_time": False,
+            "inline": True,
+            "buttons": [
+                [
+                    {
+                        "action": {
+                            "type": "callback",
+                            "label": "❌ Закрыть",
+                            "payload": json.dumps(payload, ensure_ascii=False),
+                        },
+                        "color": "secondary",
                     }
                 ]
             ],
@@ -309,6 +335,8 @@ def register_vk_guest_handlers(
                     kwargs["keyboard"] = _build_vk_moderation_notification_keyboard_json(
                         str(delivery.ticket_id)
                     )
+                elif delivery.author == SupportMessageAuthor.MODERATOR:
+                    kwargs["keyboard"] = _build_vk_guest_message_close_keyboard_json()
                 await bot.api.messages.send(
                     user_id=int(delivery.target_external_id),
                     random_id=0,
@@ -378,13 +406,19 @@ def register_vk_guest_handlers(
         """Обрабатывает inline-callback VK и перерисовывает текущее сообщение."""
 
         event_logger = router_logger.bind(stage="callback", user_id=str(event.user_id))
-        await _try_process_pending_deliveries()
         payload = event.get_payload_json() or {}
-        
+
         # Проверка префиксов тикетов
         cmd = ""
         if isinstance(payload, dict):
             cmd = str(payload.get("cmd", "")).strip()
+        if cmd == _GUEST_MESSAGE_CLOSE_CMD:
+            await event.send_empty_answer()
+            await _try_delete_callback_message(event)
+            event_logger.info("Callback закрытия сообщения гостя обработан.")
+            return
+
+        await _try_process_pending_deliveries()
         if (
             cmd.startswith(USER_TICKET_DETAILS_PREFIX)
             or cmd.startswith(USER_TICKET_REPLY_PREFIX)

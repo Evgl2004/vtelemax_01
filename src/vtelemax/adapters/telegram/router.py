@@ -810,7 +810,6 @@ def build_telegram_identity_router(
             stage="guest_message_close_callback",
             user_id=str(callback.from_user.id) if callback.from_user else "-",
         )
-        await _try_process_pending_deliveries(callback.bot)
         await callback.answer()
 
         if callback.message is None:
