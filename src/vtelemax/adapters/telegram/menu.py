@@ -36,6 +36,10 @@ from vtelemax.core import (
     BUTTON_PROFILE_EDIT_GENDER_FEMALE,
     BUTTON_PROFILE_EDIT_GENDER_MALE,
     BUTTON_PROFILE_EDIT_LAST_NAME,
+    BUTTON_PROFILE_EDIT_NOTIFICATIONS,
+    BUTTON_PROFILE_NOTIFICATIONS_ENABLE,
+    BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF,
+    BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT,
@@ -349,14 +353,27 @@ def build_ticket_details_inline_keyboard(*, ticket_id: str, can_reply: bool) -> 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def build_profile_inline_keyboard() -> InlineKeyboardMarkup:
+def build_profile_inline_keyboard(*, notifications_allowed: bool) -> InlineKeyboardMarkup:
     """Создает inline-клавиатуру экрана профиля."""
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    rows: list[list[InlineKeyboardButton]] = []
+    if not notifications_allowed:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PROFILE_NOTIFICATIONS_ENABLE,
+                    callback_data=_action_callback(GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE),
+                )
+            ]
+        )
+    rows.extend(
+        [
             [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT, callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT))],
             [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))],
         ]
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=rows
     )
 
 
@@ -380,10 +397,36 @@ def build_profile_edit_inline_keyboard(*, can_edit_birth_date: bool) -> InlineKe
     rows.extend(
         [
             [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_EMAIL, callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT_EMAIL))],
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PROFILE_EDIT_NOTIFICATIONS,
+                    callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS),
+                )
+            ],
             [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_CANCEL, callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT_CANCEL))],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_profile_notifications_toggle_inline_keyboard(*, notifications_allowed: bool) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру отдельного подменю управления уведомлениями."""
+
+    toggle_label = (
+        BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF
+        if notifications_allowed
+        else BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=toggle_label,
+                    callback_data=_action_callback(GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE),
+                )
+            ],
+        ]
+    )
 
 
 def build_profile_gender_inline_keyboard() -> InlineKeyboardMarkup:

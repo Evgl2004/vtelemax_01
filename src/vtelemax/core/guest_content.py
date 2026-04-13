@@ -38,7 +38,11 @@ BUTTON_PROFILE_EDIT_GENDER_MALE = "👨 Мужской"
 BUTTON_PROFILE_EDIT_GENDER_FEMALE = "👩 Женский"
 BUTTON_PROFILE_EDIT_BIRTH_DATE = "🎂 Указать дату рождения"
 BUTTON_PROFILE_EDIT_EMAIL = "📧 Изменить email"
+BUTTON_PROFILE_EDIT_NOTIFICATIONS = "🔔 Изменить уведомления"
 BUTTON_PROFILE_EDIT_CANCEL = "🔙 Назад в профиль"
+BUTTON_PROFILE_NOTIFICATIONS_ENABLE = "✅ Получать уведомления!"
+BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON = "✅ Включить уведомления"
+BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF = "❌ Выключить уведомления"
 BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
 BUTTON_SEND_PHONE = "📱 Поделиться контактом"
@@ -149,7 +153,11 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_PROFILE_EDIT_GENDER_FEMALE.lower(): GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE,
         BUTTON_PROFILE_EDIT_BIRTH_DATE.lower(): GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
         BUTTON_PROFILE_EDIT_EMAIL.lower(): GuestMenuAction.PROFILE_EDIT_EMAIL,
+        BUTTON_PROFILE_EDIT_NOTIFICATIONS.lower(): GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS,
         BUTTON_PROFILE_EDIT_CANCEL.lower(): GuestMenuAction.PROFILE_EDIT_CANCEL,
+        BUTTON_PROFILE_NOTIFICATIONS_ENABLE.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE,
+        BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
+        BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
         BUTTON_HELP.lower(): GuestMenuAction.HELP,
         "/help": GuestMenuAction.HELP,
         BUTTON_ABOUT.lower(): GuestMenuAction.ABOUT,
@@ -715,6 +723,21 @@ def build_profile_screen(
 ) -> MenuScreenContract:
     """Экран профиля зарегистрированного пользователя в формате review-анкеты."""
 
+    buttons: list[MenuButtonContract] = []
+    if not notifications_allowed:
+        buttons.append(
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE,
+                label=BUTTON_PROFILE_NOTIFICATIONS_ENABLE,
+            )
+        )
+    buttons.extend(
+        [
+            MenuButtonContract(action=GuestMenuAction.PROFILE_EDIT, label=BUTTON_PROFILE_EDIT),
+            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
+        ]
+    )
+
     return MenuScreenContract(
         screen_id="profile",
         text=build_profile_review_text(
@@ -731,10 +754,7 @@ def build_profile_screen(
             notifications_allowed=notifications_allowed,
             notifications_allowed_at=notifications_allowed_at,
         ),
-        buttons=(
-            MenuButtonContract(action=GuestMenuAction.PROFILE_EDIT, label=BUTTON_PROFILE_EDIT),
-            MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
-        ),
+        buttons=tuple(buttons),
         parse_mode="markdown",
     )
 
@@ -768,6 +788,10 @@ def build_profile_edit_screen(*, can_edit_birth_date: bool) -> MenuScreenContrac
             MenuButtonContract(
                 action=GuestMenuAction.PROFILE_EDIT_EMAIL,
                 label=BUTTON_PROFILE_EDIT_EMAIL,
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS,
+                label=BUTTON_PROFILE_EDIT_NOTIFICATIONS,
             ),
             MenuButtonContract(
                 action=GuestMenuAction.PROFILE_EDIT_CANCEL,
@@ -816,6 +840,32 @@ def build_profile_gender_screen() -> MenuScreenContract:
     )
 
 
+def build_profile_notifications_edit_screen(*, notifications_allowed: bool) -> MenuScreenContract:
+    """Экран включения/выключения уведомлений в режиме редактирования профиля."""
+
+    toggle_label = (
+        BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF
+        if notifications_allowed
+        else BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON
+    )
+    current_status = "Активны ✅" if notifications_allowed else "Отказ ❌"
+    return MenuScreenContract(
+        screen_id="profile_edit_notifications",
+        text=(
+            "🔔 *Уведомления*\n\n"
+            f"Текущий статус: {current_status}\n\n"
+            "Нажмите кнопку ниже, чтобы изменить статус уведомлений."
+        ),
+        buttons=(
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
+                label=toggle_label,
+            ),
+        ),
+        parse_mode="markdown",
+    )
+
+
 def build_profile_review_text(
     *,
     phone_e164: str,
@@ -833,6 +883,8 @@ def build_profile_review_text(
 ) -> str:
     """Формирует единый текст review-профиля для финала регистрации и кнопки «Профиль»."""
 
+    notifications_status = "Активны ✅" if notifications_allowed else "Отказ ❌"
+
     return (
         "🧾 *Профиль пользователя*\n\n"
         f"👤 *Имя:* {first_name_input or 'не указано'}\n"
@@ -842,7 +894,8 @@ def build_profile_review_text(
         f"🎂 *Дата рождения:* {_format_birth_date(birth_date)}\n"
         f"📧 *Email:* {email or 'не указан'}\n"
         f"🔗 *Привязанных аккаунтов:* {accounts_count}\n"
-        f"📲 *Платформы:* {_format_accounts_platforms(accounts_platforms)}"
+        f"📲 *Платформы:* {_format_accounts_platforms(accounts_platforms)}\n"
+        f"📩 *Уведомления:* {notifications_status}"
     )
 
 

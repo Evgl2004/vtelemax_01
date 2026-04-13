@@ -80,6 +80,7 @@ _STATE_PROFILE_EDIT_LAST_NAME = "profile_edit_last_name"
 _STATE_PROFILE_EDIT_GENDER = "profile_edit_gender"
 _STATE_PROFILE_EDIT_BIRTH_DATE = "profile_edit_birth_date"
 _STATE_PROFILE_EDIT_EMAIL = "profile_edit_email"
+_STATE_PROFILE_EDIT_NOTIFICATIONS = "profile_edit_notifications"
 _STATE_MOD_MENU = "moderation_menu"
 _STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
 _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
@@ -388,6 +389,12 @@ class VkIdentityAdapter:
             return self._handle_profile_edit_birth_date(vk_user_id=vk_user_id, text=text)
         if state == _STATE_PROFILE_EDIT_EMAIL:
             return self._handle_profile_edit_email(vk_user_id=vk_user_id, text=text)
+        if state == _STATE_PROFILE_EDIT_NOTIFICATIONS:
+            return self._handle_profile_edit_notifications(
+                vk_user_id=vk_user_id,
+                text=text,
+                payload=payload,
+            )
 
         moderator_response = self._try_handle_moderator_command(text=text, vk_user_id=vk_user_id)
         if moderator_response is not None:
@@ -1029,6 +1036,8 @@ class VkIdentityAdapter:
         if action == GuestMenuAction.PROFILE_EDIT_EMAIL:
             self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_EMAIL
             return VkAdapterResponse(text="📧 Введите новый email, например name@example.com.")
+        if action == GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS:
+            return self._open_profile_notifications_edit(vk_user_id=vk_user_id)
 
         return self._open_profile_edit_choice(vk_user_id=vk_user_id)
 
@@ -1143,6 +1152,79 @@ class VkIdentityAdapter:
             success_message="✅ Email обновлен.\n\n",
         )
 
+    def _open_profile_notifications_edit(self, *, vk_user_id: int) -> VkAdapterResponse:
+        """Открывает подменю переключения уведомлений профиля."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+
+        notifications_allowed = person.get_notifications_allowed_for_platform("vk")
+        self._state_by_user_id[vk_user_id] = _STATE_PROFILE_EDIT_NOTIFICATIONS
+        screen = self._menu_adapter.build_profile_notifications_edit_screen(
+            notifications_allowed=notifications_allowed
+        )
+        return VkAdapterResponse(text=screen.text, screen=screen, parse_mode=screen.parse_mode)
+
+    def _handle_profile_edit_notifications(
+        self,
+        *,
+        vk_user_id: int,
+        text: str,
+        payload: dict[str, str] | None,
+    ) -> VkAdapterResponse:
+        """Обрабатывает переключение уведомлений в подменю профиля."""
+
+        action = resolve_action_from_vk_payload(payload) or resolve_guest_menu_action(text)
+        if action in {
+            GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
+            GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE,
+        }:
+            return self._toggle_profile_notifications(
+                vk_user_id=vk_user_id,
+                new_value=True if action == GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE else None,
+            )
+        return self._open_profile_notifications_edit(vk_user_id=vk_user_id)
+
+    def _toggle_profile_notifications(
+        self,
+        *,
+        vk_user_id: int,
+        new_value: bool | None,
+    ) -> VkAdapterResponse:
+        """Переключает/включает уведомления для VK-платформы в профиле."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="vk", external_id=str(vk_user_id))
+        )
+        if person is None:
+            self._state_by_user_id.pop(vk_user_id, None)
+            return self._render_profile_screen(vk_user_id=vk_user_id)
+
+        current_value = person.get_notifications_allowed_for_platform("vk")
+        target_value = (not current_value) if new_value is None else new_value
+        if target_value == current_value:
+            self._state_by_user_id.pop(vk_user_id, None)
+            profile = self._render_profile_screen(vk_user_id=vk_user_id)
+            status_text = "Активны ✅" if current_value else "Отказ ❌"
+            return VkAdapterResponse(text=f"ℹ️ Статус уведомлений уже: {status_text}.\n\n{profile.text}", screen=profile.screen, parse_mode=profile.parse_mode)
+
+        fixed_at = datetime.now(timezone.utc)
+        success_message = (
+            "✅ Уведомления включены.\n\n"
+            if target_value
+            else "✅ Уведомления отключены.\n\n"
+        )
+        return self._apply_profile_patch(
+            vk_user_id=vk_user_id,
+            notifications_allowed=target_value,
+            notifications_allowed_at=fixed_at,
+            success_message=success_message,
+        )
+
     def _apply_profile_patch(
         self,
         *,
@@ -1153,6 +1235,8 @@ class VkIdentityAdapter:
         gender: str | None = None,
         birth_date: date | None = None,
         email: str | None = None,
+        notifications_allowed: bool | None = None,
+        notifications_allowed_at: datetime | None = None,
     ) -> VkAdapterResponse:
         """Применяет частичное обновление профиля через общий registration use-case."""
 
@@ -1174,6 +1258,8 @@ class VkIdentityAdapter:
                     gender=gender,
                     birth_date=birth_date,
                     email=email,
+                    notifications_allowed=notifications_allowed,
+                    notifications_allowed_at=notifications_allowed_at,
                 )
             )
         except (IdentityConflictError, ValueError):
@@ -2096,6 +2182,15 @@ class VkIdentityAdapter:
         if action == GuestMenuAction.PROFILE_EDIT:
             return self._open_profile_edit_choice(vk_user_id=vk_user_id)
 
+        if action == GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS:
+            return self._open_profile_notifications_edit(vk_user_id=vk_user_id)
+
+        if action == GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE:
+            return self._toggle_profile_notifications(vk_user_id=vk_user_id, new_value=True)
+
+        if action == GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE:
+            return self._toggle_profile_notifications(vk_user_id=vk_user_id, new_value=None)
+
         if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
             self._state_by_user_id.pop(vk_user_id, None)
             return self._render_profile_screen(vk_user_id=vk_user_id)
@@ -2106,6 +2201,7 @@ class VkIdentityAdapter:
             GuestMenuAction.PROFILE_EDIT_GENDER,
             GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
             GuestMenuAction.PROFILE_EDIT_EMAIL,
+            GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS,
             GuestMenuAction.PROFILE_EDIT_GENDER_MALE,
             GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE,
         }:

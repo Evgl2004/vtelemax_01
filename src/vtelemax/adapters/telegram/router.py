@@ -61,6 +61,10 @@ from .menu import (
     BUTTON_PROFILE_EDIT_GENDER_FEMALE,
     BUTTON_PROFILE_EDIT_GENDER_MALE,
     BUTTON_PROFILE_EDIT_LAST_NAME,
+    BUTTON_PROFILE_EDIT_NOTIFICATIONS,
+    BUTTON_PROFILE_NOTIFICATIONS_ENABLE,
+    BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF,
+    BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SUPPORT,
     BUTTON_SUPPORT_CONTACTS,
@@ -87,6 +91,7 @@ from .menu import (
     build_notifications_consent_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
+    build_profile_notifications_toggle_inline_keyboard,
     build_profile_inline_keyboard,
     build_rules_consent_inline_keyboard,
     build_support_feedback_inline_keyboard,
@@ -135,7 +140,6 @@ def build_telegram_identity_router(
     router_logger = logger.bind(platform="telegram", component="router")
     main_menu_inline_keyboard = build_main_menu_inline_keyboard()
     back_to_main_keyboard = build_back_to_main_inline_keyboard()
-    profile_keyboard = build_profile_inline_keyboard()
     delivery_lock = asyncio.Lock()
     support_prompt_message_id_by_user_id: dict[int, int] = {}
     moderation_reply_prompt_message_id_by_user_id: dict[int, int] = {}
@@ -481,14 +485,29 @@ def build_telegram_identity_router(
             "support_reply_closed",
         }:
             return back_to_main_keyboard
-        if result.status in {"profile", "profile_edit_first_name_saved", "profile_edit_last_name_saved", "profile_edit_gender_saved", "profile_edit_birth_date_saved", "profile_edit_email_saved"}:
-            return profile_keyboard
+        if result.status in {
+            "profile",
+            "profile_edit_first_name_saved",
+            "profile_edit_last_name_saved",
+            "profile_edit_gender_saved",
+            "profile_edit_birth_date_saved",
+            "profile_edit_email_saved",
+            "profile_edit_notifications_saved",
+            "profile_notifications_no_change",
+        }:
+            return build_profile_inline_keyboard(
+                notifications_allowed=bool(result.platform_notifications_allowed)
+            )
         if result.status in {"profile_edit", "profile_edit_invalid_choice"}:
             return build_profile_edit_inline_keyboard(
                 can_edit_birth_date=True if result.can_edit_birth_date is None else result.can_edit_birth_date
             )
         if result.status == "profile_edit_gender":
             return build_profile_gender_inline_keyboard()
+        if result.status == "profile_edit_notifications":
+            return build_profile_notifications_toggle_inline_keyboard(
+                notifications_allowed=bool(result.platform_notifications_allowed)
+            )
         if result.status == "menu":
             return main_menu_inline_keyboard
         return None
@@ -941,9 +960,12 @@ def build_telegram_identity_router(
                 GuestMenuAction.PROFILE_EDIT_GENDER.value,
                 GuestMenuAction.PROFILE_EDIT_BIRTH_DATE.value,
                 GuestMenuAction.PROFILE_EDIT_EMAIL.value,
+                GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS.value,
                 GuestMenuAction.PROFILE_EDIT_CANCEL.value,
                 GuestMenuAction.PROFILE_EDIT_GENDER_MALE.value,
                 GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE.value,
+                GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE.value,
+                GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE.value,
                 GuestMenuAction.RETRY_IIKO_SYNC.value,
                 # Поддерживаем старые callback_data, которые могли остаться в уже отправленных сообщениях.
                 BUTTON_BALANCE,
@@ -966,9 +988,13 @@ def build_telegram_identity_router(
                 BUTTON_PROFILE_EDIT_GENDER,
                 BUTTON_PROFILE_EDIT_BIRTH_DATE,
                 BUTTON_PROFILE_EDIT_EMAIL,
+                BUTTON_PROFILE_EDIT_NOTIFICATIONS,
                 BUTTON_PROFILE_EDIT_CANCEL,
                 BUTTON_PROFILE_EDIT_GENDER_MALE,
                 BUTTON_PROFILE_EDIT_GENDER_FEMALE,
+                BUTTON_PROFILE_NOTIFICATIONS_ENABLE,
+                BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON,
+                BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF,
                 BUTTON_RETRY_IIKO_SYNC,
             ]
         )

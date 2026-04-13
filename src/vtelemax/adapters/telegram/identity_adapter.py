@@ -72,6 +72,7 @@ from vtelemax.core import (
     build_main_menu_screen,
     build_profile_edit_screen,
     build_profile_gender_screen,
+    build_profile_notifications_edit_screen,
     build_profile_not_found_screen,
     build_profile_screen,
     build_start_rules_screen,
@@ -140,6 +141,7 @@ class TelegramMenuActionResult:
     moderation_ticket_id: UUID | None = None
     moderation_ticket_status: str | None = None
     moderation_tickets: tuple[OpenSupportTicketSummary, ...] = ()
+    platform_notifications_allowed: bool | None = None
 
 
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
@@ -150,6 +152,7 @@ _STATE_PROFILE_EDIT_LAST_NAME = "profile_edit_last_name"
 _STATE_PROFILE_EDIT_GENDER = "profile_edit_gender"
 _STATE_PROFILE_EDIT_BIRTH_DATE = "profile_edit_birth_date"
 _STATE_PROFILE_EDIT_EMAIL = "profile_edit_email"
+_STATE_PROFILE_EDIT_NOTIFICATIONS = "profile_edit_notifications"
 _STATE_MOD_MENU = "moderation_menu"
 _STATE_MOD_WAIT_TICKET_FOR_REPLY = "moderation_wait_ticket_for_reply"
 _STATE_MOD_WAIT_REPLY_TEXT = "moderation_wait_reply_text"
@@ -891,6 +894,11 @@ class TelegramIdentityAdapter:
                 telegram_user_id=telegram_user_id,
                 action_text=action_text,
             )
+        if dialog_state == _STATE_PROFILE_EDIT_NOTIFICATIONS:
+            return self._handle_profile_edit_notifications_input(
+                telegram_user_id=telegram_user_id,
+                action_text=action_text,
+            )
 
         # Обработка callback'ов пагинации тикетов
         if action_text.startswith(USER_TICKETS_PREV_PAGE_PREFIX):
@@ -996,6 +1004,21 @@ class TelegramIdentityAdapter:
         if action == GuestMenuAction.PROFILE_EDIT:
             return self._open_profile_edit_choice(telegram_user_id=telegram_user_id)
 
+        if action == GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS:
+            return self._open_profile_notifications_edit(telegram_user_id=telegram_user_id)
+
+        if action == GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE:
+            return self._toggle_profile_notifications(
+                telegram_user_id=telegram_user_id,
+                new_value=True,
+            )
+
+        if action == GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE:
+            return self._toggle_profile_notifications(
+                telegram_user_id=telegram_user_id,
+                new_value=None,
+            )
+
         if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             return self._render_profile_screen(telegram_user_id=telegram_user_id)
@@ -1006,6 +1029,7 @@ class TelegramIdentityAdapter:
             GuestMenuAction.PROFILE_EDIT_GENDER,
             GuestMenuAction.PROFILE_EDIT_BIRTH_DATE,
             GuestMenuAction.PROFILE_EDIT_EMAIL,
+            GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS,
             GuestMenuAction.PROFILE_EDIT_GENDER_MALE,
             GuestMenuAction.PROFILE_EDIT_GENDER_FEMALE,
         }:
@@ -1358,10 +1382,12 @@ class TelegramIdentityAdapter:
             notifications_allowed=person.get_notifications_allowed_for_platform("telegram"),
             notifications_allowed_at=person.get_notifications_allowed_at_for_platform("telegram"),
         )
+        platform_notifications_allowed = person.get_notifications_allowed_for_platform("telegram")
         return TelegramMenuActionResult(
             status="profile",
             message=screen.text,
             parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+            platform_notifications_allowed=platform_notifications_allowed,
         )
 
     def _open_profile_edit_choice(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
@@ -1440,6 +1466,8 @@ class TelegramIdentityAdapter:
                 status="profile_edit_email",
                 message="📧 Введите новый email.",
             )
+        if action == GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS:
+            return self._open_profile_notifications_edit(telegram_user_id=telegram_user_id)
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
         )
@@ -1597,6 +1625,89 @@ class TelegramIdentityAdapter:
             success_message="✅ Email обновлен.\n\n",
         )
 
+    def _open_profile_notifications_edit(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
+        """Открывает подменю переключения уведомлений профиля."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+
+        notifications_allowed = person.get_notifications_allowed_for_platform("telegram")
+        self._dialog_state_by_user_id[telegram_user_id] = _STATE_PROFILE_EDIT_NOTIFICATIONS
+        screen = build_profile_notifications_edit_screen(
+            notifications_allowed=notifications_allowed
+        )
+        return TelegramMenuActionResult(
+            status="profile_edit_notifications",
+            message=screen.text,
+            parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
+            platform_notifications_allowed=notifications_allowed,
+        )
+
+    def _handle_profile_edit_notifications_input(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult:
+        """Обрабатывает выбор кнопки переключения уведомлений в подменю профиля."""
+
+        action = resolve_guest_menu_action(action_text)
+        if action in {
+            GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
+            GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE,
+        }:
+            return self._toggle_profile_notifications(
+                telegram_user_id=telegram_user_id,
+                new_value=True if action == GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE else None,
+            )
+        return self._open_profile_notifications_edit(telegram_user_id=telegram_user_id)
+
+    def _toggle_profile_notifications(
+        self,
+        *,
+        telegram_user_id: int,
+        new_value: bool | None,
+    ) -> TelegramMenuActionResult:
+        """Переключает/включает уведомления для Telegram-платформы в профиле."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+
+        current_value = person.get_notifications_allowed_for_platform("telegram")
+        target_value = (not current_value) if new_value is None else new_value
+        if target_value == current_value:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            profile_result = self._render_profile_screen(telegram_user_id=telegram_user_id)
+            status_text = "Активны ✅" if current_value else "Отказ ❌"
+            return TelegramMenuActionResult(
+                status="profile_notifications_no_change",
+                message=f"ℹ️ Статус уведомлений уже: {status_text}.\n\n{profile_result.message}",
+                parse_mode=profile_result.parse_mode,
+                platform_notifications_allowed=current_value,
+            )
+
+        fixed_at = datetime.now(timezone.utc)
+        success_message = (
+            "✅ Уведомления включены.\n\n"
+            if target_value
+            else "✅ Уведомления отключены.\n\n"
+        )
+        return self._apply_profile_patch(
+            telegram_user_id=telegram_user_id,
+            notifications_allowed=target_value,
+            notifications_allowed_at=fixed_at,
+            success_status="profile_edit_notifications_saved",
+            success_message=success_message,
+        )
+
     def _apply_profile_patch(
         self,
         *,
@@ -1608,6 +1719,8 @@ class TelegramIdentityAdapter:
         gender: str | None = None,
         birth_date: date | None = None,
         email: str | None = None,
+        notifications_allowed: bool | None = None,
+        notifications_allowed_at: datetime | None = None,
     ) -> TelegramMenuActionResult:
         """Применяет частичное обновление профиля через общий registration use-case."""
 
@@ -1630,6 +1743,8 @@ class TelegramIdentityAdapter:
                     gender=gender,
                     birth_date=birth_date,
                     email=email,
+                    notifications_allowed=notifications_allowed,
+                    notifications_allowed_at=notifications_allowed_at,
                 )
             )
         except (IdentityConflictError, ValueError):
@@ -1647,6 +1762,7 @@ class TelegramIdentityAdapter:
             status=success_status,
             message=f"{success_message}{profile_result.message}",
             parse_mode=profile_result.parse_mode,
+            platform_notifications_allowed=profile_result.platform_notifications_allowed,
         )
 
     def _try_handle_moderator_command(

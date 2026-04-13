@@ -24,6 +24,8 @@ from vtelemax.adapters.telegram.menu import (
     build_moderation_tickets_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
+    build_profile_inline_keyboard,
+    build_profile_notifications_toggle_inline_keyboard,
     build_rules_consent_inline_keyboard,
     build_support_feedback_inline_keyboard,
     build_support_menu_inline_keyboard,
@@ -215,9 +217,13 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
         build_support_menu_inline_keyboard(has_tickets=False),
         build_support_menu_inline_keyboard(has_tickets=True),
         build_support_feedback_inline_keyboard(),
+        build_profile_inline_keyboard(notifications_allowed=True),
+        build_profile_inline_keyboard(notifications_allowed=False),
         build_profile_edit_inline_keyboard(can_edit_birth_date=True),
         build_profile_edit_inline_keyboard(can_edit_birth_date=False),
         build_profile_gender_inline_keyboard(),
+        build_profile_notifications_toggle_inline_keyboard(notifications_allowed=True),
+        build_profile_notifications_toggle_inline_keyboard(notifications_allowed=False),
         build_iiko_sync_retry_inline_keyboard(),
         build_moderation_main_inline_keyboard(),
         build_moderation_tickets_inline_keyboard(
@@ -241,6 +247,36 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
                 if callback_data is None:
                     continue
                 assert len(callback_data.encode("utf-8")) <= 64
+
+
+def test_build_profile_inline_keyboard_depends_on_notifications_status() -> None:
+    """Проверяет условную кнопку включения уведомлений на экране профиля."""
+
+    active_keyboard = build_profile_inline_keyboard(notifications_allowed=True)
+    declined_keyboard = build_profile_inline_keyboard(notifications_allowed=False)
+
+    active_texts = [button.text for row in active_keyboard.inline_keyboard for button in row]
+    declined_texts = [button.text for row in declined_keyboard.inline_keyboard for button in row]
+
+    assert "✅ Получать уведомления!" not in active_texts
+    assert "✅ Получать уведомления!" in declined_texts
+
+
+def test_build_profile_notifications_toggle_keyboard_has_single_toggle_button() -> None:
+    """Проверяет отдельное подменю уведомлений с одной кнопкой переключения."""
+
+    active_keyboard = build_profile_notifications_toggle_inline_keyboard(notifications_allowed=True)
+    declined_keyboard = build_profile_notifications_toggle_inline_keyboard(notifications_allowed=False)
+
+    assert len(active_keyboard.inline_keyboard) == 1
+    assert len(active_keyboard.inline_keyboard[0]) == 1
+    assert active_keyboard.inline_keyboard[0][0].text == "❌ Выключить уведомления"
+    assert active_keyboard.inline_keyboard[0][0].callback_data == GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE.value
+
+    assert len(declined_keyboard.inline_keyboard) == 1
+    assert len(declined_keyboard.inline_keyboard[0]) == 1
+    assert declined_keyboard.inline_keyboard[0][0].text == "✅ Включить уведомления"
+    assert declined_keyboard.inline_keyboard[0][0].callback_data == GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE.value
 
 
 def test_build_guest_message_close_keyboard_contains_close_callback() -> None:

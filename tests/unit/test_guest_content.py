@@ -8,6 +8,7 @@ from vtelemax.core import (
     build_iiko_sync_retry_screen,
     build_delivery_screen,
     build_main_menu_screen,
+    build_profile_screen,
     build_profile_review_text,
     build_start_contact_screen,
     build_support_feedback_screen,
@@ -88,6 +89,53 @@ def test_profile_review_text_hides_consents_and_shows_platforms() -> None:
     assert "Привязанных аккаунтов" in profile_text
     assert "* 3" in profile_text
     assert "Telegram, VK, MAX" in profile_text
+    assert "📩 *Уведомления:* Отказ ❌" in profile_text
+
+
+def test_profile_review_text_shows_active_notifications_status() -> None:
+    """Проверяет отображение активного статуса уведомлений в профиле."""
+
+    profile_text = build_profile_review_text(
+        phone_e164="+79123456789",
+        accounts_count=1,
+        accounts_platforms=("telegram",),
+        first_name_input="Иван",
+        notifications_allowed=True,
+    )
+
+    assert "📩 *Уведомления:* Активны ✅" in profile_text
+
+
+def test_profile_screen_shows_enable_notifications_button_when_declined() -> None:
+    """Проверяет, что при отказе от рассылки в профиле есть кнопка включения уведомлений."""
+
+    screen = build_profile_screen(
+        phone_e164="+79123456789",
+        accounts_count=1,
+        accounts_platforms=("vk",),
+        first_name_input="Иван",
+        notifications_allowed=False,
+    )
+    actions = [button.action for button in screen.buttons]
+
+    assert actions[0] == GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE
+    assert GuestMenuAction.PROFILE_EDIT in actions
+    assert GuestMenuAction.BACK_TO_MAIN in actions
+
+
+def test_profile_screen_hides_enable_notifications_button_when_active() -> None:
+    """Проверяет, что при активной рассылке кнопка включения уведомлений не показывается."""
+
+    screen = build_profile_screen(
+        phone_e164="+79123456789",
+        accounts_count=1,
+        accounts_platforms=("max",),
+        first_name_input="Иван",
+        notifications_allowed=True,
+    )
+    actions = [button.action for button in screen.buttons]
+
+    assert GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE not in actions
 
 
 def test_support_feedback_screen_uses_actual_review_link() -> None:
