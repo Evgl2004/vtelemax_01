@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -10,7 +11,9 @@ from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.adapters.periodic_moderation_delivery_worker import PeriodicPendingDeliveryWorker
 from vtelemax.adapters.max import MaxIdentityAdapter, register_max_guest_handlers
+from vtelemax.adapters.max.router import build_max_pending_delivery_sender
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketTransactionalUseCase,
@@ -218,7 +221,11 @@ def _import_maxapi_runtime() -> tuple[type[Any], type[Any], type[Any]]:
     return Bot, Dispatcher, Router
 
 
-def build_dispatcher(settings: AppSettings) -> Any:
+def build_dispatcher(
+    settings: AppSettings,
+    *,
+    delivery_lock: asyncio.Lock | None = None,
+) -> tuple[Any, PendingModeratorDeliveryProcessor]:
     """Собирает Dispatcher MAX-бота с подключенным маршрутом идентификации."""
 
     _, Dispatcher, Router = _import_maxapi_runtime()
@@ -264,9 +271,15 @@ def build_dispatcher(settings: AppSettings) -> Any:
 
     dispatcher = Dispatcher()
     router = Router()
-    register_max_guest_handlers(router, adapter, delivery_processor=delivery_processor)
+    register_max_guest_handlers(
+        router,
+        adapter,
+        delivery_processor=delivery_processor,
+        delivery_lock=delivery_lock,
+        delivery_batch_limit=settings.moderation_delivery_batch_limit,
+    )
     dispatcher.include_routers(router)
-    return dispatcher
+    return dispatcher, delivery_processor
 
 
 async def run_max_bot(settings: AppSettings | None = None) -> None:
@@ -280,13 +293,34 @@ async def run_max_bot(settings: AppSettings | None = None) -> None:
 
     Bot, _, _ = _import_maxapi_runtime()
     bot = Bot(token=app_settings.max_bot_token)
-    dispatcher = build_dispatcher(app_settings)
+    delivery_lock = asyncio.Lock()
+    dispatcher, delivery_processor = build_dispatcher(
+        app_settings,
+        delivery_lock=delivery_lock,
+    )
+    delivery_worker = PeriodicPendingDeliveryWorker(
+        target_platform="max",
+        processor=delivery_processor,
+        sender=build_max_pending_delivery_sender(bot),
+        interval_seconds=app_settings.moderation_delivery_interval_seconds,
+        batch_limit=app_settings.moderation_delivery_batch_limit,
+        lock=delivery_lock,
+    )
+    worker_task = asyncio.create_task(
+        delivery_worker.run_forever(),
+        name="max_moderation_delivery_worker",
+    )
     app_logger.info("Запуск polling MAX-бота.")
     try:
         await dispatcher.start_polling(bot)
     except Exception:  # noqa: BLE001
         app_logger.exception("MAX-бот завершился с необработанной ошибкой.")
         raise
+    finally:
+        await delivery_worker.shutdown()
+        worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker_task
 
 
 def main() -> None:

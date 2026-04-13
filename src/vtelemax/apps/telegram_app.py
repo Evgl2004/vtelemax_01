@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
 
 from aiogram import Bot, Dispatcher
@@ -12,7 +13,9 @@ from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.adapters.periodic_moderation_delivery_worker import PeriodicPendingDeliveryWorker
 from vtelemax.adapters.telegram import TelegramIdentityAdapter, build_telegram_identity_router
+from vtelemax.adapters.telegram.router import build_telegram_pending_delivery_sender
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketTransactionalUseCase,
@@ -209,7 +212,11 @@ def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     )
 
 
-def build_dispatcher(settings: AppSettings) -> Dispatcher:
+def build_dispatcher(
+    settings: AppSettings,
+    *,
+    delivery_lock: asyncio.Lock | None = None,
+) -> tuple[Dispatcher, PendingModeratorDeliveryProcessor]:
     """Собирает Dispatcher Telegram-бота с подключенным маршрутом идентификации."""
 
     session_factory = build_postgres_session_factory(settings)
@@ -256,9 +263,11 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
         build_telegram_identity_router(
             identity_adapter,
             delivery_processor=delivery_processor,
+            delivery_lock=delivery_lock,
+            delivery_batch_limit=settings.moderation_delivery_batch_limit,
         )
     )
-    return dispatcher
+    return dispatcher, delivery_processor
 
 
 async def run_telegram_bot(settings: AppSettings | None = None) -> None:
@@ -274,13 +283,34 @@ async def run_telegram_bot(settings: AppSettings | None = None) -> None:
         token=app_settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dispatcher = build_dispatcher(app_settings)
+    delivery_lock = asyncio.Lock()
+    dispatcher, delivery_processor = build_dispatcher(
+        app_settings,
+        delivery_lock=delivery_lock,
+    )
+    delivery_worker = PeriodicPendingDeliveryWorker(
+        target_platform="telegram",
+        processor=delivery_processor,
+        sender=build_telegram_pending_delivery_sender(bot),
+        interval_seconds=app_settings.moderation_delivery_interval_seconds,
+        batch_limit=app_settings.moderation_delivery_batch_limit,
+        lock=delivery_lock,
+    )
+    worker_task = asyncio.create_task(
+        delivery_worker.run_forever(),
+        name="telegram_moderation_delivery_worker",
+    )
     app_logger.info("Запуск polling Telegram-бота.")
     try:
         await dispatcher.start_polling(bot)
     except Exception:  # noqa: BLE001
         app_logger.exception("Telegram-бот завершился с необработанной ошибкой.")
         raise
+    finally:
+        await delivery_worker.shutdown()
+        worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker_task
 
 
 def main() -> None:

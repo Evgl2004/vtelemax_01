@@ -46,6 +46,16 @@ class AppSettings(BaseSettings):
     vk_group_id: int = Field(default=0, alias="VK_GROUP_ID")
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
+    moderation_delivery_interval_seconds: float = Field(
+        default=15.0,
+        alias="MODERATION_DELIVERY_INTERVAL_SECONDS",
+        gt=0,
+    )
+    moderation_delivery_batch_limit: int = Field(
+        default=20,
+        alias="MODERATION_DELIVERY_BATCH_LIMIT",
+        gt=0,
+    )
     iiko_api_key: str = Field(default="", alias="IIKO_API_KEY")
     iiko_org_id: str = Field(default="", alias="IIKO_ORG_ID")
     iiko_base_url: str = Field(default="https://api-ru.iiko.services/api/1", alias="IIKO_BASE_URL")

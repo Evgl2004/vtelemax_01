@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Callable
 
 from loguru import logger
@@ -9,6 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from vkbottle.bot import Bot
 
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
+from vtelemax.adapters.periodic_moderation_delivery_worker import PeriodicPendingDeliveryWorker
+from vtelemax.adapters.vk.router import build_vk_pending_delivery_sender
 from vtelemax.adapters.vk import VkIdentityAdapter, register_vk_guest_handlers
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
@@ -205,7 +209,11 @@ def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     )
 
 
-def build_bot(settings: AppSettings) -> Bot:
+def build_bot(
+    settings: AppSettings,
+    *,
+    delivery_lock: asyncio.Lock | None = None,
+) -> tuple[Bot, PendingModeratorDeliveryProcessor, asyncio.Lock]:
     """Создает и конфигурирует экземпляр VK-бота."""
 
     session_factory = build_postgres_session_factory(settings)
@@ -247,9 +255,16 @@ def build_bot(settings: AppSettings) -> Bot:
         update_status_use_case=update_delivery_status_use_case,
     )
 
+    shared_delivery_lock = delivery_lock or asyncio.Lock()
     bot = Bot(settings.vk_bot_token)
-    register_vk_guest_handlers(bot, adapter, delivery_processor=delivery_processor)
-    return bot
+    register_vk_guest_handlers(
+        bot,
+        adapter,
+        delivery_processor=delivery_processor,
+        delivery_lock=shared_delivery_lock,
+        delivery_batch_limit=settings.moderation_delivery_batch_limit,
+    )
+    return bot, delivery_processor, shared_delivery_lock
 
 
 def run_vk_bot(settings: AppSettings | None = None) -> None:
@@ -261,7 +276,35 @@ def run_vk_bot(settings: AppSettings | None = None) -> None:
     app_logger.info("Инициализация VK-бота. ENV={env}.", env=app_settings.env)
     app_settings.validate_vk_ready()
 
-    bot = build_bot(app_settings)
+    bot, delivery_processor, delivery_lock = build_bot(app_settings)
+    delivery_worker = PeriodicPendingDeliveryWorker(
+        target_platform="vk",
+        processor=delivery_processor,
+        sender=build_vk_pending_delivery_sender(bot),
+        interval_seconds=app_settings.moderation_delivery_interval_seconds,
+        batch_limit=app_settings.moderation_delivery_batch_limit,
+        lock=delivery_lock,
+    )
+    worker_task: asyncio.Task[None] | None = None
+
+    async def _start_delivery_worker() -> None:
+        nonlocal worker_task
+        if worker_task is not None and not worker_task.done():
+            return
+        worker_task = asyncio.create_task(
+            delivery_worker.run_forever(),
+            name="vk_moderation_delivery_worker",
+        )
+
+    async def _stop_delivery_worker() -> None:
+        await delivery_worker.shutdown()
+        if worker_task is not None:
+            worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker_task
+
+    bot.loop_wrapper.on_startup.append(_start_delivery_worker)
+    bot.loop_wrapper.on_shutdown.append(_stop_delivery_worker)
     app_logger.info("Запуск long-poll VK-бота.")
     try:
         bot.run_forever()

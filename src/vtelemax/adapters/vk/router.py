@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiohttp
@@ -89,6 +90,27 @@ def _build_vk_guest_message_close_keyboard_json() -> str:
         },
         ensure_ascii=False,
     )
+
+
+def build_vk_pending_delivery_sender(
+    bot: Any,
+) -> Callable[[PendingModeratorDelivery, str], Awaitable[None]]:
+    """Строит sender-функцию для доставки pending-сообщений в VK."""
+
+    async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
+        kwargs: dict[str, Any] = {}
+        if delivery.author == SupportMessageAuthor.SYSTEM:
+            kwargs["keyboard"] = _build_vk_moderation_notification_keyboard_json(str(delivery.ticket_id))
+        elif delivery.author == SupportMessageAuthor.MODERATOR:
+            kwargs["keyboard"] = _build_vk_guest_message_close_keyboard_json()
+        await bot.api.messages.send(
+            user_id=int(delivery.target_external_id),
+            random_id=0,
+            message=text,
+            **kwargs,
+        )
+
+    return _send_message
 
 
 def _normalize_vk_message(
@@ -291,11 +313,13 @@ def register_vk_guest_handlers(
     bot: Any,
     adapter: VkIdentityAdapter,
     delivery_processor: PendingModeratorDeliveryProcessor | None = None,
+    delivery_lock: asyncio.Lock | None = None,
+    delivery_batch_limit: int = 20,
 ) -> None:
     """Регистрирует обработчики команд/кнопок VK-бота."""
 
     router_logger = logger.bind(platform="vk", component="router")
-    delivery_lock = asyncio.Lock()
+    shared_delivery_lock = delivery_lock or asyncio.Lock()
     support_prompt_cmid_by_user_id: dict[int, int] = {}
     moderation_reply_prompt_cmid_by_user_id: dict[int, int] = {}
 
@@ -348,28 +372,16 @@ def register_vk_guest_handlers(
         delivery_logger = router_logger.bind(stage="pending_delivery")
         if delivery_processor is None:
             return
-        if delivery_lock.locked():
+        if shared_delivery_lock.locked():
             delivery_logger.debug("Пропуск доставки pending: предыдущий проход еще выполняется.")
             return
 
-        async with delivery_lock:
-            async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
-                kwargs: dict[str, Any] = {}
-                if delivery.author == SupportMessageAuthor.SYSTEM:
-                    kwargs["keyboard"] = _build_vk_moderation_notification_keyboard_json(
-                        str(delivery.ticket_id)
-                    )
-                elif delivery.author == SupportMessageAuthor.MODERATOR:
-                    kwargs["keyboard"] = _build_vk_guest_message_close_keyboard_json()
-                await bot.api.messages.send(
-                    user_id=int(delivery.target_external_id),
-                    random_id=0,
-                    message=text,
-                    **kwargs,
-                )
-
+        async with shared_delivery_lock:
             try:
-                sent_count, failed_count = await delivery_processor.process_once(sender=_send_message, limit=20)
+                sent_count, failed_count = await delivery_processor.process_once(
+                    sender=build_vk_pending_delivery_sender(bot),
+                    limit=delivery_batch_limit,
+                )
                 delivery_logger.debug(
                     "Доставка pending завершена. sent={sent}, failed={failed}.",
                     sent=sent_count,

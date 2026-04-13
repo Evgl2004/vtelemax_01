@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import Bot, F, Router
@@ -130,9 +131,31 @@ def _is_message_cant_be_edited_error(error: Exception) -> bool:
     return "message can't be edited" in text or "message cant be edited" in text
 
 
+def build_telegram_pending_delivery_sender(
+    bot: Bot,
+) -> Callable[[PendingModeratorDelivery, str], Awaitable[None]]:
+    """Строит sender-функцию для доставки pending-сообщений в Telegram."""
+
+    async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
+        reply_markup = None
+        if delivery.author == SupportMessageAuthor.SYSTEM:
+            reply_markup = build_moderation_notification_inline_keyboard(str(delivery.ticket_id))
+        elif delivery.author == SupportMessageAuthor.MODERATOR:
+            reply_markup = build_guest_message_close_inline_keyboard()
+        await bot.send_message(
+            chat_id=int(delivery.target_external_id),
+            text=text,
+            reply_markup=reply_markup,
+        )
+
+    return _send_message
+
+
 def build_telegram_identity_router(
     identity_adapter: TelegramIdentityAdapter,
     delivery_processor: PendingModeratorDeliveryProcessor | None = None,
+    delivery_lock: asyncio.Lock | None = None,
+    delivery_batch_limit: int = 20,
 ) -> Router:
     """Создает router Telegram с обработчиками регистрации по телефону."""
 
@@ -140,7 +163,7 @@ def build_telegram_identity_router(
     router_logger = logger.bind(platform="telegram", component="router")
     main_menu_inline_keyboard = build_main_menu_inline_keyboard()
     back_to_main_keyboard = build_back_to_main_inline_keyboard()
-    delivery_lock = asyncio.Lock()
+    shared_delivery_lock = delivery_lock or asyncio.Lock()
     support_prompt_message_id_by_user_id: dict[int, int] = {}
     moderation_reply_prompt_message_id_by_user_id: dict[int, int] = {}
 
@@ -518,25 +541,16 @@ def build_telegram_identity_router(
         delivery_logger = router_logger.bind(stage="pending_delivery")
         if delivery_processor is None:
             return
-        if delivery_lock.locked():
+        if shared_delivery_lock.locked():
             delivery_logger.debug("Пропуск доставки pending: предыдущий проход еще выполняется.")
             return
 
-        async with delivery_lock:
-            async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
-                reply_markup = None
-                if delivery.author == SupportMessageAuthor.SYSTEM:
-                    reply_markup = build_moderation_notification_inline_keyboard(str(delivery.ticket_id))
-                elif delivery.author == SupportMessageAuthor.MODERATOR:
-                    reply_markup = build_guest_message_close_inline_keyboard()
-                await bot.send_message(
-                    chat_id=int(delivery.target_external_id),
-                    text=text,
-                    reply_markup=reply_markup,
-                )
-
+        async with shared_delivery_lock:
             try:
-                sent_count, failed_count = await delivery_processor.process_once(sender=_send_message, limit=20)
+                sent_count, failed_count = await delivery_processor.process_once(
+                    sender=build_telegram_pending_delivery_sender(bot),
+                    limit=delivery_batch_limit,
+                )
                 delivery_logger.debug(
                     "Доставка pending завершена. sent={sent}, failed={failed}.",
                     sent=sent_count,

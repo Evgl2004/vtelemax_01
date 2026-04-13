@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiohttp
@@ -103,6 +104,26 @@ def _build_max_guest_message_close_keyboard() -> object | None:
     return builder.as_markup()
 
 
+def build_max_pending_delivery_sender(
+    bot: Any,
+) -> Callable[[PendingModeratorDelivery, str], Awaitable[None]]:
+    """Строит sender-функцию для доставки pending-сообщений в MAX."""
+
+    async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
+        kwargs: dict[str, Any] = {}
+        if delivery.author == SupportMessageAuthor.SYSTEM:
+            keyboard = _build_max_moderation_notification_keyboard(str(delivery.ticket_id))
+            if keyboard is not None:
+                kwargs["attachments"] = [keyboard]
+        elif delivery.author == SupportMessageAuthor.MODERATOR:
+            keyboard = _build_max_guest_message_close_keyboard()
+            if keyboard is not None:
+                kwargs["attachments"] = [keyboard]
+        await bot.send_message(user_id=int(delivery.target_external_id), text=text, **kwargs)
+
+    return _send_message
+
+
 async def _send_virtual_card_qr_messages(*, bot: Any, chat_id: int, card_numbers: tuple[str, ...]) -> None:
     """Отправляет QR-коды карт в MAX перед итоговым текстовым ответом."""
 
@@ -179,11 +200,13 @@ def register_max_guest_handlers(
     router: Any,
     adapter: MaxIdentityAdapter,
     delivery_processor: PendingModeratorDeliveryProcessor | None = None,
+    delivery_lock: asyncio.Lock | None = None,
+    delivery_batch_limit: int = 20,
 ) -> None:
     """Регистрирует обработчики MAX-бота на переданном `router`."""
 
     router_logger = logger.bind(platform="max", component="router")
-    delivery_lock = asyncio.Lock()
+    shared_delivery_lock = delivery_lock or asyncio.Lock()
     support_prompt_message_id_by_user_id: dict[int, str | int] = {}
     moderation_reply_prompt_message_id_by_user_id: dict[int, str | int] = {}
 
@@ -236,25 +259,16 @@ def register_max_guest_handlers(
         delivery_logger = router_logger.bind(stage="pending_delivery")
         if delivery_processor is None or bot is None:
             return
-        if delivery_lock.locked():
+        if shared_delivery_lock.locked():
             delivery_logger.debug("Пропуск доставки pending: предыдущий проход еще выполняется.")
             return
 
-        async with delivery_lock:
-            async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
-                kwargs: dict[str, Any] = {}
-                if delivery.author == SupportMessageAuthor.SYSTEM:
-                    keyboard = _build_max_moderation_notification_keyboard(str(delivery.ticket_id))
-                    if keyboard is not None:
-                        kwargs["attachments"] = [keyboard]
-                elif delivery.author == SupportMessageAuthor.MODERATOR:
-                    keyboard = _build_max_guest_message_close_keyboard()
-                    if keyboard is not None:
-                        kwargs["attachments"] = [keyboard]
-                await bot.send_message(user_id=int(delivery.target_external_id), text=text, **kwargs)
-
+        async with shared_delivery_lock:
             try:
-                sent_count, failed_count = await delivery_processor.process_once(sender=_send_message, limit=20)
+                sent_count, failed_count = await delivery_processor.process_once(
+                    sender=build_max_pending_delivery_sender(bot),
+                    limit=delivery_batch_limit,
+                )
                 delivery_logger.debug(
                     "Доставка pending завершена. sent={sent}, failed={failed}.",
                     sent=sent_count,
