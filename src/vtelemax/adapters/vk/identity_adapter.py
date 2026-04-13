@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -60,9 +61,11 @@ from .menu_adapter import (
     MOD_CLOSE_PREFIX,
     MOD_LIST_PREFIX,
     MOD_MAIN_CALLBACK,
+    MOD_OPEN_PREFIX,
     MOD_PAGE_PREFIX,
+    MOD_PHONE_HIDE_PREFIX,
+    MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
-    MOD_TAKE_PREFIX,
     MOD_TICKET_PREFIX,
     VkButton,
     VkGuestMenuAdapter,
@@ -124,6 +127,7 @@ _MOD_FILTER_TITLES: dict[str, str] = {
     _MOD_FILTER_CLOSED: "✅ Закрытые обращения",
     _MOD_FILTER_ALL: "📚 Все обращения",
 }
+_LOCAL_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1400,13 +1404,13 @@ class VkIdentityAdapter:
                 page=page,
             )
 
-        parsed_take = self._parse_moderation_ticket_payload(cmd, MOD_TAKE_PREFIX)
-        if parsed_take is not None:
-            ticket_id, filter_key, page = parsed_take
+        parsed_open = self._parse_moderation_ticket_payload(cmd, MOD_OPEN_PREFIX)
+        if parsed_open is not None:
+            ticket_id, filter_key, page = parsed_open
             return self._set_moderation_status_from_payload(
                 vk_user_id=vk_user_id,
                 ticket_id=ticket_id,
-                new_status=SupportTicketStatus.IN_PROGRESS,
+                new_status=SupportTicketStatus.OPEN,
                 filter_key=filter_key,
                 page=page,
             )
@@ -1420,6 +1424,28 @@ class VkIdentityAdapter:
                 new_status=SupportTicketStatus.CLOSED,
                 filter_key=filter_key,
                 page=page,
+            )
+
+        parsed_show_phone = self._parse_moderation_ticket_payload(cmd, MOD_PHONE_SHOW_PREFIX)
+        if parsed_show_phone is not None:
+            ticket_id, filter_key, page = parsed_show_phone
+            return self._build_moderation_ticket_details_response(
+                vk_user_id=vk_user_id,
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+                show_phone=True,
+            )
+
+        parsed_hide_phone = self._parse_moderation_ticket_payload(cmd, MOD_PHONE_HIDE_PREFIX)
+        if parsed_hide_phone is not None:
+            ticket_id, filter_key, page = parsed_hide_phone
+            return self._build_moderation_ticket_details_response(
+                vk_user_id=vk_user_id,
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+                show_phone=False,
             )
 
         return VkAdapterResponse(text="Не удалось распознать действие меню модератора.")
@@ -1504,11 +1530,12 @@ class VkIdentityAdapter:
         else:
             lines = [f"{title}:"]
             for index, ticket in enumerate(page_tickets, start=1):
-                status_emoji, status_text = self._format_ticket_status(ticket.status.value)
-                created = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+                status_emoji, _status_text = self._format_ticket_status(ticket.status.value)
+                created = self._format_local_datetime(ticket.created_at, include_time=False)
+                phone_suffix = (ticket.guest_phone_suffix or "----").strip() or "----"
                 lines.append(
                     f"{index}. {status_emoji} #{self._format_ticket_id_short(ticket.ticket_id)}"
-                    f" • {status_text} • {self._format_platform_label(ticket.source_platform)} • {created}"
+                    f" от {created} - {phone_suffix}"
                 )
             lines.append("")
             lines.append(f"Страница {safe_page}/{total_pages}. Всего обращений: {total_items}.")
@@ -1536,6 +1563,7 @@ class VkIdentityAdapter:
         ticket_id: UUID,
         filter_key: str,
         page: int,
+        show_phone: bool = False,
     ) -> VkAdapterResponse:
         """Формирует карточку тикета модератора для callback-навигации."""
 
@@ -1548,6 +1576,7 @@ class VkIdentityAdapter:
         message_lines = self._build_moderation_ticket_card_lines(
             details=details,
             messages=messages,
+            show_phone=show_phone,
         )
         normalized_filter = self._normalize_moderation_filter(filter_key)
         safe_page = max(int(page), 1)
@@ -1563,6 +1592,7 @@ class VkIdentityAdapter:
                 filter_key=normalized_filter,
                 page=safe_page,
                 status_value=status_value,
+                show_phone=show_phone,
             ),
         )
 
@@ -1933,6 +1963,7 @@ class VkIdentityAdapter:
         message_lines = self._build_moderation_ticket_card_lines(
             details=details,
             messages=messages,
+            show_phone=False,
         )
         message_lines.extend(["", self._build_moderation_menu_text()])
         return VkAdapterResponse(
@@ -2119,14 +2150,14 @@ class VkIdentityAdapter:
         except ValueError as error:
             return VkAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
 
-        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms)
+        status_value = getattr(details.status, "value", str(details.status))
+        _status_emoji, status_text = self._format_ticket_status(status_value)
+        guest_name = str(getattr(details, "guest_name", "")).strip() or "Гость"
         return VkAdapterResponse(
             text=(
-                f"Тикет: {details.ticket_id}\n"
-                f"Статус: {details.status}\n"
-                f"Канал создания: {self._format_platform_label(details.source_platform)}\n"
-                f"Последний канал гостя: {self._format_platform_label(details.last_guest_platform)}\n"
-                f"Каналы гостя: {linked}"
+                f"Тикет #{self._format_ticket_id_short(details.ticket_id)}\n"
+                f"👤 Гость: {guest_name}\n"
+                f"📌 Статус: {status_text.capitalize()}"
             )
         )
 
@@ -2534,6 +2565,18 @@ class VkIdentityAdapter:
         return normalized if normalized else "-"
 
     @staticmethod
+    def _format_local_datetime(value: datetime | None, *, include_time: bool) -> str:
+        """Форматирует дату/время в локальном часовом поясе интерфейса."""
+
+        if value is None:
+            return "—"
+        local_value = value
+        if local_value.tzinfo is None:
+            local_value = local_value.replace(tzinfo=timezone.utc)
+        local_value = local_value.astimezone(_LOCAL_TIMEZONE)
+        return local_value.strftime("%d.%m.%y %H:%M" if include_time else "%d.%m.%y")
+
+    @staticmethod
     def _extract_first_ticket_question(messages: tuple[object, ...]) -> str:
         """Возвращает первый вопрос гостя из истории тикета."""
 
@@ -2553,23 +2596,22 @@ class VkIdentityAdapter:
         *,
         details: object,
         messages: tuple[object, ...],
+        show_phone: bool,
     ) -> list[str]:
         """Формирует компактную карточку тикета в стиле прототипов."""
 
         status_emoji, status_text = self._format_ticket_status(getattr(details.status, "value", str(details.status)))
-        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms) or "-"
+        guest_name = str(getattr(details, "guest_name", "")).strip() or "Гость"
         question = self._extract_first_ticket_question(messages)
         message_lines = [
             f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
+            f"👤 Гость: {guest_name}",
             f"Статус: {status_text.capitalize()}",
-            f"Канал создания: {self._format_platform_label(details.source_platform)}",
-            f"Последний канал гостя: {self._format_platform_label(details.last_guest_platform)}",
-            f"Каналы гостя: {linked}",
-            "",
-            "❓ Вопрос:",
-            question,
-            "",
         ]
+        if show_phone:
+            phone_value = str(getattr(details, "guest_phone_e164", "")).strip() or "не указан"
+            message_lines.append(f"📞 Телефон: {phone_value}")
+        message_lines.extend(["", "❓ Вопрос:", question, ""])
         message_lines.extend(self._format_ticket_history_lines(messages))
         return message_lines
 
@@ -2589,7 +2631,7 @@ class VkIdentityAdapter:
                 str(getattr(message, "source_platform", "-"))
             )
             created_at = getattr(message, "created_at", None)
-            created_at_text = created_at.strftime("%d.%m %H:%M") if created_at else "время не указано"
+            created_at_text = VkIdentityAdapter._format_local_datetime(created_at, include_time=True)
             body = str(getattr(message, "body", "")).strip() or "—"
             lines.append(f"[{created_at_text}] {author_label} ({source_platform}):")
             for line in body.splitlines():

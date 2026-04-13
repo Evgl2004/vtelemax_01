@@ -807,8 +807,8 @@ def test_set_support_ticket_status_updates_open_to_closed() -> None:
     assert stored_ticket.status == SupportTicketStatus.CLOSED
 
 
-def test_set_support_ticket_status_rejects_reopen_closed_ticket() -> None:
-    """Проверяет грязный сценарий: закрытый тикет нельзя перевести обратно в работу."""
+def test_set_support_ticket_status_allows_reopen_closed_ticket() -> None:
+    """Проверяет, что закрытый тикет можно переоткрыть через статус OPEN."""
 
     identity_repository = InMemoryIdentityRepository()
     support_repository = InMemorySupportRepository()
@@ -833,10 +833,14 @@ def test_set_support_ticket_status_rejects_reopen_closed_ticket() -> None:
     support_repository.update_ticket_status(created.ticket_id, SupportTicketStatus.CLOSED)
 
     set_status_use_case = SetSupportTicketStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
-    with pytest.raises(ValueError, match="Закрытый тикет"):
-        set_status_use_case.execute(
-            SetSupportTicketStatusCommand(
-                ticket_id=created.ticket_id,
-                status=SupportTicketStatus.IN_PROGRESS,
-            )
+    result = set_status_use_case.execute(
+        SetSupportTicketStatusCommand(
+            ticket_id=created.ticket_id,
+            status=SupportTicketStatus.OPEN,
         )
+    )
+    assert result.previous_status == SupportTicketStatus.CLOSED
+    assert result.new_status == SupportTicketStatus.OPEN
+    stored_ticket = support_repository.get_ticket(created.ticket_id)
+    assert stored_ticket is not None
+    assert stored_ticket.status == SupportTicketStatus.OPEN

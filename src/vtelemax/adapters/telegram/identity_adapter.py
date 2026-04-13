@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -98,9 +99,11 @@ from .menu import (
     MOD_CLOSE_PREFIX,
     MOD_LIST_PREFIX,
     MOD_MAIN_CALLBACK,
+    MOD_OPEN_PREFIX,
     MOD_PAGE_PREFIX,
+    MOD_PHONE_HIDE_PREFIX,
+    MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
-    MOD_TAKE_PREFIX,
     MOD_TICKET_PREFIX,
     USER_TICKETS_PAGE_PREFIX,
     USER_TICKETS_PREV_PAGE_PREFIX,
@@ -144,6 +147,7 @@ class TelegramMenuActionResult:
     moderation_total_pages: int | None = None
     moderation_ticket_id: UUID | None = None
     moderation_ticket_status: str | None = None
+    moderation_show_phone: bool = False
     moderation_tickets: tuple[OpenSupportTicketSummary, ...] = ()
     platform_notifications_allowed: bool | None = None
 
@@ -190,6 +194,7 @@ _MOD_FILTER_TITLES: dict[str, str] = {
     _MOD_FILTER_CLOSED: "✅ Закрытые обращения",
     _MOD_FILTER_ALL: "📚 Все обращения",
 }
+_LOCAL_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
 
 
 @dataclass(slots=True)
@@ -1888,13 +1893,13 @@ class TelegramIdentityAdapter:
                 page=page,
             )
 
-        parsed_take = self._parse_moderation_ticket_payload(raw, MOD_TAKE_PREFIX)
-        if parsed_take is not None:
-            ticket_id, filter_key, page = parsed_take
+        parsed_open = self._parse_moderation_ticket_payload(raw, MOD_OPEN_PREFIX)
+        if parsed_open is not None:
+            ticket_id, filter_key, page = parsed_open
             return self._set_moderation_status_from_callback(
                 telegram_user_id=telegram_user_id,
                 ticket_id=ticket_id,
-                new_status=SupportTicketStatus.IN_PROGRESS,
+                new_status=SupportTicketStatus.OPEN,
                 filter_key=filter_key,
                 page=page,
             )
@@ -1908,6 +1913,26 @@ class TelegramIdentityAdapter:
                 new_status=SupportTicketStatus.CLOSED,
                 filter_key=filter_key,
                 page=page,
+            )
+
+        parsed_show_phone = self._parse_moderation_ticket_payload(raw, MOD_PHONE_SHOW_PREFIX)
+        if parsed_show_phone is not None:
+            ticket_id, filter_key, page = parsed_show_phone
+            return self._build_moderation_ticket_details_result(
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+                show_phone=True,
+            )
+
+        parsed_hide_phone = self._parse_moderation_ticket_payload(raw, MOD_PHONE_HIDE_PREFIX)
+        if parsed_hide_phone is not None:
+            ticket_id, filter_key, page = parsed_hide_phone
+            return self._build_moderation_ticket_details_result(
+                ticket_id=ticket_id,
+                filter_key=filter_key,
+                page=page,
+                show_phone=False,
             )
 
         return TelegramMenuActionResult(
@@ -1999,11 +2024,12 @@ class TelegramIdentityAdapter:
         else:
             lines = [f"{title}:"]
             for index, ticket in enumerate(page_tickets, start=1):
-                status_emoji, status_text = self._format_ticket_status(ticket.status.value)
-                created = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
+                status_emoji, _status_text = self._format_ticket_status(ticket.status.value)
+                created = self._format_local_datetime(ticket.created_at, include_time=False)
+                phone_suffix = (ticket.guest_phone_suffix or "----").strip() or "----"
                 lines.append(
                     f"{index}. {status_emoji} #{self._format_ticket_id_short(ticket.ticket_id)}"
-                    f" • {status_text} • {self._format_platform_label(ticket.source_platform)} • {created}"
+                    f" от {created} - {phone_suffix}"
                 )
             lines.append("")
             lines.append(f"Страница {safe_page}/{total_pages}. Всего обращений: {total_items}.")
@@ -2029,6 +2055,7 @@ class TelegramIdentityAdapter:
         ticket_id: UUID,
         filter_key: str,
         page: int,
+        show_phone: bool = False,
     ) -> TelegramMenuActionResult:
         """Формирует карточку тикета модератора для callback-навигации."""
 
@@ -2043,18 +2070,12 @@ class TelegramIdentityAdapter:
             )
 
         status_value = getattr(details.status, "value", str(details.status))
-        status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms) or "-"
-        message_lines = [
-            f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
-            f"🧾 <b>ID:</b> <code>{html.escape(str(details.ticket_id))}</code>",
-            f"📌 <b>Статус:</b> {html.escape(status_text)}",
-            f"🧭 <b>Канал создания:</b> {html.escape(self._format_platform_label(details.source_platform))}",
-            f"🔁 <b>Последний канал гостя:</b> {html.escape(self._format_platform_label(details.last_guest_platform))}",
-            f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
-            "",
-        ]
-        message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
+        message_lines = self._build_moderation_ticket_card_lines(
+            details=details,
+            messages=messages,
+            show_phone=show_phone,
+            use_html=True,
+        )
         return TelegramMenuActionResult(
             status="moderation_ticket_details",
             message="\n".join(message_lines),
@@ -2063,6 +2084,7 @@ class TelegramIdentityAdapter:
             moderation_page=max(int(page), 1),
             moderation_ticket_id=ticket_id,
             moderation_ticket_status=status_value,
+            moderation_show_phone=show_phone,
         )
 
     def _start_moderation_reply_from_callback(
@@ -2500,19 +2522,12 @@ class TelegramIdentityAdapter:
 
         self._moderator_state_by_user_id[telegram_user_id] = _STATE_MOD_MENU
         self._moderator_context_by_user_id.pop(telegram_user_id, None)
-        status_value = getattr(details.status, "value", str(details.status))
-        status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms) or "-"
-        message_lines = [
-            f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
-            f"🧾 <b>ID:</b> <code>{html.escape(str(details.ticket_id))}</code>",
-            f"📌 <b>Статус:</b> {html.escape(status_text)}",
-            f"🧭 <b>Канал создания:</b> {html.escape(self._format_platform_label(details.source_platform))}",
-            f"🔁 <b>Последний канал гостя:</b> {html.escape(self._format_platform_label(details.last_guest_platform))}",
-            f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
-            "",
-        ]
-        message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
+        message_lines = self._build_moderation_ticket_card_lines(
+            details=details,
+            messages=messages,
+            show_phone=False,
+            use_html=True,
+        )
         message_lines.extend(["", self._build_moderation_menu_text()])
         return TelegramMenuActionResult(
             status="moderation_details",
@@ -2909,15 +2924,15 @@ class TelegramIdentityAdapter:
                 message=f"Не удалось загрузить тикет: {error}",
             )
 
-        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms)
+        status_value = getattr(details.status, "value", str(details.status))
+        _status_emoji, status_text = self._format_ticket_status(status_value)
+        guest_name = str(getattr(details, "guest_name", "")).strip() or "Гость"
         return TelegramMenuActionResult(
             status="moderation_details",
             message=(
-                f"Тикет: {details.ticket_id}\n"
-                f"Статус: {details.status}\n"
-                f"Канал создания: {self._format_platform_label(details.source_platform)}\n"
-                f"Последний канал гостя: {self._format_platform_label(details.last_guest_platform)}\n"
-                f"Каналы гостя: {linked}"
+                f"Тикет #{self._format_ticket_id_short(details.ticket_id)}\n"
+                f"👤 Гость: {guest_name}\n"
+                f"📌 Статус: {status_text.capitalize()}"
             ),
         )
 
@@ -3092,6 +3107,78 @@ class TelegramIdentityAdapter:
         return normalized if normalized else "-"
 
     @staticmethod
+    def _format_local_datetime(value: datetime | None, *, include_time: bool) -> str:
+        """Форматирует дату/время в локальном часовом поясе интерфейса."""
+
+        if value is None:
+            return "—"
+        local_value = value
+        if local_value.tzinfo is None:
+            local_value = local_value.replace(tzinfo=timezone.utc)
+        local_value = local_value.astimezone(_LOCAL_TIMEZONE)
+        return local_value.strftime("%d.%m.%y %H:%M" if include_time else "%d.%m.%y")
+
+    @staticmethod
+    def _extract_first_ticket_question(messages: tuple[object, ...]) -> str:
+        """Возвращает первый вопрос гостя из истории тикета."""
+
+        for message in messages:
+            author_value = getattr(getattr(message, "author", None), "value", "")
+            body = str(getattr(message, "body", "")).strip()
+            if author_value == "guest" and body:
+                return body
+        for message in messages:
+            body = str(getattr(message, "body", "")).strip()
+            if body:
+                return body
+        return "—"
+
+    def _build_moderation_ticket_card_lines(
+        self,
+        *,
+        details: object,
+        messages: tuple[object, ...],
+        show_phone: bool,
+        use_html: bool,
+    ) -> list[str]:
+        """Формирует карточку тикета модератора в унифицированном формате."""
+
+        status_emoji, status_text = self._format_ticket_status(getattr(details.status, "value", str(details.status)))
+        guest_name = str(getattr(details, "guest_name", "")).strip() or "Гость"
+        question = self._extract_first_ticket_question(messages)
+        message_lines: list[str] = [
+            f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>" if use_html
+            else f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
+            (
+                f"👤 <b>Гость:</b> {html.escape(guest_name)}"
+                if use_html
+                else f"👤 Гость: {guest_name}"
+            ),
+            (
+                f"📌 <b>Статус:</b> {html.escape(status_text.capitalize())}"
+                if use_html
+                else f"📌 Статус: {status_text.capitalize()}"
+            ),
+        ]
+        if show_phone:
+            phone_value = str(getattr(details, "guest_phone_e164", "")).strip() or "не указан"
+            message_lines.append(
+                f"📞 <b>Телефон:</b> {html.escape(phone_value)}"
+                if use_html
+                else f"📞 Телефон: {phone_value}"
+            )
+        message_lines.extend(
+            [
+                "",
+                "❓ <b>Вопрос:</b>" if use_html else "❓ Вопрос:",
+                f"<blockquote>{html.escape(question)}</blockquote>" if use_html else question,
+                "",
+            ]
+        )
+        message_lines.extend(self._format_ticket_history_lines(messages, use_html=use_html))
+        return message_lines
+
+    @staticmethod
     def _format_ticket_history_lines(messages: tuple[object, ...], *, use_html: bool = False) -> list[str]:
         """Форматирует блок истории переписки тикета."""
 
@@ -3110,7 +3197,7 @@ class TelegramIdentityAdapter:
                 str(getattr(message, "source_platform", "-"))
             )
             created_at = getattr(message, "created_at", None)
-            created_at_text = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "время не указано"
+            created_at_text = TelegramIdentityAdapter._format_local_datetime(created_at, include_time=True)
             body = str(getattr(message, "body", "")).strip() or "—"
             if use_html:
                 lines.append(f"[{html.escape(created_at_text)}] {author_label} ({html.escape(source_platform)}):")

@@ -20,6 +20,24 @@ from .support_ports import SupportUnitOfWork
 MIN_SUPPORT_QUESTION_LENGTH = 10
 
 
+def _resolve_support_guest_name(*, first_name_input: str | None, last_name_input: str | None) -> str:
+    """Возвращает отображаемое имя гостя для карточек модератора."""
+
+    first_name = str(first_name_input or "").strip()
+    last_name = str(last_name_input or "").strip()
+    full_name = " ".join(part for part in (first_name, last_name) if part)
+    return full_name or "Гость"
+
+
+def _extract_phone_suffix(phone_e164: str | None) -> str:
+    """Возвращает последние 4 цифры телефона для короткого отображения в списках."""
+
+    digits = "".join(ch for ch in str(phone_e164 or "") if ch.isdigit())
+    if len(digits) >= 4:
+        return digits[-4:]
+    return "----"
+
+
 @dataclass(frozen=True, slots=True)
 class CreateSupportTicketCommand:
     """Команда создания тикета из сообщения гостя."""
@@ -566,9 +584,6 @@ class SetSupportTicketStatusTransactionalUseCase:
                     new_status=new_status,
                 )
 
-            if previous_status == SupportTicketStatus.CLOSED and new_status != SupportTicketStatus.CLOSED:
-                raise ValueError("Закрытый тикет нельзя перевести в другой статус.")
-
             unit_of_work.support_repository.update_ticket_status(
                 ticket_id=ticket.ticket_id,
                 status=new_status,
@@ -591,6 +606,8 @@ class SupportTicketDetails:
     source_platform: PlatformName
     last_guest_platform: PlatformName | None
     linked_platforms: tuple[PlatformName, ...]
+    guest_name: str = "Гость"
+    guest_phone_e164: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -614,6 +631,8 @@ class SupportTicketConversation:
     last_guest_platform: PlatformName | None
     linked_platforms: tuple[PlatformName, ...]
     messages: tuple[SupportTicketConversationMessage, ...]
+    guest_name: str = "Гость"
+    guest_phone_e164: str | None = None
 
 
 class GetSupportTicketDetailsTransactionalUseCase:
@@ -642,6 +661,11 @@ class GetSupportTicketDetailsTransactionalUseCase:
                 source_platform=ticket.source_platform,
                 last_guest_platform=ticket.last_guest_platform,
                 linked_platforms=linked_platforms,
+                guest_name=_resolve_support_guest_name(
+                    first_name_input=getattr(person, "first_name_input", None),
+                    last_name_input=getattr(person, "last_name_input", None),
+                ),
+                guest_phone_e164=getattr(person, "phone_e164", None),
             )
 
 
@@ -686,6 +710,11 @@ class GetSupportTicketConversationTransactionalUseCase:
                     )
                     for message in messages
                 ),
+                guest_name=_resolve_support_guest_name(
+                    first_name_input=getattr(person, "first_name_input", None),
+                    last_name_input=getattr(person, "last_name_input", None),
+                ),
+                guest_phone_e164=getattr(person, "phone_e164", None),
             )
 
 
@@ -698,6 +727,7 @@ class OpenSupportTicketSummary:
     source_platform: PlatformName
     last_guest_platform: PlatformName | None
     created_at: datetime | None
+    guest_phone_suffix: str | None = None
 
 
 class ListOpenSupportTicketsTransactionalUseCase:
@@ -723,25 +753,31 @@ class ListOpenSupportTicketsTransactionalUseCase:
                 statuses=safe_statuses,
                 limit=safe_limit,
             )
-
-        # Нормализуем сортировку по дате по убыванию, чтобы интерфейс
-        # модератора всегда показывал самые свежие тикеты вверху.
-        epoch = datetime.fromtimestamp(0, tz=timezone.utc)
-        sorted_tickets = sorted(
-            tickets,
-            key=lambda item: item.created_at or epoch,
-            reverse=True,
-        )
-        return tuple(
-            OpenSupportTicketSummary(
-                ticket_id=ticket.ticket_id,
-                status=ticket.status,
-                source_platform=ticket.source_platform,
-                last_guest_platform=ticket.last_guest_platform,
-                created_at=ticket.created_at,
+            # Нормализуем сортировку по дате по убыванию, чтобы интерфейс
+            # модератора всегда показывал самые свежие тикеты вверху.
+            epoch = datetime.fromtimestamp(0, tz=timezone.utc)
+            sorted_tickets = sorted(
+                tickets,
+                key=lambda item: item.created_at or epoch,
+                reverse=True,
             )
-            for ticket in sorted_tickets[:safe_limit]
-        )
+            summaries: list[OpenSupportTicketSummary] = []
+            for ticket in sorted_tickets[:safe_limit]:
+                person = unit_of_work.identity_repository.get_person_by_id(ticket.person_id)
+                phone_suffix = _extract_phone_suffix(
+                    getattr(person, "phone_e164", None) if person is not None else None
+                )
+                summaries.append(
+                    OpenSupportTicketSummary(
+                        ticket_id=ticket.ticket_id,
+                        status=ticket.status,
+                        source_platform=ticket.source_platform,
+                        last_guest_platform=ticket.last_guest_platform,
+                        created_at=ticket.created_at,
+                        guest_phone_suffix=phone_suffix,
+                    )
+                )
+        return tuple(summaries)
 
 
 @dataclass(frozen=True, slots=True)

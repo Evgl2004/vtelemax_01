@@ -869,7 +869,8 @@ def test_vk_moderator_reply_can_route_to_another_messenger() -> None:
     assert "Введите текст ответа модератора" in wait_reply.text
     assert "Маршрут доставки: tg" in routed.text
     assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
-    assert "Канал создания: vk" in details.text
+    assert "👤 Гость:" in details.text
+    assert "Канал создания:" not in details.text
     assert "Не удалось распознать пункт меню модератора." in unsupported.text
 
 
@@ -922,7 +923,8 @@ def test_vk_moderation_menu_fsm_supports_dirty_and_success_paths() -> None:
     assert "Введите текст ответа модератора" in wait_reply.text
     assert "Маршрут доставки: vk" in routed.text
     assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
-    assert "Канал создания: vk" in details.text
+    assert "👤 Гость:" in details.text
+    assert "Канал создания:" not in details.text
 
 
 def test_vk_moderation_callback_menu_supports_pagination_and_ticket_actions() -> None:
@@ -982,7 +984,8 @@ def test_vk_moderation_callback_menu_supports_pagination_and_ticket_actions() ->
     assert "Страница 1/" in list_page.text
     assert details.screen is not None
     assert details.screen.screen_id == "moderation_ticket_details"
-    assert "Канал создания: vk" in details.text
+    assert "👤 Гость:" in details.text
+    assert "Канал создания:" not in details.text
     assert "Введите текст ответа модератора" in start_reply.text
     assert start_reply.screen is not None
     assert start_reply.screen.screen_id == "moderation_reply_cancel"

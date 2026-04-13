@@ -1183,8 +1183,8 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
     assert "Маршрут доставки: tg" in routed.message
     assert wait_details.status == "moderation_wait_ticket_for_details"
     assert details.status == "moderation_details"
-    assert "Канал создания:" in details.message
-    assert "tg" in details.message
+    assert "Гость" in details.message
+    assert "Канал создания:" not in details.message
 
 
 def test_telegram_moderation_callback_menu_supports_pagination_and_ticket_actions() -> None:

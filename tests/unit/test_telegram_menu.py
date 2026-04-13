@@ -6,9 +6,11 @@ from vtelemax.adapters.telegram.menu import (
     GUEST_MESSAGE_CLOSE_CALLBACK,
     MOD_CLOSE_PREFIX,
     MOD_LIST_PREFIX,
+    MOD_OPEN_PREFIX,
     MOD_PAGE_PREFIX,
+    MOD_PHONE_HIDE_PREFIX,
+    MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
-    MOD_TAKE_PREFIX,
     MOD_TICKET_PREFIX,
     RULES_ACCEPT_CALLBACK,
     USER_TICKETS_PREV_PAGE_PREFIX,
@@ -414,5 +416,36 @@ def test_build_moderation_keyboards_use_expected_callback_prefixes() -> None:
     assert any(data.startswith(MOD_PAGE_PREFIX) for data in callbacks)
     assert any(data.startswith(MOD_TICKET_PREFIX) for data in callbacks)
     assert any(data.startswith(MOD_REPLY_PREFIX) for data in callbacks)
-    assert any(data.startswith(MOD_TAKE_PREFIX) for data in callbacks)
     assert any(data.startswith(MOD_CLOSE_PREFIX) for data in callbacks)
+    assert any(data.startswith(MOD_PHONE_SHOW_PREFIX) for data in callbacks)
+    assert not any(data.startswith(MOD_OPEN_PREFIX) for data in callbacks)
+
+    closed_details_keyboard = build_moderation_ticket_details_inline_keyboard(
+        ticket_id=str(ticket_id),
+        filter_key="new",
+        page=2,
+        status_value="closed",
+    )
+    closed_callbacks = [
+        button.callback_data
+        for row in closed_details_keyboard.inline_keyboard
+        for button in row
+        if button.callback_data is not None
+    ]
+    assert any(data.startswith(MOD_OPEN_PREFIX) for data in closed_callbacks)
+    assert any(data.startswith(MOD_PHONE_SHOW_PREFIX) for data in closed_callbacks)
+
+    visible_phone_keyboard = build_moderation_ticket_details_inline_keyboard(
+        ticket_id=str(ticket_id),
+        filter_key="new",
+        page=2,
+        status_value="open",
+        show_phone=True,
+    )
+    visible_phone_callbacks = [
+        button.callback_data
+        for row in visible_phone_keyboard.inline_keyboard
+        for button in row
+        if button.callback_data is not None
+    ]
+    assert any(data.startswith(MOD_PHONE_HIDE_PREFIX) for data in visible_phone_callbacks)

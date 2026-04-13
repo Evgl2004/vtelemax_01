@@ -34,9 +34,11 @@ from .menu import (
     MOD_CLOSE_PREFIX,
     MOD_LIST_PREFIX,
     MOD_MAIN_CALLBACK,
+    MOD_OPEN_PREFIX,
     MOD_PAGE_PREFIX,
+    MOD_PHONE_HIDE_PREFIX,
+    MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
-    MOD_TAKE_PREFIX,
     MOD_TICKET_PREFIX,
     NOTIFY_NO_CALLBACK,
     NOTIFY_YES_CALLBACK,
@@ -445,6 +447,7 @@ def build_telegram_identity_router(
                 filter_key=result.moderation_filter,
                 page=result.moderation_page,
                 status_value=result.moderation_ticket_status or "",
+                show_phone=result.moderation_show_phone,
             )
         if result.status in {
             "moderation_tickets",
@@ -863,8 +866,10 @@ def build_telegram_identity_router(
         F.data.startswith(MOD_PAGE_PREFIX) |
         F.data.startswith(MOD_TICKET_PREFIX) |
         F.data.startswith(MOD_REPLY_PREFIX) |
-        F.data.startswith(MOD_TAKE_PREFIX) |
-        F.data.startswith(MOD_CLOSE_PREFIX)
+        F.data.startswith(MOD_CLOSE_PREFIX) |
+        F.data.startswith(MOD_OPEN_PREFIX) |
+        F.data.startswith(MOD_PHONE_SHOW_PREFIX) |
+        F.data.startswith(MOD_PHONE_HIDE_PREFIX)
     )
     async def ticket_pagination_callback_handler(callback: CallbackQuery) -> None:
         """Обработчик inline-кнопок деталей тикета и пагинации списка обращений."""

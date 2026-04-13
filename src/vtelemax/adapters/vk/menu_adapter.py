@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from vtelemax.core import (
     GuestMenuAction,
@@ -48,8 +49,21 @@ MOD_LIST_PREFIX = "mod_list_"
 MOD_PAGE_PREFIX = "mod_page_"
 MOD_TICKET_PREFIX = "mod_ticket_"
 MOD_REPLY_PREFIX = "mod_reply_"
-MOD_TAKE_PREFIX = "mod_take_"
+MOD_OPEN_PREFIX = "mod_open_"
 MOD_CLOSE_PREFIX = "mod_close_"
+MOD_PHONE_SHOW_PREFIX = "mod_phone_show_"
+MOD_PHONE_HIDE_PREFIX = "mod_phone_hide_"
+_LOCAL_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
+
+
+def _to_local_datetime(value: datetime | None) -> datetime | None:
+    """Конвертирует UTC-время в локальный часовой пояс интерфейса."""
+
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(_LOCAL_TIMEZONE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -498,8 +512,10 @@ class VkGuestMenuAdapter:
             if index >= max_ticket_rows:
                 break
             label = f"{status_emoji.get(ticket.status.value, '❓')} #{str(ticket.ticket_id)[-4:].upper()}"
-            if ticket.created_at is not None:
-                label += f" от {ticket.created_at.strftime('%d.%m')}"
+            local_created_at = _to_local_datetime(ticket.created_at)
+            if local_created_at is not None:
+                phone_suffix = (ticket.guest_phone_suffix or "----").strip() or "----"
+                label += f" от {local_created_at.strftime('%d.%m.%y')} - {phone_suffix}"
             rows.append(
                 (
                     VkButton(
@@ -538,20 +554,22 @@ class VkGuestMenuAdapter:
         filter_key: str,
         page: int,
         status_value: str,
+        show_phone: bool = False,
     ) -> VkScreen:
         """Создает кнопки действий модератора для карточки тикета."""
 
         suffix = f"{ticket_id}_{filter_key}_{page}"
-        rows: list[tuple[VkButton, ...]] = [
-            (VkButton(label="✍️ Ответить", payload={"cmd": f"{MOD_REPLY_PREFIX}{suffix}"}),),
-        ]
-        action_row: list[VkButton] = []
-        if status_value != "in_progress":
-            action_row.append(VkButton(label="🛠 В работу", payload={"cmd": f"{MOD_TAKE_PREFIX}{suffix}"}))
+        rows: list[tuple[VkButton, ...]] = []
         if status_value != "closed":
-            action_row.append(VkButton(label="✅ Закрыть", payload={"cmd": f"{MOD_CLOSE_PREFIX}{suffix}"}))
-        if action_row:
-            rows.append(tuple(action_row))
+            rows.append((VkButton(label="✍️ Ответить", payload={"cmd": f"{MOD_REPLY_PREFIX}{suffix}"}),))
+        if status_value == "closed":
+            rows.append((VkButton(label="🔓 Открыть", payload={"cmd": f"{MOD_OPEN_PREFIX}{suffix}"}),))
+        else:
+            rows.append((VkButton(label="✅ Закрыть", payload={"cmd": f"{MOD_CLOSE_PREFIX}{suffix}"}),))
+        if show_phone:
+            rows.append((VkButton(label="🙈 Скрыть телефон", payload={"cmd": f"{MOD_PHONE_HIDE_PREFIX}{suffix}"}),))
+        else:
+            rows.append((VkButton(label="📞 Телефон гостя", payload={"cmd": f"{MOD_PHONE_SHOW_PREFIX}{suffix}"}),))
         rows.append(
             (
                 VkButton(label="⬅️ К списку", payload={"cmd": f"{MOD_PAGE_PREFIX}{filter_key}_{page}"}),

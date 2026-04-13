@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -81,13 +84,26 @@ MOD_LIST_PREFIX = "mod_list_"
 MOD_PAGE_PREFIX = "mod_page_"
 MOD_TICKET_PREFIX = "mod_ticket_"
 MOD_REPLY_PREFIX = "mod_reply_"
-MOD_TAKE_PREFIX = "mod_take_"
+MOD_OPEN_PREFIX = "mod_open_"
 MOD_CLOSE_PREFIX = "mod_close_"
+MOD_PHONE_SHOW_PREFIX = "mod_phone_show_"
+MOD_PHONE_HIDE_PREFIX = "mod_phone_hide_"
 GUEST_MESSAGE_CLOSE_CALLBACK = "guest_msg_close"
 DOCS_URL = PERSONAL_DATA_CONSENT_URLS["telegram"]
 NOTIFICATIONS_DOCS_URL = MAILING_CONSENT_URLS["telegram"]
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
 SUPPORT_FEEDBACK_BUTTON_LABEL = "✍️ Оставить отзыв!"
+_LOCAL_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
+
+
+def _to_local_datetime(value: datetime | None) -> datetime | None:
+    """Конвертирует UTC-время в локальный часовой пояс интерфейса."""
+
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(_LOCAL_TIMEZONE)
 
 
 def _action_callback(action: GuestMenuAction) -> str:
@@ -620,10 +636,12 @@ def build_moderation_tickets_inline_keyboard(
         status_value = ticket.status.value
         status_emoji = status_emoji_map.get(status_value, "❓")
         short_id = str(ticket.ticket_id)[-4:].upper()
-        date_text = ticket.created_at.strftime("%d.%m") if ticket.created_at else ""
+        local_created_at = _to_local_datetime(ticket.created_at)
+        date_text = local_created_at.strftime("%d.%m.%y") if local_created_at else ""
+        phone_suffix = (ticket.guest_phone_suffix or "----").strip() or "----"
         label = f"{status_emoji} #{short_id}"
         if date_text:
-            label = f"{label} от {date_text}"
+            label = f"{label} от {date_text} - {phone_suffix}"
         buttons.append(
             [
                 InlineKeyboardButton(
@@ -667,24 +685,32 @@ def build_moderation_ticket_details_inline_keyboard(
     filter_key: str,
     page: int,
     status_value: str,
+    show_phone: bool = False,
 ) -> InlineKeyboardMarkup:
     """Создает inline-клавиатуру карточки обращения модератора."""
 
     callback_suffix = f"{ticket_id}_{filter_key}_{page}"
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="✍️ Ответить", callback_data=f"{MOD_REPLY_PREFIX}{callback_suffix}")],
-    ]
-    action_row: list[InlineKeyboardButton] = []
-    if status_value != "in_progress":
-        action_row.append(
-            InlineKeyboardButton(text="🛠 В работу", callback_data=f"{MOD_TAKE_PREFIX}{callback_suffix}")
-        )
+    rows: list[list[InlineKeyboardButton]] = []
     if status_value != "closed":
-        action_row.append(
-            InlineKeyboardButton(text="✅ Закрыть", callback_data=f"{MOD_CLOSE_PREFIX}{callback_suffix}")
+        rows.append(
+            [InlineKeyboardButton(text="✍️ Ответить", callback_data=f"{MOD_REPLY_PREFIX}{callback_suffix}")]
         )
-    if action_row:
-        rows.append(action_row)
+    if status_value == "closed":
+        rows.append(
+            [InlineKeyboardButton(text="🔓 Открыть", callback_data=f"{MOD_OPEN_PREFIX}{callback_suffix}")]
+        )
+    else:
+        rows.append(
+            [InlineKeyboardButton(text="✅ Закрыть", callback_data=f"{MOD_CLOSE_PREFIX}{callback_suffix}")]
+        )
+    if show_phone:
+        rows.append(
+            [InlineKeyboardButton(text="🙈 Скрыть телефон", callback_data=f"{MOD_PHONE_HIDE_PREFIX}{callback_suffix}")]
+        )
+    else:
+        rows.append(
+            [InlineKeyboardButton(text="📞 Телефон гостя", callback_data=f"{MOD_PHONE_SHOW_PREFIX}{callback_suffix}")]
+        )
     rows.append(
         [
             InlineKeyboardButton(
