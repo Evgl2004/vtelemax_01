@@ -86,5 +86,56 @@ services:
     command: python -m vtelemax.apps.max_app
     restart: unless-stopped
 
+  telegram-delivery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
+    command: python -m vtelemax.apps.moderation_delivery_worker_app --platform telegram
+    restart: unless-stopped
+
+  vk-delivery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
+    command: python -m vtelemax.apps.moderation_delivery_worker_app --platform vk
+    restart: unless-stopped
+
+  max-delivery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
+    command: python -m vtelemax.apps.moderation_delivery_worker_app --platform max
+    restart: unless-stopped
+
 volumes:
   vtelemax_postgres_data:

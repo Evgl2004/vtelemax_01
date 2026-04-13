@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
-from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
-from vtelemax.adapters.periodic_moderation_delivery_worker import PeriodicPendingDeliveryWorker
 from vtelemax.adapters.max import MaxIdentityAdapter, register_max_guest_handlers
-from vtelemax.adapters.max.router import build_max_pending_delivery_sender
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketTransactionalUseCase,
@@ -25,11 +21,9 @@ from vtelemax.core import (
     GetPersonTicketsPageTransactionalUseCase,
     GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
-    PullPendingModeratorMessagesTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
     SetSupportTicketStatusTransactionalUseCase,
-    UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
 )
 from vtelemax.infrastructure.postgres import (
     Base,
@@ -171,28 +165,6 @@ def build_get_person_tickets_page_use_case(
     return GetPersonTicketsPageTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
-def build_pull_pending_messages_use_case(
-    session_factory: sessionmaker[Session],
-) -> PullPendingModeratorMessagesTransactionalUseCase:
-    """Собирает use-case выборки pending-сообщений модератора по целевой платформе."""
-
-    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
-        session_factory
-    )
-    return PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
-
-
-def build_update_delivery_status_use_case(
-    session_factory: sessionmaker[Session],
-) -> UpdateModeratorMessageDeliveryStatusTransactionalUseCase:
-    """Собирает use-case фиксации статуса доставки модераторского сообщения."""
-
-    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
-        session_factory
-    )
-    return UpdateModeratorMessageDeliveryStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
-
-
 def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     """Собирает iiko-шлюз для разделов лояльности или возвращает `None`, если интеграция выключена."""
 
@@ -221,11 +193,7 @@ def _import_maxapi_runtime() -> tuple[type[Any], type[Any], type[Any]]:
     return Bot, Dispatcher, Router
 
 
-def build_dispatcher(
-    settings: AppSettings,
-    *,
-    delivery_lock: asyncio.Lock | None = None,
-) -> tuple[Any, PendingModeratorDeliveryProcessor]:
+def build_dispatcher(settings: AppSettings) -> Any:
     """Собирает Dispatcher MAX-бота с подключенным маршрутом идентификации."""
 
     _, Dispatcher, Router = _import_maxapi_runtime()
@@ -242,8 +210,6 @@ def build_dispatcher(
     set_ticket_status_use_case = build_set_ticket_status_use_case(session_factory)
     list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
     get_person_tickets_page_use_case = build_get_person_tickets_page_use_case(session_factory)
-    pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
-    update_delivery_status_use_case = build_update_delivery_status_use_case(session_factory)
     iiko_gateway = build_iiko_gateway(settings)
     balance_use_case = GetLoyaltyBalanceUseCase(iiko_gateway) if iiko_gateway is not None else None
     virtual_card_use_case = GetVirtualCardUseCase(iiko_gateway) if iiko_gateway is not None else None
@@ -263,23 +229,12 @@ def build_dispatcher(
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
     )
-    delivery_processor = PendingModeratorDeliveryProcessor(
-        target_platform="max",
-        pull_pending_use_case=pull_pending_use_case,
-        update_status_use_case=update_delivery_status_use_case,
-    )
 
     dispatcher = Dispatcher()
     router = Router()
-    register_max_guest_handlers(
-        router,
-        adapter,
-        delivery_processor=delivery_processor,
-        delivery_lock=delivery_lock,
-        delivery_batch_limit=settings.moderation_delivery_batch_limit,
-    )
+    register_max_guest_handlers(router, adapter)
     dispatcher.include_routers(router)
-    return dispatcher, delivery_processor
+    return dispatcher
 
 
 async def run_max_bot(settings: AppSettings | None = None) -> None:
@@ -293,34 +248,13 @@ async def run_max_bot(settings: AppSettings | None = None) -> None:
 
     Bot, _, _ = _import_maxapi_runtime()
     bot = Bot(token=app_settings.max_bot_token)
-    delivery_lock = asyncio.Lock()
-    dispatcher, delivery_processor = build_dispatcher(
-        app_settings,
-        delivery_lock=delivery_lock,
-    )
-    delivery_worker = PeriodicPendingDeliveryWorker(
-        target_platform="max",
-        processor=delivery_processor,
-        sender=build_max_pending_delivery_sender(bot),
-        interval_seconds=app_settings.moderation_delivery_interval_seconds,
-        batch_limit=app_settings.moderation_delivery_batch_limit,
-        lock=delivery_lock,
-    )
-    worker_task = asyncio.create_task(
-        delivery_worker.run_forever(),
-        name="max_moderation_delivery_worker",
-    )
+    dispatcher = build_dispatcher(app_settings)
     app_logger.info("Запуск polling MAX-бота.")
     try:
         await dispatcher.start_polling(bot)
     except Exception:  # noqa: BLE001
         app_logger.exception("MAX-бот завершился с необработанной ошибкой.")
         raise
-    finally:
-        await delivery_worker.shutdown()
-        worker_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await worker_task
 
 
 def main() -> None:

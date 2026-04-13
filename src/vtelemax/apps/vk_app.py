@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 from collections.abc import Callable
 
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 from vkbottle.bot import Bot
 
-from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
-from vtelemax.adapters.periodic_moderation_delivery_worker import PeriodicPendingDeliveryWorker
-from vtelemax.adapters.vk.router import build_vk_pending_delivery_sender
 from vtelemax.adapters.vk import VkIdentityAdapter, register_vk_guest_handlers
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
@@ -25,11 +20,9 @@ from vtelemax.core import (
     GetPersonTicketsPageTransactionalUseCase,
     GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
-    PullPendingModeratorMessagesTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
     SetSupportTicketStatusTransactionalUseCase,
-    UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
 )
 from vtelemax.infrastructure.postgres import (
     Base,
@@ -171,28 +164,6 @@ def build_get_person_tickets_page_use_case(
     return GetPersonTicketsPageTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
-def build_pull_pending_messages_use_case(
-    session_factory: sessionmaker[Session],
-) -> PullPendingModeratorMessagesTransactionalUseCase:
-    """Собирает use-case выборки pending-сообщений модератора по целевой платформе."""
-
-    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
-        session_factory
-    )
-    return PullPendingModeratorMessagesTransactionalUseCase(unit_of_work_factory=uow_factory)
-
-
-def build_update_delivery_status_use_case(
-    session_factory: sessionmaker[Session],
-) -> UpdateModeratorMessageDeliveryStatusTransactionalUseCase:
-    """Собирает use-case фиксации статуса доставки модераторского сообщения."""
-
-    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
-        session_factory
-    )
-    return UpdateModeratorMessageDeliveryStatusTransactionalUseCase(unit_of_work_factory=uow_factory)
-
-
 def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     """Собирает iiko-шлюз для разделов лояльности или возвращает `None`, если интеграция выключена."""
 
@@ -209,11 +180,7 @@ def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     )
 
 
-def build_bot(
-    settings: AppSettings,
-    *,
-    delivery_lock: asyncio.Lock | None = None,
-) -> tuple[Bot, PendingModeratorDeliveryProcessor, asyncio.Lock]:
+def build_bot(settings: AppSettings) -> Bot:
     """Создает и конфигурирует экземпляр VK-бота."""
 
     session_factory = build_postgres_session_factory(settings)
@@ -228,8 +195,6 @@ def build_bot(
     set_ticket_status_use_case = build_set_ticket_status_use_case(session_factory)
     list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
     get_person_tickets_page_use_case = build_get_person_tickets_page_use_case(session_factory)
-    pull_pending_use_case = build_pull_pending_messages_use_case(session_factory)
-    update_delivery_status_use_case = build_update_delivery_status_use_case(session_factory)
     iiko_gateway = build_iiko_gateway(settings)
     balance_use_case = GetLoyaltyBalanceUseCase(iiko_gateway) if iiko_gateway is not None else None
     virtual_card_use_case = GetVirtualCardUseCase(iiko_gateway) if iiko_gateway is not None else None
@@ -249,22 +214,10 @@ def build_bot(
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
     )
-    delivery_processor = PendingModeratorDeliveryProcessor(
-        target_platform="vk",
-        pull_pending_use_case=pull_pending_use_case,
-        update_status_use_case=update_delivery_status_use_case,
-    )
 
-    shared_delivery_lock = delivery_lock or asyncio.Lock()
     bot = Bot(settings.vk_bot_token)
-    register_vk_guest_handlers(
-        bot,
-        adapter,
-        delivery_processor=delivery_processor,
-        delivery_lock=shared_delivery_lock,
-        delivery_batch_limit=settings.moderation_delivery_batch_limit,
-    )
-    return bot, delivery_processor, shared_delivery_lock
+    register_vk_guest_handlers(bot, adapter)
+    return bot
 
 
 def run_vk_bot(settings: AppSettings | None = None) -> None:
@@ -276,35 +229,7 @@ def run_vk_bot(settings: AppSettings | None = None) -> None:
     app_logger.info("Инициализация VK-бота. ENV={env}.", env=app_settings.env)
     app_settings.validate_vk_ready()
 
-    bot, delivery_processor, delivery_lock = build_bot(app_settings)
-    delivery_worker = PeriodicPendingDeliveryWorker(
-        target_platform="vk",
-        processor=delivery_processor,
-        sender=build_vk_pending_delivery_sender(bot),
-        interval_seconds=app_settings.moderation_delivery_interval_seconds,
-        batch_limit=app_settings.moderation_delivery_batch_limit,
-        lock=delivery_lock,
-    )
-    worker_task: asyncio.Task[None] | None = None
-
-    async def _start_delivery_worker() -> None:
-        nonlocal worker_task
-        if worker_task is not None and not worker_task.done():
-            return
-        worker_task = asyncio.create_task(
-            delivery_worker.run_forever(),
-            name="vk_moderation_delivery_worker",
-        )
-
-    async def _stop_delivery_worker() -> None:
-        await delivery_worker.shutdown()
-        if worker_task is not None:
-            worker_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await worker_task
-
-    bot.loop_wrapper.on_startup.append(_start_delivery_worker)
-    bot.loop_wrapper.on_shutdown.append(_stop_delivery_worker)
+    bot = build_bot(app_settings)
     app_logger.info("Запуск long-poll VK-бота.")
     try:
         bot.run_forever()
