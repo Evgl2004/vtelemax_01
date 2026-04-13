@@ -258,6 +258,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             if patch.platform_registered_at is not None:
                 platform_row.registered_at = patch.platform_registered_at
 
+            self._sync_legacy_platform_fields(person_row=person_row, platform_row=platform_row)
             self._sync_global_registration_flag(person_row=person_row, person_id=person_id)
 
     def _build_person(self, person_row: PersonRow, phone_e164: str) -> Person:
@@ -332,3 +333,32 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
         state_statement = select(PersonPlatformStateRow).where(PersonPlatformStateRow.person_id == person_id)
         state_rows = self._session.execute(state_statement).scalars().all()
         person_row.is_registered = any(state_row.is_registered for state_row in state_rows)
+
+
+    def _sync_legacy_platform_fields(
+        self,
+        *,
+        person_row: PersonRow,
+        platform_row: PersonPlatformStateRow,
+    ) -> None:
+        """Synchronizes legacy platform consent fields in `persons` from platform state row."""
+
+        if platform_row.platform == "telegram":
+            person_row.rules_accepted_tg = platform_row.rules_accepted
+            person_row.rules_accepted_tg_at = platform_row.rules_accepted_at
+            person_row.notifications_allowed_tg = platform_row.notifications_allowed
+            person_row.notifications_allowed_tg_at = platform_row.notifications_allowed_at
+            return
+        if platform_row.platform == "vk":
+            person_row.rules_accepted_vk = platform_row.rules_accepted
+            person_row.rules_accepted_vk_at = platform_row.rules_accepted_at
+            person_row.notifications_allowed_vk = platform_row.notifications_allowed
+            person_row.notifications_allowed_vk_at = platform_row.notifications_allowed_at
+            return
+        if platform_row.platform == "max":
+            person_row.rules_accepted_max = platform_row.rules_accepted
+            person_row.rules_accepted_max_at = platform_row.rules_accepted_at
+            person_row.notifications_allowed_max = platform_row.notifications_allowed
+            person_row.notifications_allowed_max_at = platform_row.notifications_allowed_at
+            return
+        raise ValueError(f"Unsupported platform value: {platform_row.platform}")

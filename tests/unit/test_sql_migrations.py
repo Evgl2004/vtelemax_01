@@ -77,3 +77,20 @@ def test_migration_0005_uses_non_destructive_upsert_for_platform_states() -> Non
     assert "RULES_ACCEPTED = EXCLUDED.RULES_ACCEPTED" not in upper
     assert "NOTIFICATIONS_ALLOWED = EXCLUDED.NOTIFICATIONS_ALLOWED" not in upper
     assert "IS_REGISTERED = EXCLUDED.IS_REGISTERED" not in upper
+
+
+def test_migration_0008_syncs_legacy_platform_consents_from_platform_states() -> None:
+    """Checks migration 0008 backfills legacy per-platform fields from canonical state table."""
+
+    migration_file = _PROJECT_ROOT / "migrations" / "sql" / "0008_sync_legacy_platform_consents.sql"
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "UPDATE PERSONS AS P" in upper
+    assert "FROM PERSON_PLATFORM_STATES AS S" in upper
+    assert "RULES_ACCEPTED_TG" in upper
+    assert "RULES_ACCEPTED_VK" in upper
+    assert "RULES_ACCEPTED_MAX" in upper
+    assert "NOTIFICATIONS_ALLOWED_TG" in upper
+    assert "NOTIFICATIONS_ALLOWED_VK" in upper
+    assert "NOTIFICATIONS_ALLOWED_MAX" in upper

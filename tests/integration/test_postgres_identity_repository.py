@@ -162,3 +162,45 @@ def test_unit_of_work_converts_db_integrity_error_to_domain_conflict(
         )
         with pytest.raises(IdentityConflictError):
             unit_of_work.commit()
+
+
+def test_platform_state_update_keeps_legacy_platform_flags_in_sync(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Checks legacy `persons.*_tg/vk/max` flags are synchronized on platform state updates."""
+
+    use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: SQLAlchemyIdentityUnitOfWork(session_factory)
+    )
+
+    use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="max",
+            external_id="max-1",
+            raw_phone="+79129990011",
+            rules_accepted=True,
+            notifications_allowed=True,
+            notifications_allowed_at=None,
+            is_registered=True,
+        )
+    )
+    use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-1",
+            raw_phone="+79129990011",
+            rules_accepted=True,
+            notifications_allowed=True,
+            notifications_allowed_at=None,
+            is_registered=True,
+        )
+    )
+
+    with SQLAlchemyIdentityUnitOfWork(session_factory) as unit_of_work:
+        person = unit_of_work.identity_repository.get_person_by_phone("+79129990011")
+
+    assert person is not None
+    assert person.rules_accepted_max is True
+    assert person.notifications_allowed_max is True
+    assert person.rules_accepted_tg is True
+    assert person.notifications_allowed_tg is True
