@@ -1852,7 +1852,7 @@ class TelegramIdentityAdapter:
                 created = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
                 lines.append(
                     f"{index}. {status_emoji} #{self._format_ticket_id_short(ticket.ticket_id)}"
-                    f" • {status_text} • {ticket.source_platform} • {created}"
+                    f" • {status_text} • {self._format_platform_label(ticket.source_platform)} • {created}"
                 )
             lines.append("")
             lines.append(f"Страница {safe_page}/{total_pages}. Всего обращений: {total_items}.")
@@ -1893,13 +1893,13 @@ class TelegramIdentityAdapter:
 
         status_value = getattr(details.status, "value", str(details.status))
         status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(details.linked_platforms) or "-"
+        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms) or "-"
         message_lines = [
             f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
             f"🧾 <b>ID:</b> <code>{html.escape(str(details.ticket_id))}</code>",
             f"📌 <b>Статус:</b> {html.escape(status_text)}",
-            f"🧭 <b>Канал создания:</b> {html.escape(details.source_platform)}",
-            f"🔁 <b>Последний канал гостя:</b> {html.escape(details.last_guest_platform or '-')}",
+            f"🧭 <b>Канал создания:</b> {html.escape(self._format_platform_label(details.source_platform))}",
+            f"🔁 <b>Последний канал гостя:</b> {html.escape(self._format_platform_label(details.last_guest_platform))}",
             f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
             "",
         ]
@@ -2296,7 +2296,7 @@ class TelegramIdentityAdapter:
                 status=details_result.status,
                 message=(
                     "Ответ модератора зарегистрирован.\n"
-                    f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n\n"
+                    f"Маршрут доставки: {self._format_platform_label(route.target_platform)} ({route.target_external_id})\n\n"
                     f"{details_result.message}"
                 ),
                 parse_mode=details_result.parse_mode,
@@ -2311,8 +2311,8 @@ class TelegramIdentityAdapter:
             message=(
                 "Ответ модератора зарегистрирован.\n"
                 f"Тикет: {route.ticket_id}\n"
-                f"Канал исходного обращения: {route.guest_source_platform}\n"
-                f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n"
+                f"Канал исходного обращения: {self._format_platform_label(route.guest_source_platform)}\n"
+                f"Маршрут доставки: {self._format_platform_label(route.target_platform)} ({route.target_external_id})\n"
                 f"ID сообщения: {route.message_id}\n\n"
                 f"{self._build_moderation_menu_text()}"
             ),
@@ -2351,13 +2351,13 @@ class TelegramIdentityAdapter:
         self._moderator_context_by_user_id.pop(telegram_user_id, None)
         status_value = getattr(details.status, "value", str(details.status))
         status_emoji, status_text = self._format_ticket_status(status_value)
-        linked = ", ".join(details.linked_platforms) or "-"
+        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms) or "-"
         message_lines = [
             f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
             f"🧾 <b>ID:</b> <code>{html.escape(str(details.ticket_id))}</code>",
             f"📌 <b>Статус:</b> {html.escape(status_text)}",
-            f"🧭 <b>Канал создания:</b> {html.escape(details.source_platform)}",
-            f"🔁 <b>Последний канал гостя:</b> {html.escape(details.last_guest_platform or '-')}",
+            f"🧭 <b>Канал создания:</b> {html.escape(self._format_platform_label(details.source_platform))}",
+            f"🔁 <b>Последний канал гостя:</b> {html.escape(self._format_platform_label(details.last_guest_platform))}",
             f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
             "",
         ]
@@ -2439,8 +2439,8 @@ class TelegramIdentityAdapter:
             short_id = self._format_ticket_id_short(ticket.ticket_id)
             lines.append(
                 f"{index}. {status_emoji} #{short_id} | "
-                f"канал={ticket.source_platform} | "
-                f"последний={ticket.last_guest_platform or '-'} | "
+                f"канал={self._format_platform_label(ticket.source_platform)} | "
+                f"последний={self._format_platform_label(ticket.last_guest_platform)} | "
                 f"статус={status_text}"
             )
         return "\n".join(lines)
@@ -2647,8 +2647,8 @@ class TelegramIdentityAdapter:
             message=(
                 "Ответ модератора зарегистрирован.\n"
                 f"Тикет: {route.ticket_id}\n"
-                f"Канал исходного обращения: {route.guest_source_platform}\n"
-                f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n"
+                f"Канал исходного обращения: {self._format_platform_label(route.guest_source_platform)}\n"
+                f"Маршрут доставки: {self._format_platform_label(route.target_platform)} ({route.target_external_id})\n"
                 f"ID сообщения: {route.message_id}"
             ),
         )
@@ -2684,14 +2684,14 @@ class TelegramIdentityAdapter:
                 message=f"Не удалось загрузить тикет: {error}",
             )
 
-        linked = ", ".join(details.linked_platforms)
+        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms)
         return TelegramMenuActionResult(
             status="moderation_details",
             message=(
                 f"Тикет: {details.ticket_id}\n"
                 f"Статус: {details.status}\n"
-                f"Канал создания: {details.source_platform}\n"
-                f"Последний канал гостя: {details.last_guest_platform or '-'}\n"
+                f"Канал создания: {self._format_platform_label(details.source_platform)}\n"
+                f"Последний канал гостя: {self._format_platform_label(details.last_guest_platform)}\n"
                 f"Каналы гостя: {linked}"
             ),
         )
@@ -2856,6 +2856,17 @@ class TelegramIdentityAdapter:
         return "❓", status_value
 
     @staticmethod
+    def _format_platform_label(platform: str | None) -> str:
+        """Форматирует код платформы для компактного отображения в интерфейсе."""
+
+        normalized = str(platform or "-").strip().lower()
+        if normalized == "telegram":
+            return "tg"
+        if normalized in {"vk", "max"}:
+            return normalized
+        return normalized if normalized else "-"
+
+    @staticmethod
     def _format_ticket_history_lines(messages: tuple[object, ...], *, use_html: bool = False) -> list[str]:
         """Форматирует блок истории переписки тикета."""
 
@@ -2870,7 +2881,9 @@ class TelegramIdentityAdapter:
                 author_label = "👤 <b>Гость</b>" if author_value == "guest" else "👨‍💼 <b>Модератор</b>"
             else:
                 author_label = "👤 Гость" if author_value == "guest" else "👨‍💼 Модератор"
-            source_platform = str(getattr(message, "source_platform", "-"))
+            source_platform = TelegramIdentityAdapter._format_platform_label(
+                str(getattr(message, "source_platform", "-"))
+            )
             created_at = getattr(message, "created_at", None)
             created_at_text = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "время не указано"
             body = str(getattr(message, "body", "")).strip() or "—"
@@ -3123,11 +3136,13 @@ class TelegramIdentityAdapter:
         message_lines = [
             f"{status_emoji} <b>Тикет #{short_id}</b>",
             f"📌 <b>Статус:</b> {html.escape(status_text)}",
-            f"🧭 <b>Создан в:</b> {html.escape(details.source_platform)}",
+            f"🧭 <b>Создан в:</b> {html.escape(self._format_platform_label(details.source_platform))}",
         ]
 
         if details.last_guest_platform:
-            message_lines.append(f"🔁 <b>Последний ответ из:</b> {html.escape(details.last_guest_platform)}")
+            message_lines.append(
+                f"🔁 <b>Последний ответ из:</b> {html.escape(self._format_platform_label(details.last_guest_platform))}"
+            )
 
         message_lines.append("")
         message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))

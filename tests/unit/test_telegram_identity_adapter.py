@@ -1142,11 +1142,11 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
     assert dirty_ticket.status == "moderation_bad_ticket"
     assert wait_reply.status == "moderation_wait_reply_text"
     assert routed.status in {"moderation_routed", "moderation_ticket_details"}
-    assert "Маршрут доставки: telegram" in routed.message
+    assert "Маршрут доставки: tg" in routed.message
     assert wait_details.status == "moderation_wait_ticket_for_details"
     assert details.status == "moderation_details"
     assert "Канал создания:" in details.message
-    assert "telegram" in details.message
+    assert "tg" in details.message
 
 
 def test_telegram_moderation_callback_menu_supports_pagination_and_ticket_actions() -> None:

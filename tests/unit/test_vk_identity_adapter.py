@@ -818,7 +818,7 @@ def test_vk_moderator_reply_can_route_to_another_messenger() -> None:
     assert "Меню модератора" in open_menu.text
     assert "Введите UUID тикета" in wait_ticket.text
     assert "Введите текст ответа модератора" in wait_reply.text
-    assert "Маршрут доставки: telegram" in routed.text
+    assert "Маршрут доставки: tg" in routed.text
     assert "Введите UUID тикета, чтобы показать карточку обращения." in wait_details.text
     assert "Канал создания: vk" in details.text
     assert "Не удалось распознать пункт меню модератора." in unsupported.text

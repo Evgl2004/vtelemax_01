@@ -1448,7 +1448,7 @@ class MaxIdentityAdapter:
                 created = ticket.created_at.strftime("%d.%m.%Y %H:%M") if ticket.created_at else "—"
                 lines.append(
                     f"{index}. {status_emoji} #{self._format_ticket_id_short(ticket.ticket_id)}"
-                    f" • {status_text} • {ticket.source_platform} • {created}"
+                    f" • {status_text} • {self._format_platform_label(ticket.source_platform)} • {created}"
                 )
             lines.append("")
             lines.append(f"Страница {safe_page}/{total_pages}. Всего обращений: {total_items}.")
@@ -1836,7 +1836,7 @@ class MaxIdentityAdapter:
             return MaxAdapterResponse(
                 text=(
                     "Ответ модератора зарегистрирован.\n"
-                    f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n\n"
+                    f"Маршрут доставки: {self._format_platform_label(route.target_platform)} ({route.target_external_id})\n\n"
                     f"{details_response.text}"
                 ),
                 screen=details_response.screen,
@@ -1846,8 +1846,8 @@ class MaxIdentityAdapter:
             text=(
                 "Ответ модератора зарегистрирован.\n"
                 f"Тикет: {route.ticket_id}\n"
-                f"Канал исходного обращения: {route.guest_source_platform}\n"
-                f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n"
+                f"Канал исходного обращения: {self._format_platform_label(route.guest_source_platform)}\n"
+                f"Маршрут доставки: {self._format_platform_label(route.target_platform)} ({route.target_external_id})\n"
                 f"ID сообщения: {route.message_id}\n\n"
                 f"{self._build_moderation_menu_text()}"
             )
@@ -1948,8 +1948,8 @@ class MaxIdentityAdapter:
             short_id = self._format_ticket_id_short(ticket.ticket_id)
             lines.append(
                 f"{index}. {status_emoji} #{short_id} | "
-                f"канал={ticket.source_platform} | "
-                f"последний={ticket.last_guest_platform or '-'} | "
+                f"канал={self._format_platform_label(ticket.source_platform)} | "
+                f"последний={self._format_platform_label(ticket.last_guest_platform)} | "
                 f"статус={status_text}"
             )
         return "\n".join(lines)
@@ -2037,8 +2037,8 @@ class MaxIdentityAdapter:
             text=(
                 "Ответ модератора зарегистрирован.\n"
                 f"Тикет: {route.ticket_id}\n"
-                f"Канал исходного обращения: {route.guest_source_platform}\n"
-                f"Маршрут доставки: {route.target_platform} ({route.target_external_id})\n"
+                f"Канал исходного обращения: {self._format_platform_label(route.guest_source_platform)}\n"
+                f"Маршрут доставки: {self._format_platform_label(route.target_platform)} ({route.target_external_id})\n"
                 f"ID сообщения: {route.message_id}"
             )
         )
@@ -2064,13 +2064,13 @@ class MaxIdentityAdapter:
         except ValueError as error:
             return MaxAdapterResponse(text=f"Не удалось загрузить тикет: {error}")
 
-        linked = ", ".join(details.linked_platforms)
+        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms)
         return MaxAdapterResponse(
             text=(
                 f"Тикет: {details.ticket_id}\n"
                 f"Статус: {details.status}\n"
-                f"Канал создания: {details.source_platform}\n"
-                f"Последний канал гостя: {details.last_guest_platform or '-'}\n"
+                f"Канал создания: {self._format_platform_label(details.source_platform)}\n"
+                f"Последний канал гостя: {self._format_platform_label(details.last_guest_platform)}\n"
                 f"Каналы гостя: {linked}"
             )
         )
@@ -2311,6 +2311,17 @@ class MaxIdentityAdapter:
         return "❓", status_value
 
     @staticmethod
+    def _format_platform_label(platform: str | None) -> str:
+        """Форматирует код платформы для компактного отображения в интерфейсе."""
+
+        normalized = str(platform or "-").strip().lower()
+        if normalized == "telegram":
+            return "tg"
+        if normalized in {"vk", "max"}:
+            return normalized
+        return normalized if normalized else "-"
+
+    @staticmethod
     def _extract_first_ticket_question(messages: tuple[object, ...]) -> str:
         """Возвращает первый вопрос гостя из истории тикета."""
 
@@ -2335,14 +2346,14 @@ class MaxIdentityAdapter:
         """Формирует компактную карточку тикета модератора в стиле прототипов."""
 
         status_emoji, status_text = self._format_ticket_status(getattr(details.status, "value", str(details.status)))
-        linked = ", ".join(details.linked_platforms) or "-"
+        linked = ", ".join(self._format_platform_label(platform) for platform in details.linked_platforms) or "-"
         question = self._extract_first_ticket_question(messages)
         if use_html:
             message_lines = [
                 f"{status_emoji} <b>Тикет #{self._format_ticket_id_short(details.ticket_id)}</b>",
                 f"📌 <b>Статус:</b> {html.escape(status_text.capitalize())}",
-                f"🧭 <b>Канал создания:</b> {html.escape(details.source_platform)}",
-                f"🔁 <b>Последний канал гостя:</b> {html.escape(details.last_guest_platform or '-')}",
+                f"🧭 <b>Канал создания:</b> {html.escape(self._format_platform_label(details.source_platform))}",
+                f"🔁 <b>Последний канал гостя:</b> {html.escape(self._format_platform_label(details.last_guest_platform))}",
                 f"🔗 <b>Каналы гостя:</b> {html.escape(linked)}",
                 "",
                 "❓ <b>Вопрос:</b>",
@@ -2355,8 +2366,8 @@ class MaxIdentityAdapter:
         message_lines = [
             f"{status_emoji} Тикет #{self._format_ticket_id_short(details.ticket_id)}",
             f"Статус: {status_text.capitalize()}",
-            f"Канал создания: {details.source_platform}",
-            f"Последний канал гостя: {details.last_guest_platform or '-'}",
+            f"Канал создания: {self._format_platform_label(details.source_platform)}",
+            f"Последний канал гостя: {self._format_platform_label(details.last_guest_platform)}",
             f"Каналы гостя: {linked}",
             "",
             "❓ Вопрос:",
@@ -2381,7 +2392,9 @@ class MaxIdentityAdapter:
                 author_label = "👤 <b>Гость</b>" if author_value == "guest" else "👨‍💼 <b>Модератор</b>"
             else:
                 author_label = "👤 Гость" if author_value == "guest" else "👨‍💼 Модератор"
-            source_platform = str(getattr(message, "source_platform", "-"))
+            source_platform = MaxIdentityAdapter._format_platform_label(
+                str(getattr(message, "source_platform", "-"))
+            )
             created_at = getattr(message, "created_at", None)
             created_at_text = created_at.strftime("%d.%m %H:%M") if created_at else "время не указано"
             body = str(getattr(message, "body", "")).strip() or "—"
@@ -2679,11 +2692,13 @@ class MaxIdentityAdapter:
         message_lines = [
             f"{status_emoji} <b>Тикет #{short_id}</b>",
             f"📌 <b>Статус:</b> {html.escape(status_text)}",
-            f"🧭 <b>Создан в:</b> {html.escape(details.source_platform)}",
+            f"🧭 <b>Создан в:</b> {html.escape(self._format_platform_label(details.source_platform))}",
         ]
 
         if details.last_guest_platform:
-            message_lines.append(f"🔁 <b>Последний ответ из:</b> {html.escape(details.last_guest_platform)}")
+            message_lines.append(
+                f"🔁 <b>Последний ответ из:</b> {html.escape(self._format_platform_label(details.last_guest_platform))}"
+            )
 
         message_lines.append("")
         message_lines.extend(self._format_ticket_history_lines(messages, use_html=True))
