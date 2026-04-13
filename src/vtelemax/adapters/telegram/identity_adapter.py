@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from uuid import UUID
@@ -2565,13 +2566,18 @@ class TelegramIdentityAdapter:
         """Обрабатывает пункт меню «Мой баланс» через общий use-case лояльности."""
 
         if self._balance_use_case is None:
+            error_message = (
+                "❌ Сервис бонусов временно недоступен.\n"
+                "Код ошибки: IIKO-BAL-000.\n"
+                "Покажите это сообщение сотруднику и попробуйте позже."
+            )
+            self._create_external_error_ticket_for_guest(
+                telegram_user_id=telegram_user_id,
+                guest_error_message=error_message,
+            )
             return TelegramMenuActionResult(
                 status="balance_unavailable",
-                message=(
-                    "❌ Сервис бонусов временно недоступен.\n"
-                    "Код ошибки: IIKO-BAL-000.\n"
-                    "Покажите это сообщение сотруднику и попробуйте позже."
-                ),
+                message=error_message,
             )
 
         person = self._person_lookup_use_case.execute(
@@ -2589,6 +2595,11 @@ class TelegramIdentityAdapter:
             )
 
         result = self._balance_use_case.execute(phone_e164=person.phone_e164)
+        if result.status == "balance_unavailable":
+            self._create_external_error_ticket_for_guest(
+                telegram_user_id=telegram_user_id,
+                guest_error_message=result.message,
+            )
         return TelegramMenuActionResult(
             status=result.status,
             message=result.message,
@@ -2599,13 +2610,18 @@ class TelegramIdentityAdapter:
         """Обрабатывает пункт меню «Виртуальная карта» через общий use-case лояльности."""
 
         if self._virtual_card_use_case is None:
+            error_message = (
+                "❌ Сервис виртуальной карты временно недоступен.\n"
+                "Код ошибки: IIKO-CARD-000.\n"
+                "Покажите это сообщение сотруднику и попробуйте позже."
+            )
+            self._create_external_error_ticket_for_guest(
+                telegram_user_id=telegram_user_id,
+                guest_error_message=error_message,
+            )
             return TelegramMenuActionResult(
                 status="virtual_card_unavailable",
-                message=(
-                    "❌ Сервис виртуальной карты временно недоступен.\n"
-                    "Код ошибки: IIKO-CARD-000.\n"
-                    "Покажите это сообщение сотруднику и попробуйте позже."
-                ),
+                message=error_message,
             )
 
         person = self._person_lookup_use_case.execute(
@@ -2623,6 +2639,11 @@ class TelegramIdentityAdapter:
             )
 
         result = self._virtual_card_use_case.execute(phone_e164=person.phone_e164)
+        if result.status in {"virtual_card_error", "virtual_card_unavailable"}:
+            self._create_external_error_ticket_for_guest(
+                telegram_user_id=telegram_user_id,
+                guest_error_message=result.message,
+            )
         if result.status == "virtual_card" and result.card_numbers:
             followup_screen = build_virtual_card_result_screen()
             return TelegramMenuActionResult(
@@ -2638,6 +2659,60 @@ class TelegramIdentityAdapter:
             parse_mode="Markdown" if result.parse_mode == "markdown" else None,
             virtual_card_numbers=result.card_numbers,
         )
+
+    def _create_external_error_ticket_for_guest(
+        self,
+        *,
+        telegram_user_id: int,
+        guest_error_message: str,
+    ) -> None:
+        """Создает тикет модератору при критической ошибке внешней системы."""
+
+        if self._create_support_ticket_use_case is None:
+            return
+
+        normalized_error = str(guest_error_message).strip()
+        if not normalized_error:
+            return
+
+        error_code = self._extract_iiko_error_code(normalized_error) or "unknown"
+        ticket_text = (
+            "⚠️ Автоматическое обращение: критическая ошибка внешней системы.\n"
+            f"Платформа: telegram\n"
+            f"ID гостя: {telegram_user_id}\n"
+            f"Код ошибки: {error_code}\n\n"
+            "Текст сообщения, показанного гостю:\n"
+            f"{normalized_error}\n\n"
+            "Просьба модератору: передайте это сообщение техническим специалистам."
+        )
+
+        method_logger = self._logger.bind(
+            stage="external_error_ticket",
+            user_id=str(telegram_user_id),
+        )
+        try:
+            self._create_support_ticket_use_case.execute(
+                CreateSupportTicketCommand(
+                    platform="telegram",
+                    external_id=str(telegram_user_id),
+                    question_text=ticket_text,
+                )
+            )
+            method_logger.warning("Автоматически создан тикет по критической ошибке iiko. code={code}.", code=error_code)
+        except ValueError as error:
+            method_logger.warning(
+                "Не удалось создать автотикет по критической ошибке iiko. reason={reason}.",
+                reason=str(error),
+            )
+
+    @staticmethod
+    def _extract_iiko_error_code(error_text: str) -> str | None:
+        """Извлекает код ошибки IIKO-***-*** из текста ошибки."""
+
+        match = re.search(r"IIKO-[A-Z]+-\d{3}", str(error_text))
+        if match is None:
+            return None
+        return match.group(0)
 
     @staticmethod
     def _collect_account_platforms(accounts: set[object]) -> tuple[str, ...]:

@@ -638,6 +638,55 @@ def test_vk_balance_uses_loyalty_use_case() -> None:
     assert response.screen.screen_id == "balance"
 
 
+def test_vk_virtual_card_error_has_back_button_and_creates_auto_ticket() -> None:
+    """Проверяет, что при критической ошибке iiko по карте есть возврат в меню и создается автотикет."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
+        virtual_card_use_case=GetVirtualCardUseCase(AlwaysFailLoyaltyGateway()),
+    )
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="1001",
+            raw_phone="+79123456789",
+            first_name_input="Иван",
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_registered=True,
+        )
+    )
+
+    response = adapter.handle_incoming(vk_user_id=1001, text="🪪 Карта", payload=None)
+    tickets = list_person_tickets_use_case.execute(
+        platform="vk",
+        external_id="1001",
+        limit=10,
+    )
+
+    assert "IIKO-CARD-001" in response.text
+    assert response.screen is not None
+    assert response.screen.screen_id == "balance"
+    assert len(tickets) == 1
+    assert tickets[0].status.value == "open"
+
+
 def test_vk_virtual_card_uses_loyalty_use_case() -> None:
     """Проверяет, что пункт «Виртуальная карта» возвращает номер карты из loyalty use-case."""
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from uuid import UUID
@@ -2209,11 +2210,15 @@ class VkIdentityAdapter:
 
         if action == GuestMenuAction.BALANCE:
             return self._handle_balance_action(
+                vk_user_id=vk_user_id,
                 person_phone_e164=person.phone_e164,
             )
 
         if action == GuestMenuAction.VIRTUAL_CARD:
-            return self._handle_virtual_card_action(person_phone_e164=person.phone_e164)
+            return self._handle_virtual_card_action(
+                vk_user_id=vk_user_id,
+                person_phone_e164=person.phone_e164,
+            )
 
         if action == GuestMenuAction.MY_TICKETS:
             # Показываем первую страницу тикетов с пагинацией
@@ -2249,40 +2254,68 @@ class VkIdentityAdapter:
         )
         return VkAdapterResponse(text=screen.text, screen=screen)
 
-    def _handle_balance_action(self, *, person_phone_e164: str) -> VkAdapterResponse:
+    def _handle_balance_action(self, *, vk_user_id: int, person_phone_e164: str) -> VkAdapterResponse:
         """Обрабатывает пункт меню «Мой баланс» через общий use-case лояльности."""
 
         balance_screen = self._menu_adapter.build_balance_screen(balance=0.0)
         if self._balance_use_case is None:
+            error_message = (
+                "❌ Сервис бонусов временно недоступен.\n"
+                "Код ошибки: IIKO-BAL-000.\n"
+                "Покажите это сообщение сотруднику и попробуйте позже."
+            )
+            self._create_external_error_ticket_for_guest(
+                vk_user_id=vk_user_id,
+                guest_error_message=error_message,
+            )
             return VkAdapterResponse(
-                text=(
-                    "❌ Сервис бонусов временно недоступен.\n"
-                    "Код ошибки: IIKO-BAL-000.\n"
-                    "Покажите это сообщение сотруднику и попробуйте позже."
-                ),
+                text=error_message,
                 screen=balance_screen,
             )
 
         result = self._balance_use_case.execute(phone_e164=person_phone_e164)
+        if result.status == "balance_unavailable":
+            self._create_external_error_ticket_for_guest(
+                vk_user_id=vk_user_id,
+                guest_error_message=result.message,
+            )
         return VkAdapterResponse(
             text=result.message,
             screen=balance_screen,
             parse_mode="Markdown" if result.parse_mode == "markdown" else None,
         )
 
-    def _handle_virtual_card_action(self, *, person_phone_e164: str) -> VkAdapterResponse:
+    def _handle_virtual_card_action(self, *, vk_user_id: int, person_phone_e164: str) -> VkAdapterResponse:
         """Обрабатывает пункт меню «Виртуальная карта» через общий use-case лояльности."""
 
+        back_to_main_screen = self._menu_adapter.build_balance_screen(balance=0.0)
         if self._virtual_card_use_case is None:
+            error_message = (
+                "❌ Сервис виртуальной карты временно недоступен.\n"
+                "Код ошибки: IIKO-CARD-000.\n"
+                "Покажите это сообщение сотруднику и попробуйте позже."
+            )
+            self._create_external_error_ticket_for_guest(
+                vk_user_id=vk_user_id,
+                guest_error_message=error_message,
+            )
             return VkAdapterResponse(
-                text=(
-                    "❌ Сервис виртуальной карты временно недоступен.\n"
-                    "Код ошибки: IIKO-CARD-000.\n"
-                    "Покажите это сообщение сотруднику и попробуйте позже."
-                )
+                text=error_message,
+                screen=back_to_main_screen,
             )
 
         result = self._virtual_card_use_case.execute(phone_e164=person_phone_e164)
+        if result.status in {"virtual_card_error", "virtual_card_unavailable"}:
+            self._create_external_error_ticket_for_guest(
+                vk_user_id=vk_user_id,
+                guest_error_message=result.message,
+            )
+            return VkAdapterResponse(
+                text=result.message,
+                screen=back_to_main_screen,
+                parse_mode="Markdown" if result.parse_mode == "markdown" else None,
+                virtual_card_numbers=result.card_numbers,
+            )
         if result.status == "virtual_card" and result.card_numbers:
             followup_screen = self._menu_adapter.build_virtual_card_result_screen()
             return VkAdapterResponse(
@@ -2296,6 +2329,57 @@ class VkIdentityAdapter:
             parse_mode="Markdown" if result.parse_mode == "markdown" else None,
             virtual_card_numbers=result.card_numbers,
         )
+
+    def _create_external_error_ticket_for_guest(
+        self,
+        *,
+        vk_user_id: int,
+        guest_error_message: str,
+    ) -> None:
+        """Создает тикет модератору при критической ошибке внешней системы."""
+
+        if self._create_support_ticket_use_case is None:
+            return
+
+        normalized_error = str(guest_error_message).strip()
+        if not normalized_error:
+            return
+
+        error_code = self._extract_iiko_error_code(normalized_error) or "unknown"
+        ticket_text = (
+            "⚠️ Автоматическое обращение: критическая ошибка внешней системы.\n"
+            "Платформа: vk\n"
+            f"ID гостя: {vk_user_id}\n"
+            f"Код ошибки: {error_code}\n\n"
+            "Текст сообщения, показанного гостю:\n"
+            f"{normalized_error}\n\n"
+            "Просьба модератору: передайте это сообщение техническим специалистам."
+        )
+
+        method_logger = self._logger.bind(stage="external_error_ticket", user_id=str(vk_user_id))
+        try:
+            self._create_support_ticket_use_case.execute(
+                CreateSupportTicketCommand(
+                    platform="vk",
+                    external_id=str(vk_user_id),
+                    question_text=ticket_text,
+                )
+            )
+            method_logger.warning("Автоматически создан тикет по критической ошибке iiko. code={code}.", code=error_code)
+        except ValueError as error:
+            method_logger.warning(
+                "Не удалось создать автотикет по критической ошибке iiko. reason={reason}.",
+                reason=str(error),
+            )
+
+    @staticmethod
+    def _extract_iiko_error_code(error_text: str) -> str | None:
+        """Извлекает код ошибки IIKO-***-*** из текста ошибки."""
+
+        match = re.search(r"IIKO-[A-Z]+-\d{3}", str(error_text))
+        if match is None:
+            return None
+        return match.group(0)
 
     def _has_user_tickets(self, *, platform: str, external_id: str) -> bool:
         """Проверяет, есть ли у пользователя хотя бы один тикет поддержки."""

@@ -338,6 +338,44 @@ def test_telegram_adapter_returns_balance_from_loyalty_use_case() -> None:
     assert result.parse_mode == "Markdown"
 
 
+def test_telegram_balance_error_creates_automatic_support_ticket() -> None:
+    """Проверяет, что при критической ошибке iiko по балансу создается автотикет."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
+        balance_use_case=GetLoyaltyBalanceUseCase(AlwaysFailLoyaltyGateway()),
+    )
+
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="💰 Мой баланс")
+    tickets = list_person_tickets_use_case.execute(
+        platform="telegram",
+        external_id="1001",
+        limit=10,
+    )
+
+    assert result.status == "balance_unavailable"
+    assert "IIKO-BAL-001" in result.message
+    assert len(tickets) == 1
+    assert tickets[0].status.value == "open"
+
+
 def test_telegram_adapter_returns_virtual_card_from_loyalty_use_case() -> None:
     """Проверяет, что пункт «Виртуальная карта» использует подключённый loyalty use-case."""
 
