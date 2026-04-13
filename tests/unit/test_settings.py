@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from vtelemax.settings import AppSettings
 
@@ -63,3 +64,29 @@ def test_settings_detects_iiko_configuration_disabled() -> None:
     settings = AppSettings(IIKO_API_KEY=" ", IIKO_ORG_ID="")
 
     assert settings.is_iiko_configured is False
+
+
+def test_settings_reads_moderation_delivery_worker_values() -> None:
+    """Проверяет чтение настроек periodic worker из env-параметров."""
+
+    settings = AppSettings(
+        MODERATION_DELIVERY_INTERVAL_SECONDS=7.5,
+        MODERATION_DELIVERY_BATCH_LIMIT=42,
+    )
+
+    assert settings.moderation_delivery_interval_seconds == 7.5
+    assert settings.moderation_delivery_batch_limit == 42
+
+
+def test_settings_rejects_non_positive_moderation_interval() -> None:
+    """Проверяет валидацию интервала periodic worker."""
+
+    with pytest.raises(ValidationError):
+        AppSettings(MODERATION_DELIVERY_INTERVAL_SECONDS=0)
+
+
+def test_settings_rejects_non_positive_moderation_batch_limit() -> None:
+    """Проверяет валидацию batch limit periodic worker."""
+
+    with pytest.raises(ValidationError):
+        AppSettings(MODERATION_DELIVERY_BATCH_LIMIT=0)
