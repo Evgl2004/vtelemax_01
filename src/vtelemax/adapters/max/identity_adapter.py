@@ -21,6 +21,8 @@ from vtelemax.core import (
     BUTTON_BACK_TO_SUPPORT,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
+    EnqueueProfileSyncCommand,
+    EnqueueProfileSyncTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
     GetPersonTicketsPageTransactionalUseCase,
     LoyaltyCustomerUpsertData,
@@ -41,6 +43,7 @@ from vtelemax.core import (
     OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     PersonTicketsPageResult,
+    PlatformName,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
@@ -167,6 +170,7 @@ class MaxIdentityAdapter:
         balance_use_case: GetLoyaltyBalanceUseCase | None = None,
         virtual_card_use_case: GetVirtualCardUseCase | None = None,
         loyalty_gateway: LoyaltyGateway | None = None,
+        enqueue_profile_sync_use_case: EnqueueProfileSyncTransactionalUseCase | None = None,
     ) -> None:
         self._logger = logger.bind(platform="max", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -190,6 +194,7 @@ class MaxIdentityAdapter:
         self._balance_use_case = balance_use_case
         self._virtual_card_use_case = virtual_card_use_case
         self._loyalty_gateway = loyalty_gateway
+        self._enqueue_profile_sync_use_case = enqueue_profile_sync_use_case
 
     def handle_start(self, max_user_id: int) -> MaxAdapterResponse:
         """Обрабатывает стартовый вход пользователя в MAX-бот."""
@@ -1334,6 +1339,10 @@ class MaxIdentityAdapter:
                 )
             )
 
+        self._enqueue_profile_sync_for_person(
+            person_id=person.person_id,
+            source_platform="max",
+        )
         self._state_by_user_id.pop(max_user_id, None)
         profile = self._render_profile_screen(max_user_id=max_user_id)
         return MaxAdapterResponse(
@@ -1341,6 +1350,31 @@ class MaxIdentityAdapter:
             screen=profile.screen,
             parse_mode=profile.parse_mode,
         )
+
+    def _enqueue_profile_sync_for_person(
+        self,
+        *,
+        person_id: UUID,
+        source_platform: PlatformName,
+    ) -> None:
+        """Ставит профиль пользователя в очередь sync после успешного редактирования."""
+
+        if self._enqueue_profile_sync_use_case is None:
+            return
+
+        try:
+            self._enqueue_profile_sync_use_case.execute(
+                EnqueueProfileSyncCommand(
+                    person_id=person_id,
+                    source_platform=source_platform,
+                    payload_json={"trigger": "profile_edit"},
+                )
+            )
+        except Exception as error:  # noqa: BLE001
+            self._logger.bind(stage="profile_sync_enqueue", user_id=str(person_id)).warning(
+                "Не удалось поставить профиль в очередь синхронизации с iiko. reason={reason}.",
+                reason=str(error),
+            )
 
     def _try_handle_moderator_command(
         self,

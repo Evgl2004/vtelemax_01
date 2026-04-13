@@ -120,6 +120,14 @@ from .models import (
 from .phone import normalize_phone
 from .profile_validation import normalize_email, normalize_person_name, parse_birth_date
 from .ports import IdentityRepository, IdentityUnitOfWork
+from .profile_sync_models import ProfileSyncStatus, ProfileSyncTask
+from .profile_sync_use_cases import (
+    EnqueueProfileSyncCommand,
+    EnqueueProfileSyncTransactionalUseCase,
+    FinalizeProfileSyncTaskCommand,
+    FinalizeProfileSyncTaskTransactionalUseCase,
+    PullPendingProfileSyncTasksTransactionalUseCase,
+)
 from .support_models import (
     SupportDeliveryStatus,
     SupportMessage,
@@ -158,6 +166,9 @@ from .support_use_cases import (
     UpdateModeratorMessageDeliveryStatusTransactionalUseCase,
 )
 from .use_cases import (
+    GetPersonByIdCommand,
+    GetPersonByIdTransactionalUseCase,
+    GetPersonByIdUseCase,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     GetPersonByAccountUseCase,
@@ -193,6 +204,9 @@ __all__ = [
     "PlatformRegistrationState",
     "PlatformName",
     "SUPPORTED_PLATFORMS",
+    "GetPersonByIdCommand",
+    "GetPersonByIdUseCase",
+    "GetPersonByIdTransactionalUseCase",
     "GetPersonByAccountCommand",
     "GetPersonByAccountUseCase",
     "GetPersonByAccountTransactionalUseCase",
@@ -307,4 +321,11 @@ __all__ = [
     "SetSupportTicketStatusTransactionalUseCase",
     "UpdateModeratorMessageDeliveryStatusCommand",
     "UpdateModeratorMessageDeliveryStatusTransactionalUseCase",
+    "ProfileSyncStatus",
+    "ProfileSyncTask",
+    "EnqueueProfileSyncCommand",
+    "EnqueueProfileSyncTransactionalUseCase",
+    "PullPendingProfileSyncTasksTransactionalUseCase",
+    "FinalizeProfileSyncTaskCommand",
+    "FinalizeProfileSyncTaskTransactionalUseCase",
 ]

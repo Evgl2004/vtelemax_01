@@ -8,10 +8,30 @@
 
 from __future__ import annotations
 
-from uuid import UUID
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName
+from .profile_sync_models import ProfileSyncStatus, ProfileSyncTask
 from .ports import IdentityRepository
+
+
+@dataclass(slots=True)
+class _InMemoryProfileSyncRecord:
+    """Внутренняя запись очереди profile_sync для in-memory репозитория."""
+
+    sync_id: UUID
+    person_id: UUID
+    source_platform: PlatformName
+    status: ProfileSyncStatus
+    attempts: int
+    next_attempt_at: datetime
+    locked_at: datetime | None
+    error_text: str | None
+    payload_json: dict[str, object] | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class InMemoryIdentityRepository(IdentityRepository):
@@ -21,6 +41,7 @@ class InMemoryIdentityRepository(IdentityRepository):
         self._persons_by_id: dict[UUID, Person] = {}
         self._person_id_by_phone: dict[str, UUID] = {}
         self._person_id_by_account: dict[tuple[PlatformName, str], UUID] = {}
+        self._profile_sync_by_id: dict[UUID, _InMemoryProfileSyncRecord] = {}
 
     def get_person_by_phone(self, phone_e164: str) -> Person | None:
         """Возвращает человека по каноническому телефону."""
@@ -143,3 +164,102 @@ class InMemoryIdentityRepository(IdentityRepository):
             if patch.platform_registered_at is not None:
                 state.registered_at = patch.platform_registered_at
             person.set_platform_state(state)
+
+    def enqueue_profile_sync(
+        self,
+        *,
+        person_id: UUID,
+        source_platform: PlatformName,
+        payload_json: dict[str, object] | None = None,
+    ) -> UUID:
+        """Ставит профиль пользователя в очередь синхронизации (in-memory)."""
+
+        now_utc = datetime.now(timezone.utc)
+        for record in self._profile_sync_by_id.values():
+            if record.person_id == person_id and record.status == ProfileSyncStatus.PENDING:
+                record.source_platform = source_platform
+                record.payload_json = payload_json
+                record.next_attempt_at = now_utc
+                record.error_text = None
+                record.updated_at = now_utc
+                return record.sync_id
+
+        sync_id = uuid4()
+        self._profile_sync_by_id[sync_id] = _InMemoryProfileSyncRecord(
+            sync_id=sync_id,
+            person_id=person_id,
+            source_platform=source_platform,
+            status=ProfileSyncStatus.PENDING,
+            attempts=0,
+            next_attempt_at=now_utc,
+            locked_at=None,
+            error_text=None,
+            payload_json=payload_json,
+            created_at=now_utc,
+            updated_at=now_utc,
+        )
+        return sync_id
+
+    def pull_pending_profile_sync_tasks(
+        self,
+        *,
+        limit: int,
+        now_utc: datetime | None = None,
+    ) -> tuple[ProfileSyncTask, ...]:
+        """Выбирает pending-задачи и переводит их в processing (in-memory)."""
+
+        safe_now = now_utc or datetime.now(timezone.utc)
+        safe_limit = max(int(limit), 1)
+        pending_records = sorted(
+            (
+                record
+                for record in self._profile_sync_by_id.values()
+                if record.status == ProfileSyncStatus.PENDING
+                and record.next_attempt_at <= safe_now
+            ),
+            key=lambda record: (record.next_attempt_at, record.created_at),
+        )[:safe_limit]
+
+        processing_started_at = datetime.now(timezone.utc)
+        tasks: list[ProfileSyncTask] = []
+        for record in pending_records:
+            record.status = ProfileSyncStatus.PROCESSING
+            record.attempts += 1
+            record.locked_at = processing_started_at
+            record.updated_at = processing_started_at
+            tasks.append(
+                ProfileSyncTask(
+                    sync_id=record.sync_id,
+                    person_id=record.person_id,
+                    source_platform=record.source_platform,
+                    status=record.status,
+                    attempts=record.attempts,
+                    next_attempt_at=record.next_attempt_at,
+                    payload_json=record.payload_json,
+                    created_at=record.created_at,
+                    updated_at=record.updated_at,
+                )
+            )
+
+        return tuple(tasks)
+
+    def finalize_profile_sync_task(
+        self,
+        *,
+        sync_id: UUID,
+        status: ProfileSyncStatus,
+        error_text: str | None = None,
+        next_attempt_at: datetime | None = None,
+    ) -> None:
+        """Фиксирует финальный статус задачи синхронизации (in-memory)."""
+
+        record = self._profile_sync_by_id.get(sync_id)
+        if record is None:
+            return
+
+        record.status = status
+        record.error_text = error_text
+        if next_attempt_at is not None:
+            record.next_attempt_at = next_attempt_at
+        record.locked_at = None
+        record.updated_at = datetime.now(timezone.utc)

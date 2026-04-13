@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from .errors import IdentityConflictError
 from .models import (
@@ -215,6 +215,39 @@ class GetPersonByAccountTransactionalUseCase:
 
         with self._unit_of_work_factory() as unit_of_work:
             use_case = GetPersonByAccountUseCase(unit_of_work.identity_repository)
+            return use_case.execute(command)
+
+
+@dataclass(frozen=True, slots=True)
+class GetPersonByIdCommand:
+    """Команда получения человека по внутреннему `person_id`."""
+
+    person_id: UUID
+
+
+class GetPersonByIdUseCase:
+    """Use-case чтения человека по внутреннему идентификатору."""
+
+    def __init__(self, repository: IdentityRepository) -> None:
+        self._repository = repository
+
+    def execute(self, command: GetPersonByIdCommand) -> Person | None:
+        """Возвращает человека по `person_id` или `None`."""
+
+        return self._repository.get_person_by_id(command.person_id)
+
+
+class GetPersonByIdTransactionalUseCase:
+    """Транзакционный use-case чтения по `person_id` через UnitOfWork."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], IdentityUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def execute(self, command: GetPersonByIdCommand) -> Person | None:
+        """Читает данные внутри UoW-контекста без явного commit."""
+
+        with self._unit_of_work_factory() as unit_of_work:
+            use_case = GetPersonByIdUseCase(unit_of_work.identity_repository)
             return use_case.execute(command)
 
 

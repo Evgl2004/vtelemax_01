@@ -56,6 +56,22 @@ class AppSettings(BaseSettings):
         alias="MODERATION_DELIVERY_BATCH_LIMIT",
         gt=0,
     )
+    profile_sync_enabled: bool = Field(default=True, alias="PROFILE_SYNC_ENABLED")
+    profile_sync_interval_seconds: float = Field(
+        default=15.0,
+        alias="PROFILE_SYNC_INTERVAL_SECONDS",
+        gt=0,
+    )
+    profile_sync_batch_limit: int = Field(
+        default=50,
+        alias="PROFILE_SYNC_BATCH_LIMIT",
+        gt=0,
+    )
+    profile_sync_max_attempts: int = Field(
+        default=5,
+        alias="PROFILE_SYNC_MAX_ATTEMPTS",
+        gt=0,
+    )
     iiko_api_key: str = Field(default="", alias="IIKO_API_KEY")
     iiko_org_id: str = Field(default="", alias="IIKO_ORG_ID")
     iiko_base_url: str = Field(default="https://api-ru.iiko.services/api/1", alias="IIKO_BASE_URL")

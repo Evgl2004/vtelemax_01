@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -19,9 +20,16 @@ from vtelemax.core.models import (
     PlatformRegistrationState,
     SUPPORTED_PLATFORMS,
 )
+from vtelemax.core.profile_sync_models import ProfileSyncStatus, ProfileSyncTask
 from vtelemax.core.ports import IdentityRepository
 
-from .schema import PersonPlatformStateRow, PersonRow, PhoneRow, PlatformAccountRow
+from .schema import (
+    PersonPlatformStateRow,
+    PersonRow,
+    PhoneRow,
+    PlatformAccountRow,
+    ProfileSyncQueueRow,
+)
 
 
 class SQLAlchemyIdentityRepository(IdentityRepository):
@@ -260,6 +268,118 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
 
             self._sync_legacy_platform_fields(person_row=person_row, platform_row=platform_row)
             self._sync_global_registration_flag(person_row=person_row, person_id=person_id)
+
+    def enqueue_profile_sync(
+        self,
+        *,
+        person_id: UUID,
+        source_platform: PlatformName,
+        payload_json: dict[str, object] | None = None,
+    ) -> UUID:
+        """Ставит профиль пользователя в очередь синхронизации."""
+
+        now_utc = datetime.now(timezone.utc)
+        pending_statement = (
+            select(ProfileSyncQueueRow)
+            .where(
+                ProfileSyncQueueRow.person_id == person_id,
+                ProfileSyncQueueRow.status == ProfileSyncStatus.PENDING.value,
+            )
+            .order_by(ProfileSyncQueueRow.updated_at.desc())
+            .limit(1)
+        )
+        pending_row = self._session.execute(pending_statement).scalars().first()
+        if pending_row is not None:
+            pending_row.source_platform = source_platform
+            pending_row.payload_json = payload_json
+            pending_row.next_attempt_at = now_utc
+            pending_row.error_text = None
+            pending_row.updated_at = now_utc
+            return pending_row.sync_id
+
+        sync_id = uuid4()
+        self._session.add(
+            ProfileSyncQueueRow(
+                sync_id=sync_id,
+                person_id=person_id,
+                source_platform=source_platform,
+                status=ProfileSyncStatus.PENDING.value,
+                attempts=0,
+                next_attempt_at=now_utc,
+                locked_at=None,
+                error_text=None,
+                payload_json=payload_json,
+            )
+        )
+        return sync_id
+
+    def pull_pending_profile_sync_tasks(
+        self,
+        *,
+        limit: int,
+        now_utc: datetime | None = None,
+    ) -> tuple[ProfileSyncTask, ...]:
+        """Выбирает pending-задачи и переводит их в processing."""
+
+        safe_now = now_utc or datetime.now(timezone.utc)
+        safe_limit = max(int(limit), 1)
+
+        statement = (
+            select(ProfileSyncQueueRow)
+            .where(
+                ProfileSyncQueueRow.status == ProfileSyncStatus.PENDING.value,
+                ProfileSyncQueueRow.next_attempt_at <= safe_now,
+            )
+            .order_by(ProfileSyncQueueRow.next_attempt_at.asc(), ProfileSyncQueueRow.created_at.asc())
+            .limit(safe_limit)
+            .with_for_update(skip_locked=True)
+        )
+        rows = self._session.execute(statement).scalars().all()
+        if not rows:
+            return ()
+
+        processing_started_at = datetime.now(timezone.utc)
+        tasks: list[ProfileSyncTask] = []
+        for row in rows:
+            row.status = ProfileSyncStatus.PROCESSING.value
+            row.attempts += 1
+            row.locked_at = processing_started_at
+            row.updated_at = processing_started_at
+            tasks.append(
+                ProfileSyncTask(
+                    sync_id=row.sync_id,
+                    person_id=row.person_id,
+                    source_platform=row.source_platform,  # type: ignore[arg-type]
+                    status=ProfileSyncStatus.PROCESSING,
+                    attempts=row.attempts,
+                    next_attempt_at=row.next_attempt_at,
+                    payload_json=row.payload_json,
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
+                )
+            )
+        return tuple(tasks)
+
+    def finalize_profile_sync_task(
+        self,
+        *,
+        sync_id: UUID,
+        status: ProfileSyncStatus,
+        error_text: str | None = None,
+        next_attempt_at: datetime | None = None,
+    ) -> None:
+        """Фиксирует результат обработки задачи очереди синхронизации."""
+
+        row = self._session.get(ProfileSyncQueueRow, sync_id)
+        if row is None:
+            return
+
+        row.status = status.value
+        row.error_text = error_text
+        if next_attempt_at is not None:
+            row.next_attempt_at = next_attempt_at
+        row.locked_at = None
+        row.updated_at = datetime.now(timezone.utc)
 
     def _build_person(self, person_row: PersonRow, phone_e164: str) -> Person:
         """Собирает доменную модель человека с полным набором аккаунтов."""

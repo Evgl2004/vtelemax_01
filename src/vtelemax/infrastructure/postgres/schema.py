@@ -23,10 +23,12 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    JSON,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -260,4 +262,61 @@ class SupportMessageRow(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class ProfileSyncQueueRow(Base):
+    """Outbox-очередь синхронизации профиля пользователя с iiko."""
+
+    __tablename__ = "profile_sync_queue"
+    __table_args__ = (
+        CheckConstraint(
+            "source_platform IN ('telegram', 'vk', 'max')",
+            name="ck_profile_sync_queue_platform_allowed",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'done', 'failed')",
+            name="ck_profile_sync_queue_status_allowed",
+        ),
+        CheckConstraint(
+            "attempts >= 0",
+            name="ck_profile_sync_queue_attempts_non_negative",
+        ),
+        Index("ix_profile_sync_queue_status_next_attempt_at", "status", "next_attempt_at"),
+        Index("ix_profile_sync_queue_person_id", "person_id"),
+        Index(
+            "uq_profile_sync_queue_person_pending",
+            "person_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    sync_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    person_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("persons.person_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    payload_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )

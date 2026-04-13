@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
 from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName
+from .profile_sync_models import ProfileSyncStatus, ProfileSyncTask
 
 
 class IdentityRepository(Protocol):
@@ -37,6 +39,33 @@ class IdentityRepository(Protocol):
 
     def update_person_profile(self, person_id: UUID, patch: PersonProfilePatch) -> None:
         """Частично обновляет профиль пользователя."""
+
+    def enqueue_profile_sync(
+        self,
+        *,
+        person_id: UUID,
+        source_platform: PlatformName,
+        payload_json: dict[str, object] | None = None,
+    ) -> UUID:
+        """Ставит профиль пользователя в очередь синхронизации."""
+
+    def pull_pending_profile_sync_tasks(
+        self,
+        *,
+        limit: int,
+        now_utc: datetime | None = None,
+    ) -> tuple[ProfileSyncTask, ...]:
+        """Выбирает pending-задачи и переводит их в processing."""
+
+    def finalize_profile_sync_task(
+        self,
+        *,
+        sync_id: UUID,
+        status: ProfileSyncStatus,
+        error_text: str | None = None,
+        next_attempt_at: datetime | None = None,
+    ) -> None:
+        """Фиксирует финальный статус обработки задачи синхронизации."""
 
 
 class IdentityUnitOfWork(Protocol):

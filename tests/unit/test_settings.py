@@ -90,3 +90,36 @@ def test_settings_rejects_non_positive_moderation_batch_limit() -> None:
 
     with pytest.raises(ValidationError):
         AppSettings(MODERATION_DELIVERY_BATCH_LIMIT=0)
+
+
+def test_settings_reads_profile_sync_worker_values() -> None:
+    """Checks reading profile sync worker settings from env."""
+
+    settings = AppSettings(
+        PROFILE_SYNC_ENABLED=True,
+        PROFILE_SYNC_INTERVAL_SECONDS=12.5,
+        PROFILE_SYNC_BATCH_LIMIT=30,
+        PROFILE_SYNC_MAX_ATTEMPTS=7,
+    )
+
+    assert settings.profile_sync_enabled is True
+    assert settings.profile_sync_interval_seconds == 12.5
+    assert settings.profile_sync_batch_limit == 30
+    assert settings.profile_sync_max_attempts == 7
+
+
+def test_settings_rejects_non_positive_profile_sync_interval() -> None:
+    """Checks validation of profile sync interval."""
+
+    with pytest.raises(ValidationError):
+        AppSettings(PROFILE_SYNC_INTERVAL_SECONDS=0)
+
+
+def test_settings_rejects_non_positive_profile_sync_batch_limit_and_attempts() -> None:
+    """Checks validation of profile sync batch limit and max attempts."""
+
+    with pytest.raises(ValidationError):
+        AppSettings(PROFILE_SYNC_BATCH_LIMIT=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(PROFILE_SYNC_MAX_ATTEMPTS=0)

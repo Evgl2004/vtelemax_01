@@ -7,6 +7,7 @@ from .schema import (
     PersonPlatformStateRow,
     PhoneRow,
     PlatformAccountRow,
+    ProfileSyncQueueRow,
     SupportMessageRow,
     SupportTicketRow,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "PersonPlatformStateRow",
     "PhoneRow",
     "PlatformAccountRow",
+    "ProfileSyncQueueRow",
     "SupportTicketRow",
     "SupportMessageRow",
     "SQLAlchemyIdentityRepository",

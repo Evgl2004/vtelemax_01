@@ -13,6 +13,7 @@ from vtelemax.adapters.max import MaxIdentityAdapter, register_max_guest_handler
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketTransactionalUseCase,
+    EnqueueProfileSyncTransactionalUseCase,
     GetPersonByAccountTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
     GetVirtualCardUseCase,
@@ -165,6 +166,17 @@ def build_get_person_tickets_page_use_case(
     return GetPersonTicketsPageTransactionalUseCase(unit_of_work_factory=uow_factory)
 
 
+def build_enqueue_profile_sync_use_case(
+    session_factory: sessionmaker[Session],
+) -> EnqueueProfileSyncTransactionalUseCase:
+    """Собирает транзакционный use-case постановки профиля в очередь sync."""
+
+    uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
+        session_factory
+    )
+    return EnqueueProfileSyncTransactionalUseCase(unit_of_work_factory=uow_factory)
+
+
 def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     """Собирает iiko-шлюз для разделов лояльности или возвращает `None`, если интеграция выключена."""
 
@@ -213,6 +225,11 @@ def build_dispatcher(settings: AppSettings) -> Any:
     iiko_gateway = build_iiko_gateway(settings)
     balance_use_case = GetLoyaltyBalanceUseCase(iiko_gateway) if iiko_gateway is not None else None
     virtual_card_use_case = GetVirtualCardUseCase(iiko_gateway) if iiko_gateway is not None else None
+    enqueue_profile_sync_use_case = (
+        build_enqueue_profile_sync_use_case(session_factory)
+        if settings.profile_sync_enabled and iiko_gateway is not None
+        else None
+    )
     adapter = MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
@@ -228,6 +245,7 @@ def build_dispatcher(settings: AppSettings) -> Any:
         balance_use_case=balance_use_case,
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
+        enqueue_profile_sync_use_case=enqueue_profile_sync_use_case,
     )
 
     dispatcher = Dispatcher()
