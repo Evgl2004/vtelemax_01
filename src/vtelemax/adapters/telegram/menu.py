@@ -593,9 +593,11 @@ def build_moderation_notification_inline_keyboard(ticket_id: str) -> InlineKeybo
     """Создает inline-кнопку быстрого ответа из уведомления модератору."""
 
     callback_data = f"{MOD_REPLY_PREFIX}{ticket_id}_new_1"
+    phone_callback_data = f"{MOD_PHONE_SHOW_PREFIX}{ticket_id}_new_1"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✍️ Ответить", callback_data=callback_data)],
+            [InlineKeyboardButton(text="📞 Телефон гостя", callback_data=phone_callback_data)],
         ]
     )
 

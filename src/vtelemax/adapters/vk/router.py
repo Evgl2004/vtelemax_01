@@ -29,6 +29,7 @@ from .identity_adapter import (
     VkAdapterResponse,
     VkIdentityAdapter,
 )
+from .menu_adapter import MOD_PHONE_SHOW_PREFIX, MOD_REPLY_PREFIX
 from .keyboard_renderer import render_vk_keyboard
 from .payloads import resolve_action_from_vk_payload
 
@@ -45,7 +46,8 @@ _GUEST_MESSAGE_CLOSE_CMD = "guest_msg_close"
 def _build_vk_moderation_notification_keyboard_json(ticket_id: str) -> str:
     """Возвращает inline-клавиатуру VK с кнопкой быстрого ответа модератора."""
 
-    payload = {"cmd": f"mod_reply_{ticket_id}_new_1"}
+    reply_payload = {"cmd": f"{MOD_REPLY_PREFIX}{ticket_id}_new_1"}
+    phone_payload = {"cmd": f"{MOD_PHONE_SHOW_PREFIX}{ticket_id}_new_1"}
     return json.dumps(
         {
             "one_time": False,
@@ -56,10 +58,18 @@ def _build_vk_moderation_notification_keyboard_json(ticket_id: str) -> str:
                         "action": {
                             "type": "callback",
                             "label": "✍️ Ответить",
-                            "payload": json.dumps(payload, ensure_ascii=False),
+                            "payload": json.dumps(reply_payload, ensure_ascii=False),
                         },
                         "color": "primary",
-                    }
+                    },
+                    {
+                        "action": {
+                            "type": "callback",
+                            "label": "📞 Телефон гостя",
+                            "payload": json.dumps(phone_payload, ensure_ascii=False),
+                        },
+                        "color": "secondary",
+                    },
                 ]
             ],
         },

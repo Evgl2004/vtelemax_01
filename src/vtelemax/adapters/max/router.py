@@ -21,6 +21,7 @@ from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
+from .menu_adapter import MOD_PHONE_SHOW_PREFIX, MOD_REPLY_PREFIX
 
 _START_COMMANDS = {"/start", "начать"}
 _GUEST_MESSAGE_CLOSE_PAYLOAD = "guest_msg_close"
@@ -78,7 +79,8 @@ def _extract_max_upload_token(upload_response: dict[str, Any]) -> str | None:
 def _build_max_moderation_notification_keyboard(ticket_id: str) -> object | None:
     """Возвращает inline-кнопку MAX для быстрого ответа модератора."""
 
-    callback_payload = f"mod_reply_{ticket_id}_new_1"
+    callback_payload = f"{MOD_REPLY_PREFIX}{ticket_id}_new_1"
+    phone_callback_payload = f"{MOD_PHONE_SHOW_PREFIX}{ticket_id}_new_1"
     try:
         from maxapi.types import CallbackButton
         from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
@@ -86,7 +88,10 @@ def _build_max_moderation_notification_keyboard(ticket_id: str) -> object | None
         return None
 
     builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="✍️ Ответить", payload=callback_payload))
+    builder.row(
+        CallbackButton(text="✍️ Ответить", payload=callback_payload),
+        CallbackButton(text="📞 Телефон гостя", payload=phone_callback_payload),
+    )
     return builder.as_markup()
 
 

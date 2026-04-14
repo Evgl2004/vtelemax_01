@@ -22,6 +22,7 @@ from vtelemax.adapters.telegram.menu import (
     build_guest_message_close_inline_keyboard,
     build_main_menu_inline_keyboard,
     build_moderation_main_inline_keyboard,
+    build_moderation_notification_inline_keyboard,
     build_moderation_ticket_details_inline_keyboard,
     build_moderation_tickets_inline_keyboard,
     build_profile_edit_inline_keyboard,
@@ -228,6 +229,7 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
         build_profile_notifications_toggle_inline_keyboard(notifications_allowed=False),
         build_iiko_sync_retry_inline_keyboard(),
         build_moderation_main_inline_keyboard(),
+        build_moderation_notification_inline_keyboard(str(sample_ticket_id)),
         build_moderation_tickets_inline_keyboard(
             filter_key="new",
             current_page=1,
@@ -449,3 +451,20 @@ def test_build_moderation_keyboards_use_expected_callback_prefixes() -> None:
         if button.callback_data is not None
     ]
     assert any(data.startswith(MOD_PHONE_HIDE_PREFIX) for data in visible_phone_callbacks)
+
+
+def test_build_moderation_notification_keyboard_has_reply_and_phone_toggle() -> None:
+    """Проверяет кнопки в уведомлении модератора: быстрый ответ и показ телефона."""
+    from uuid import uuid4
+
+    ticket_id = str(uuid4())
+    keyboard = build_moderation_notification_inline_keyboard(ticket_id)
+
+    assert len(keyboard.inline_keyboard) == 2
+    reply_button = keyboard.inline_keyboard[0][0]
+    phone_button = keyboard.inline_keyboard[1][0]
+
+    assert reply_button.text == "✍️ Ответить"
+    assert reply_button.callback_data == f"{MOD_REPLY_PREFIX}{ticket_id}_new_1"
+    assert phone_button.text == "📞 Телефон гостя"
+    assert phone_button.callback_data == f"{MOD_PHONE_SHOW_PREFIX}{ticket_id}_new_1"

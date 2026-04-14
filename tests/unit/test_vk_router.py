@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from vtelemax.adapters.vk.router import (
+    _build_vk_moderation_notification_keyboard_json,
     _build_vk_photo_attachment,
     _is_message_not_modified_error,
     _normalize_vk_message,
@@ -48,6 +51,30 @@ def test_build_vk_photo_attachment_returns_none_for_dirty_photo() -> None:
     attachment = _build_vk_photo_attachment({"owner_id": 10})
 
     assert attachment is None
+
+
+def test_build_vk_moderation_notification_keyboard_contains_reply_and_phone_buttons() -> None:
+    """Проверяет, что клавиатура уведомления модератора VK содержит две callback-кнопки."""
+
+    keyboard_json = _build_vk_moderation_notification_keyboard_json(
+        "11111111-1111-1111-1111-111111111111"
+    )
+    payload = json.loads(keyboard_json)
+
+    assert payload["inline"] is True
+    assert len(payload["buttons"]) == 1
+    assert len(payload["buttons"][0]) == 2
+
+    reply_button = payload["buttons"][0][0]
+    phone_button = payload["buttons"][0][1]
+
+    reply_cmd = json.loads(reply_button["action"]["payload"])["cmd"]
+    phone_cmd = json.loads(phone_button["action"]["payload"])["cmd"]
+
+    assert reply_button["action"]["label"] == "✍️ Ответить"
+    assert phone_button["action"]["label"] == "📞 Телефон гостя"
+    assert reply_cmd.startswith("mod_reply_")
+    assert phone_cmd.startswith("mod_phone_show_")
 
 
 @pytest.mark.asyncio
