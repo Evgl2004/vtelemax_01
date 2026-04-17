@@ -1502,6 +1502,13 @@ class TelegramIdentityAdapter:
     ) -> TelegramMenuActionResult:
         """Обрабатывает ввод имени в режиме редактирования профиля."""
 
+        navigation_result = self._try_handle_profile_edit_navigation(
+            telegram_user_id=telegram_user_id,
+            action_text=action_text,
+        )
+        if navigation_result is not None:
+            return navigation_result
+
         normalized_name = normalize_person_name(action_text)
         if normalized_name is None:
             return TelegramMenuActionResult(
@@ -1526,6 +1533,13 @@ class TelegramIdentityAdapter:
     ) -> TelegramMenuActionResult:
         """Обрабатывает ввод фамилии в режиме редактирования профиля."""
 
+        navigation_result = self._try_handle_profile_edit_navigation(
+            telegram_user_id=telegram_user_id,
+            action_text=action_text,
+        )
+        if navigation_result is not None:
+            return navigation_result
+
         normalized_last_name = normalize_person_name(action_text)
         if normalized_last_name is None:
             return TelegramMenuActionResult(
@@ -1549,6 +1563,13 @@ class TelegramIdentityAdapter:
         action_text: str,
     ) -> TelegramMenuActionResult:
         """Обрабатывает выбор пола в режиме редактирования профиля."""
+
+        navigation_result = self._try_handle_profile_edit_navigation(
+            telegram_user_id=telegram_user_id,
+            action_text=action_text,
+        )
+        if navigation_result is not None:
+            return navigation_result
 
         action = resolve_guest_menu_action(action_text)
         gender: str | None = None
@@ -1581,6 +1602,13 @@ class TelegramIdentityAdapter:
         action_text: str,
     ) -> TelegramMenuActionResult:
         """Обрабатывает ввод даты рождения в режиме редактирования профиля."""
+
+        navigation_result = self._try_handle_profile_edit_navigation(
+            telegram_user_id=telegram_user_id,
+            action_text=action_text,
+        )
+        if navigation_result is not None:
+            return navigation_result
 
         person = self._person_lookup_use_case.execute(
             GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
@@ -1621,6 +1649,13 @@ class TelegramIdentityAdapter:
         action_text: str,
     ) -> TelegramMenuActionResult:
         """Обрабатывает ввод email в режиме редактирования профиля."""
+
+        navigation_result = self._try_handle_profile_edit_navigation(
+            telegram_user_id=telegram_user_id,
+            action_text=action_text,
+        )
+        if navigation_result is not None:
+            return navigation_result
 
         normalized = normalize_email(action_text)
         if normalized is None:
@@ -1666,6 +1701,13 @@ class TelegramIdentityAdapter:
     ) -> TelegramMenuActionResult:
         """Обрабатывает выбор кнопки переключения уведомлений в подменю профиля."""
 
+        navigation_result = self._try_handle_profile_edit_navigation(
+            telegram_user_id=telegram_user_id,
+            action_text=action_text,
+        )
+        if navigation_result is not None:
+            return navigation_result
+
         action = resolve_guest_menu_action(action_text)
         if action in {
             GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
@@ -1676,6 +1718,26 @@ class TelegramIdentityAdapter:
                 new_value=True if action == GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE else None,
             )
         return self._open_profile_notifications_edit(telegram_user_id=telegram_user_id)
+
+    def _try_handle_profile_edit_navigation(
+        self,
+        *,
+        telegram_user_id: int,
+        action_text: str,
+    ) -> TelegramMenuActionResult | None:
+        """Обрабатывает универсальные действия навигации внутри шагов редактирования профиля."""
+
+        action = resolve_guest_menu_action(action_text)
+        if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_profile_screen(telegram_user_id=telegram_user_id)
+        if action in {GuestMenuAction.BACK_TO_MAIN, GuestMenuAction.MAIN_MENU}:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self.handle_menu_action(
+                telegram_user_id=telegram_user_id,
+                action_text=action.value,
+            )
+        return None
 
     def _toggle_profile_notifications(
         self,

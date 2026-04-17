@@ -25,6 +25,7 @@ from vtelemax.adapters.telegram.menu import (
     build_moderation_notification_inline_keyboard,
     build_moderation_ticket_details_inline_keyboard,
     build_moderation_tickets_inline_keyboard,
+    build_profile_edit_cancel_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
     build_profile_inline_keyboard,
@@ -38,6 +39,7 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_PERSONAL_DATA_CONSENT_LINK,
     BUTTON_PRIVACY_POLICY_LINK,
+    BUTTON_PROFILE_EDIT_CANCEL,
     BUTTON_RETRY_IIKO_SYNC,
     OpenSupportTicketSummary,
     PERSONAL_DATA_CONSENT_URLS,
@@ -272,15 +274,33 @@ def test_build_profile_notifications_toggle_keyboard_has_single_toggle_button() 
     active_keyboard = build_profile_notifications_toggle_inline_keyboard(notifications_allowed=True)
     declined_keyboard = build_profile_notifications_toggle_inline_keyboard(notifications_allowed=False)
 
-    assert len(active_keyboard.inline_keyboard) == 1
+    assert len(active_keyboard.inline_keyboard) == 2
     assert len(active_keyboard.inline_keyboard[0]) == 1
     assert active_keyboard.inline_keyboard[0][0].text == "❌ Выключить уведомления"
     assert active_keyboard.inline_keyboard[0][0].callback_data == GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE.value
+    assert len(active_keyboard.inline_keyboard[1]) == 1
+    assert active_keyboard.inline_keyboard[1][0].text == BUTTON_PROFILE_EDIT_CANCEL
+    assert active_keyboard.inline_keyboard[1][0].callback_data == GuestMenuAction.PROFILE_EDIT_CANCEL.value
 
-    assert len(declined_keyboard.inline_keyboard) == 1
+    assert len(declined_keyboard.inline_keyboard) == 2
     assert len(declined_keyboard.inline_keyboard[0]) == 1
     assert declined_keyboard.inline_keyboard[0][0].text == "✅ Включить уведомления"
     assert declined_keyboard.inline_keyboard[0][0].callback_data == GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE.value
+    assert len(declined_keyboard.inline_keyboard[1]) == 1
+    assert declined_keyboard.inline_keyboard[1][0].text == BUTTON_PROFILE_EDIT_CANCEL
+    assert declined_keyboard.inline_keyboard[1][0].callback_data == GuestMenuAction.PROFILE_EDIT_CANCEL.value
+
+
+def test_build_profile_edit_cancel_keyboard_contains_profile_back_button() -> None:
+    """Проверяет отдельную inline-клавиатуру для текстовых шагов редактирования профиля."""
+
+    keyboard = build_profile_edit_cancel_inline_keyboard()
+
+    assert len(keyboard.inline_keyboard) == 1
+    assert len(keyboard.inline_keyboard[0]) == 1
+    button = keyboard.inline_keyboard[0][0]
+    assert button.text == BUTTON_PROFILE_EDIT_CANCEL
+    assert button.callback_data == GuestMenuAction.PROFILE_EDIT_CANCEL.value
 
 
 def test_build_guest_message_close_keyboard_contains_close_callback() -> None:

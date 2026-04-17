@@ -441,6 +441,27 @@ def build_profile_notifications_toggle_inline_keyboard(*, notifications_allowed:
                     callback_data=_action_callback(GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE),
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PROFILE_EDIT_CANCEL,
+                    callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT_CANCEL),
+                )
+            ],
+        ]
+    )
+
+
+def build_profile_edit_cancel_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру для текстовых шагов редактирования профиля."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=BUTTON_PROFILE_EDIT_CANCEL,
+                    callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT_CANCEL),
+                )
+            ]
         ]
     )
 

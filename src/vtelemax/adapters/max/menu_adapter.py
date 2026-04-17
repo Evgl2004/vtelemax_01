@@ -11,6 +11,7 @@ from vtelemax.core import (
     MenuButtonContract,
     OpenSupportTicketSummary,
     PersonSupportTicketSummary,
+    BUTTON_PROFILE_EDIT_CANCEL,
     build_about_screen,
     build_balance_screen,
     build_business_lunch_screen,
@@ -213,6 +214,21 @@ class MaxGuestMenuAdapter:
             text=screen.text,
             rows=rows,
             parse_mode="markdown" if screen.parse_mode == "markdown" else None,
+        )
+
+    def build_profile_edit_cancel_screen(self, *, prompt_text: str) -> MaxScreen:
+        """Экран текстового шага редактирования профиля с кнопкой возврата."""
+
+        cancel_button = _to_max_button(
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_CANCEL,
+                label=BUTTON_PROFILE_EDIT_CANCEL,
+            )
+        )
+        return MaxScreen(
+            screen_id="profile_edit_input",
+            text=prompt_text,
+            rows=((cancel_button,),),
         )
 
     def build_notifications_consent_screen(self, profile_text: str | None = None) -> MaxScreen:

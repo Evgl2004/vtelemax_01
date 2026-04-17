@@ -92,6 +92,7 @@ from .menu import (
     build_moderation_ticket_details_inline_keyboard,
     build_moderation_tickets_inline_keyboard,
     build_notifications_consent_inline_keyboard,
+    build_profile_edit_cancel_inline_keyboard,
     build_profile_edit_inline_keyboard,
     build_profile_gender_inline_keyboard,
     build_profile_notifications_toggle_inline_keyboard,
@@ -528,6 +529,19 @@ def build_telegram_identity_router(
             return build_profile_edit_inline_keyboard(
                 can_edit_birth_date=True if result.can_edit_birth_date is None else result.can_edit_birth_date
             )
+        if result.status in {
+            "profile_edit_first_name",
+            "profile_edit_last_name",
+            "profile_edit_birth_date",
+            "profile_edit_email",
+            "profile_edit_first_name_invalid",
+            "profile_edit_last_name_invalid",
+            "profile_edit_birth_date_invalid",
+            "profile_edit_email_invalid",
+            "profile_edit_birth_date_forbidden",
+            "profile_edit_save_error",
+        }:
+            return build_profile_edit_cancel_inline_keyboard()
         if result.status == "profile_edit_gender":
             return build_profile_gender_inline_keyboard()
         if result.status == "profile_edit_notifications":

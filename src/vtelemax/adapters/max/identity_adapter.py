@@ -427,6 +427,22 @@ class MaxIdentityAdapter:
                 self._reply_ticket_id_by_user_id.pop(max_user_id, None)
                 return self._handle_action(max_user_id=max_user_id, action=action)
             return self._handle_support_reply(max_user_id=max_user_id, text=text)
+        if state in {
+            _STATE_PROFILE_EDIT_CHOICE,
+            _STATE_PROFILE_EDIT_FIRST_NAME,
+            _STATE_PROFILE_EDIT_LAST_NAME,
+            _STATE_PROFILE_EDIT_GENDER,
+            _STATE_PROFILE_EDIT_BIRTH_DATE,
+            _STATE_PROFILE_EDIT_EMAIL,
+            _STATE_PROFILE_EDIT_NOTIFICATIONS,
+        }:
+            navigation_response = self._try_handle_profile_edit_navigation(
+                max_user_id=max_user_id,
+                text=text,
+                payload=payload,
+            )
+            if navigation_response is not None:
+                return navigation_response
         if state == _STATE_PROFILE_EDIT_CHOICE:
             return self._handle_profile_edit_choice(max_user_id=max_user_id, text=text, payload=payload)
         if state == _STATE_PROFILE_EDIT_FIRST_NAME:
@@ -1047,6 +1063,24 @@ class MaxIdentityAdapter:
         )
         return MaxAdapterResponse(text=screen.text, screen=screen, parse_mode=screen.parse_mode)
 
+    def _try_handle_profile_edit_navigation(
+        self,
+        *,
+        max_user_id: int,
+        text: str,
+        payload: object | None,
+    ) -> MaxAdapterResponse | None:
+        """Обрабатывает универсальную навигацию на шагах редактирования профиля."""
+
+        action = resolve_action_from_max_payload(payload) or resolve_guest_menu_action(text)
+        if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
+            self._state_by_user_id.pop(max_user_id, None)
+            return self._render_profile_screen(max_user_id=max_user_id)
+        if action in {GuestMenuAction.BACK_TO_MAIN, GuestMenuAction.MAIN_MENU}:
+            self._state_by_user_id.pop(max_user_id, None)
+            return self._handle_action(max_user_id=max_user_id, action=action)
+        return None
+
     def _open_profile_edit_choice(self, *, max_user_id: int) -> MaxAdapterResponse:
         """Открывает меню выбора редактируемого поля профиля."""
 
@@ -1075,10 +1109,20 @@ class MaxIdentityAdapter:
             return self._render_profile_screen(max_user_id=max_user_id)
         if action == GuestMenuAction.PROFILE_EDIT_FIRST_NAME:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_FIRST_NAME
-            return MaxAdapterResponse(text="👤 Введите новое имя текстом (от 2 до 50 символов).")
+            return MaxAdapterResponse(
+                text="👤 Введите новое имя текстом (от 2 до 50 символов).",
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="👤 Введите новое имя текстом (от 2 до 50 символов)."
+                ),
+            )
         if action == GuestMenuAction.PROFILE_EDIT_LAST_NAME:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_LAST_NAME
-            return MaxAdapterResponse(text="👥 Введите новую фамилию текстом (от 2 до 50 символов).")
+            return MaxAdapterResponse(
+                text="👥 Введите новую фамилию текстом (от 2 до 50 символов).",
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="👥 Введите новую фамилию текстом (от 2 до 50 символов)."
+                ),
+            )
         if action == GuestMenuAction.PROFILE_EDIT_GENDER:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_GENDER
             screen = self._menu_adapter.build_profile_gender_screen()
@@ -1100,11 +1144,19 @@ class MaxIdentityAdapter:
                 )
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_BIRTH_DATE
             return MaxAdapterResponse(
-                text="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ (дата не должна быть в будущем)."
+                text="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ (дата не должна быть в будущем).",
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ (дата не должна быть в будущем)."
+                ),
             )
         if action == GuestMenuAction.PROFILE_EDIT_EMAIL:
             self._state_by_user_id[max_user_id] = _STATE_PROFILE_EDIT_EMAIL
-            return MaxAdapterResponse(text="📧 Введите новый email, например name@example.com.")
+            return MaxAdapterResponse(
+                text="📧 Введите новый email, например name@example.com.",
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="📧 Введите новый email, например name@example.com."
+                ),
+            )
         if action == GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS:
             return self._open_profile_notifications_edit(max_user_id=max_user_id)
 
@@ -1119,7 +1171,10 @@ class MaxIdentityAdapter:
                 text=(
                     "⚠️ Не удалось сохранить имя.\n"
                     "Используйте только буквы, пробел и дефис (от 2 до 50 символов)."
-                )
+                ),
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="👤 Введите новое имя текстом (от 2 до 50 символов)."
+                ),
             )
         return self._apply_profile_patch(
             max_user_id=max_user_id,
@@ -1136,7 +1191,10 @@ class MaxIdentityAdapter:
                 text=(
                     "⚠️ Не удалось сохранить фамилию.\n"
                     "Используйте только буквы, пробел и дефис (от 2 до 50 символов)."
-                )
+                ),
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="👥 Введите новую фамилию текстом (от 2 до 50 символов)."
+                ),
             )
         return self._apply_profile_patch(
             max_user_id=max_user_id,
@@ -1201,7 +1259,10 @@ class MaxIdentityAdapter:
                 text=(
                     "⚠️ Некорректная дата рождения.\n"
                     "Введите дату в формате ДД.ММ.ГГГГ и убедитесь, что она не в будущем."
-                )
+                ),
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="🎂 Введите дату рождения в формате ДД.ММ.ГГГГ (дата не должна быть в будущем)."
+                ),
             )
         return self._apply_profile_patch(
             max_user_id=max_user_id,
@@ -1214,7 +1275,12 @@ class MaxIdentityAdapter:
 
         normalized = normalize_email(text)
         if normalized is None:
-            return MaxAdapterResponse(text="⚠️ Укажите корректный email, например name@example.com.")
+            return MaxAdapterResponse(
+                text="⚠️ Укажите корректный email, например name@example.com.",
+                screen=self._menu_adapter.build_profile_edit_cancel_screen(
+                    prompt_text="📧 Введите новый email, например name@example.com."
+                ),
+            )
         return self._apply_profile_patch(
             max_user_id=max_user_id,
             email=normalized,
@@ -1248,6 +1314,12 @@ class MaxIdentityAdapter:
         """Обрабатывает переключение уведомлений в подменю профиля."""
 
         action = resolve_action_from_max_payload(payload) or resolve_guest_menu_action(text)
+        if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
+            self._state_by_user_id.pop(max_user_id, None)
+            return self._render_profile_screen(max_user_id=max_user_id)
+        if action in {GuestMenuAction.BACK_TO_MAIN, GuestMenuAction.MAIN_MENU}:
+            self._state_by_user_id.pop(max_user_id, None)
+            return self._handle_action(max_user_id=max_user_id, action=action)
         if action in {
             GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
             GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE,

@@ -861,6 +861,10 @@ def build_profile_notifications_edit_screen(*, notifications_allowed: bool) -> M
                 action=GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
                 label=toggle_label,
             ),
+            MenuButtonContract(
+                action=GuestMenuAction.PROFILE_EDIT_CANCEL,
+                label=BUTTON_PROFILE_EDIT_CANCEL,
+            ),
         ),
         parse_mode="markdown",
     )
