@@ -84,8 +84,59 @@ services:
       db-migrator:
         condition: service_completed_successfully
     command: python -m vtelemax.apps.vk_phone_verification_service_app
+    expose:
+      - "${VK_PHONE_VERIFICATION_SERVICE_PORT:-8085}"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - vk-phone-verification-service
+    environment:
+      TLS_DOMAIN: ${TLS_DOMAIN:-sobalbot.24vds.ru}
+      NGINX_CONFIG_CHECK_INTERVAL_SECONDS: ${NGINX_CONFIG_CHECK_INTERVAL_SECONDS:-300}
     ports:
-      - "${VK_PHONE_VERIFICATION_SERVICE_PORT:-8085}:${VK_PHONE_VERIFICATION_SERVICE_PORT:-8085}"
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx/vk-miniapp.conf:/etc/nginx/templates/vk-miniapp-http.conf:ro
+      - ./deploy/nginx/vk-miniapp-tls.conf:/etc/nginx/templates/vk-miniapp-tls.conf:ro
+      - ./deploy/nginx/nginx-miniapp-entrypoint.sh:/opt/nginx-miniapp-entrypoint.sh:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_conf:/etc/letsencrypt:ro
+    command: /bin/sh /opt/nginx-miniapp-entrypoint.sh
+    restart: unless-stopped
+
+  certbot-init:
+    image: certbot/certbot:latest
+    profiles: ["tls-init"]
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        certbot certonly --webroot -w /var/www/certbot \
+          -d ${TLS_DOMAIN:-sobalbot.24vds.ru} \
+          --email ${TLS_EMAIL:-admin@sobalbot.24vds.ru} \
+          --agree-tos --no-eff-email --non-interactive --rsa-key-size 4096
+    restart: "no"
+
+  certbot-renew:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        trap exit TERM;
+        while :; do
+          certbot renew --webroot -w /var/www/certbot --quiet;
+          sleep 12h;
+        done
     restart: unless-stopped
 
   max-bot:
@@ -175,3 +226,5 @@ services:
 
 volumes:
   vtelemax_postgres_data:
+  certbot_www:
+  certbot_conf:
