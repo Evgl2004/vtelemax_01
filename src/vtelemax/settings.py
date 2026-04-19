@@ -65,6 +65,33 @@ class AppSettings(BaseSettings):
         alias="VK_PHONE_VERIFICATION_TIMEOUT_SECONDS",
         gt=0,
     )
+    vk_phone_verification_link_secret: str = Field(
+        default="",
+        alias="VK_PHONE_VERIFICATION_LINK_SECRET",
+    )
+    vk_phone_verification_link_ttl_seconds: int = Field(
+        default=900,
+        alias="VK_PHONE_VERIFICATION_LINK_TTL_SECONDS",
+        gt=30,
+    )
+    vk_phone_verification_service_enabled: bool = Field(
+        default=False,
+        alias="VK_PHONE_VERIFICATION_SERVICE_ENABLED",
+    )
+    vk_phone_verification_service_host: str = Field(
+        default="0.0.0.0",
+        alias="VK_PHONE_VERIFICATION_SERVICE_HOST",
+    )
+    vk_phone_verification_service_port: int = Field(
+        default=8085,
+        alias="VK_PHONE_VERIFICATION_SERVICE_PORT",
+        gt=0,
+    )
+    vk_phone_verification_session_ttl_seconds: int = Field(
+        default=900,
+        alias="VK_PHONE_VERIFICATION_SESSION_TTL_SECONDS",
+        gt=30,
+    )
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
     moderation_delivery_interval_seconds: float = Field(

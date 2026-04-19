@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from uuid import UUID
@@ -13,6 +14,7 @@ from loguru import logger
 from vtelemax.infrastructure import (
     HttpVkPhoneVerificationGateway,
     VkPhoneVerificationGatewayError,
+    build_vk_phone_verification_link,
 )
 from vtelemax.core import (
     AddGuestMessageToTicketCommand,
@@ -167,6 +169,7 @@ class VkIdentityAdapter:
         vk_phone_verification_miniapp_enabled: bool = False,
         vk_phone_verification_miniapp_url: str = "",
         vk_phone_verification_gateway: HttpVkPhoneVerificationGateway | None = None,
+        vk_phone_verification_link_secret: str = "",
         create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
         add_guest_message_to_ticket_use_case: AddGuestMessageToTicketTransactionalUseCase | None = None,
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
@@ -185,7 +188,9 @@ class VkIdentityAdapter:
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
         self._vk_phone_verification_miniapp_enabled = vk_phone_verification_miniapp_enabled
+        self._vk_phone_verification_miniapp_url = vk_phone_verification_miniapp_url.strip()
         self._vk_phone_verification_gateway = vk_phone_verification_gateway
+        self._vk_phone_verification_link_secret = vk_phone_verification_link_secret
         self._menu_adapter = menu_adapter or VkGuestMenuAdapter(
             vk_phone_verification_miniapp_enabled=vk_phone_verification_miniapp_enabled,
             vk_phone_verification_miniapp_url=vk_phone_verification_miniapp_url,
@@ -336,7 +341,7 @@ class VkIdentityAdapter:
         self._state_by_user_id[vk_user_id] = transition.state.value
         self._onboarding_draft_by_user_id[vk_user_id] = _OnboardingDraft(is_legacy_upgrade=True)
         self._clear_moderator_state(vk_user_id)
-        contact_screen = self._menu_adapter.build_start_contact_screen()
+        contact_screen = self._build_start_contact_screen_for_user(vk_user_id)
         return VkAdapterResponse(text=transition.message, screen=contact_screen)
 
     def handle_incoming(self, vk_user_id: int, text: str, payload: dict[str, str] | None) -> VkAdapterResponse:
@@ -354,7 +359,7 @@ class VkIdentityAdapter:
             if action == GuestMenuAction.SHARE_CONTACT:
                 return VkAdapterResponse(
                     text="Введите номер телефона в формате +79991234567.",
-                    screen=self._menu_adapter.build_start_contact_screen(),
+                    screen=self._build_start_contact_screen_for_user(vk_user_id),
                 )
             return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=False)
         if state == _STATE_WAITING_FIRST_NAME:
@@ -540,11 +545,38 @@ class VkIdentityAdapter:
             if draft.is_legacy_upgrade:
                 next_transition = self._onboarding_flow.begin_legacy_upgrade()
             self._state_by_user_id[vk_user_id] = next_transition.state.value
-            screen = self._menu_adapter.build_start_contact_screen()
+            screen = self._build_start_contact_screen_for_user(vk_user_id)
         else:
             self._state_by_user_id[vk_user_id] = next_transition.state.value
             screen = self._menu_adapter.build_start_rules_screen()
         return VkAdapterResponse(text=next_transition.message, screen=screen)
+
+    def _build_start_contact_screen_for_user(self, vk_user_id: int) -> VkScreen:
+        """Строит экран шага телефона с персонализированной Mini App ссылкой (если включено)."""
+
+        signed_url = self._build_signed_vk_miniapp_url(vk_user_id=vk_user_id)
+        return self._menu_adapter.build_start_contact_screen(miniapp_url_override=signed_url)
+
+    def _build_signed_vk_miniapp_url(self, *, vk_user_id: int) -> str | None:
+        """Возвращает подписанный URL Mini App или `None`, если функция недоступна."""
+
+        if not self._vk_phone_verification_miniapp_enabled:
+            return None
+        if not self._vk_phone_verification_miniapp_url:
+            return None
+        if not self._vk_phone_verification_link_secret:
+            self._logger.bind(stage="vk_phone_verification_link").warning(
+                "VK Mini App включен, но не задан VK_PHONE_VERIFICATION_LINK_SECRET. "
+                "Используем безопасный fallback на ручной ввод телефона."
+            )
+            return None
+
+        return build_vk_phone_verification_link(
+            base_url=self._vk_phone_verification_miniapp_url,
+            vk_user_id=vk_user_id,
+            secret=self._vk_phone_verification_link_secret,
+            issued_at=int(time.time()),
+        )
 
     def _handle_vk_phone_verification_check(self, *, vk_user_id: int, is_legacy: bool) -> VkAdapterResponse:
         """Проверяет статус верификации телефона через внешний VK Mini App сервис."""
@@ -556,7 +588,7 @@ class VkIdentityAdapter:
                     "Проверка через VK Mini App сейчас отключена. "
                     "Введите номер телефона текстом в формате +79991234567."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
         if self._vk_phone_verification_gateway is None:
             method_logger.warning("VK Mini App верификация включена, но gateway статуса не настроен.")
@@ -565,7 +597,7 @@ class VkIdentityAdapter:
                     "Сервис проверки номера сейчас недоступен. "
                     "Введите номер телефона текстом в формате +79991234567."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         try:
@@ -577,7 +609,7 @@ class VkIdentityAdapter:
                     "Не удалось получить статус подтверждения номера в VK Mini App. "
                     "Проверьте подключение и повторите попытку или введите номер вручную."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         if verification_status.is_verified and verification_status.phone_e164:
@@ -594,7 +626,7 @@ class VkIdentityAdapter:
                     "Подтверждение номера еще не завершено в VK Mini App. "
                     "Завершите шаг в сервисе и нажмите «✅ Я подтвердил номер» повторно."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         if verification_status.state == "not_found":
@@ -603,7 +635,7 @@ class VkIdentityAdapter:
                     "Сервис не нашел подтвержденный номер для вашего VK-аккаунта. "
                     "Откройте VK Mini App и завершите подтверждение."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         failure_message = verification_status.message or (
@@ -611,7 +643,7 @@ class VkIdentityAdapter:
         )
         return VkAdapterResponse(
             text=failure_message,
-            screen=self._menu_adapter.build_start_contact_screen(),
+            screen=self._build_start_contact_screen_for_user(vk_user_id),
         )
 
     def _handle_phone_input(
@@ -632,7 +664,7 @@ class VkIdentityAdapter:
             method_logger.warning("Пустой ввод телефона.")
             return VkAdapterResponse(
                 text="Пожалуйста, введите номер телефона текстом в формате +79991234567.",
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         try:
@@ -662,7 +694,7 @@ class VkIdentityAdapter:
                     "Не удалось обработать номер телефона. Введите номер в формате +79991234567 "
                     "и попробуйте снова."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         draft.phone_e164 = person.phone_e164
@@ -774,7 +806,7 @@ class VkIdentityAdapter:
                     "Потерян шаг подтверждения телефона. "
                     "Введите номер телефона в формате +79991234567."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         draft.first_name_input = normalized_name
@@ -822,7 +854,7 @@ class VkIdentityAdapter:
                     "Потеряны промежуточные данные регистрации. "
                     "Введите номер телефона в формате +79991234567."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         notifications_fixed_at = datetime.now(timezone.utc)
@@ -895,7 +927,7 @@ class VkIdentityAdapter:
                     "Не удалось восстановить шаг синхронизации. "
                     "Введите номер телефона в формате +79991234567."
                 ),
-                screen=self._menu_adapter.build_start_contact_screen(),
+                screen=self._build_start_contact_screen_for_user(vk_user_id),
             )
 
         return self._finalize_iiko_sync_step(
@@ -2402,7 +2434,7 @@ class VkIdentityAdapter:
                 self._state_by_user_id[vk_user_id] = _STATE_WAITING_PHONE
             else:
                 self._state_by_user_id[vk_user_id] = _STATE_WAITING_LEGACY_PHONE
-            contact_screen = self._menu_adapter.build_start_contact_screen()
+            contact_screen = self._build_start_contact_screen_for_user(vk_user_id)
             return VkAdapterResponse(text=contact_screen.text, screen=contact_screen)
 
         if action == GuestMenuAction.PROFILE:

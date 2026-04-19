@@ -115,11 +115,16 @@ class VkGuestMenuAdapter:
         rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
-    def build_start_contact_screen(self) -> VkScreen:
+    def build_start_contact_screen(
+        self,
+        *,
+        miniapp_url_override: str | None = None,
+    ) -> VkScreen:
         """Экран запроса телефона."""
 
         screen = build_start_contact_screen(platform="vk")
-        if not self._is_vk_miniapp_phone_verification_enabled():
+        effective_miniapp_url = (miniapp_url_override or self._vk_phone_verification_miniapp_url).strip()
+        if not self._is_vk_miniapp_phone_verification_enabled(effective_miniapp_url):
             rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
             return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
 
@@ -134,7 +139,7 @@ class VkGuestMenuAdapter:
                 VkButton(
                     label=BUTTON_VK_MINIAPP_VERIFY_PHONE,
                     payload=build_vk_payload(GuestMenuAction.OPEN_DOCS),
-                    url=self._vk_phone_verification_miniapp_url,
+                    url=effective_miniapp_url,
                 ),
             ),
             (
@@ -146,12 +151,12 @@ class VkGuestMenuAdapter:
         )
         return VkScreen(screen_id=screen.screen_id, text=miniapp_text, rows=rows)
 
-    def _is_vk_miniapp_phone_verification_enabled(self) -> bool:
+    def _is_vk_miniapp_phone_verification_enabled(self, miniapp_url: str) -> bool:
         """Возвращает `True`, если VK Mini App верификация включена и настроена."""
 
         return (
             self._vk_phone_verification_miniapp_enabled
-            and bool(self._vk_phone_verification_miniapp_url)
+            and bool(miniapp_url)
         )
 
     def build_main_menu_screen(self, user_name: str = "Гость") -> VkScreen:

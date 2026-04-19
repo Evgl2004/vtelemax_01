@@ -320,3 +320,40 @@ class ProfileSyncQueueRow(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class VkPhoneVerificationSessionRow(Base):
+    """Сессия проверки телефона VK Mini App для сценария onboarding."""
+
+    __tablename__ = "vk_phone_verification_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('created', 'verified', 'failed', 'expired')",
+            name="ck_vk_phone_verification_sessions_status_allowed",
+        ),
+        Index("ix_vk_phone_verification_sessions_vk_user_created_at", "vk_user_id", "created_at"),
+        Index("ix_vk_phone_verification_sessions_status_expires_at", "status", "expires_at"),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    vk_user_id: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="created")
+    phone_e164: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    launch_uid: Mapped[int | None] = mapped_column(nullable=True)
+    launch_ts: Mapped[int | None] = mapped_column(nullable=True)
+    raw_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

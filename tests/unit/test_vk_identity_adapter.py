@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from types import TracebackType
+from unittest.mock import patch
 
 from vtelemax.adapters.vk import VkIdentityAdapter
 from vtelemax.infrastructure import VkPhoneVerificationGatewayError, VkPhoneVerificationStatus
@@ -311,6 +312,7 @@ def test_vk_phone_check_uses_miniapp_verified_phone() -> None:
         vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
             VkPhoneVerificationStatus(state="verified", phone_e164="+79123456789")
         ),
+        vk_phone_verification_link_secret="secret",
     )
 
     adapter.handle_start(vk_user_id=5101)
@@ -345,6 +347,7 @@ def test_vk_phone_check_shows_pending_state_when_not_verified() -> None:
         vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
             VkPhoneVerificationStatus(state="pending")
         ),
+        vk_phone_verification_link_secret="secret",
     )
 
     adapter.handle_start(vk_user_id=5102)
@@ -374,6 +377,7 @@ def test_vk_phone_check_handles_gateway_error_with_manual_fallback() -> None:
         vk_phone_verification_miniapp_enabled=True,
         vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
         vk_phone_verification_gateway=FailingVkPhoneVerificationGateway(),
+        vk_phone_verification_link_secret="secret",
     )
 
     adapter.handle_start(vk_user_id=5103)
@@ -418,6 +422,35 @@ def test_vk_phone_check_returns_manual_flow_when_feature_disabled() -> None:
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
     assert "сейчас отключена" in response.text.lower()
+
+
+def test_vk_rules_to_phone_builds_signed_miniapp_url_for_user() -> None:
+    """Проверяет, что на шаге телефона формируется подписанная per-user ссылка Mini App."""
+
+    repository = InMemoryIdentityRepository()
+    adapter = VkIdentityAdapter(
+        RegisterOrAttachAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        GetPersonByAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_link_secret="secret",
+    )
+
+    adapter.handle_start(vk_user_id=5201)
+    with patch("vtelemax.adapters.vk.identity_adapter.time.time", return_value=1700000000):
+        response = adapter.handle_incoming(vk_user_id=5201, text="✅ Согласен", payload=None)
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_contact"
+    assert len(response.screen.rows) == 2
+    miniapp_url = response.screen.rows[0][0].url or ""
+    assert "uid=5201" in miniapp_url
+    assert "ts=1700000000" in miniapp_url
+    assert "sig=" in miniapp_url
 
 
 def test_vk_migrated_legacy_user_goes_to_legacy_phone_after_rules_consent() -> None:

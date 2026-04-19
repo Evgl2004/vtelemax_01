@@ -10,6 +10,7 @@ from .schema import (
     ProfileSyncQueueRow,
     SupportMessageRow,
     SupportTicketRow,
+    VkPhoneVerificationSessionRow,
 )
 from .session import build_engine, build_session_factory
 from .support_repository import SQLAlchemySupportRepository
@@ -24,6 +25,7 @@ __all__ = [
     "ProfileSyncQueueRow",
     "SupportTicketRow",
     "SupportMessageRow",
+    "VkPhoneVerificationSessionRow",
     "SQLAlchemyIdentityRepository",
     "SQLAlchemySupportRepository",
     "SQLAlchemyIdentityUnitOfWork",

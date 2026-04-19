@@ -243,6 +243,7 @@ def build_bot(settings: AppSettings) -> Bot:
         vk_phone_verification_miniapp_enabled=settings.vk_phone_verification_miniapp_enabled,
         vk_phone_verification_miniapp_url=settings.vk_phone_verification_miniapp_url,
         vk_phone_verification_gateway=vk_phone_verification_gateway,
+        vk_phone_verification_link_secret=settings.vk_phone_verification_link_secret,
         create_support_ticket_use_case=create_ticket_use_case,
         add_guest_message_to_ticket_use_case=add_guest_message_use_case,
         moderator_reply_use_case=moderator_reply_use_case,

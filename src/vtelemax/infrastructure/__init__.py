@@ -16,6 +16,14 @@ from .vk_phone_verification_gateway import (
     VkPhoneVerificationGatewayError,
     VkPhoneVerificationStatus,
 )
+from .vk_phone_verification_link_signer import (
+    build_vk_phone_verification_link,
+    verify_vk_phone_verification_signature,
+)
+from .vk_phone_verification_session_repository import (
+    SQLAlchemyVkPhoneVerificationSessionRepository,
+    VkPhoneVerificationSession,
+)
 
 __all__ = [
     "configure_logging",
@@ -29,4 +37,8 @@ __all__ = [
     "HttpVkPhoneVerificationGateway",
     "VkPhoneVerificationGatewayError",
     "VkPhoneVerificationStatus",
+    "build_vk_phone_verification_link",
+    "verify_vk_phone_verification_signature",
+    "SQLAlchemyVkPhoneVerificationSessionRepository",
+    "VkPhoneVerificationSession",
 ]
