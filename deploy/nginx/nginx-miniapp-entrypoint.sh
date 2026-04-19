@@ -35,6 +35,14 @@ current_tls_fingerprint() {
   cat "${CERT_PATH}" "${KEY_PATH}" 2>/dev/null | cksum | awk '{print $1}'
 }
 
+current_file_mtime() {
+  if [ ! -f "$1" ]; then
+    echo ""
+    return 0
+  fi
+  stat -c %Y "$1" 2>/dev/null || echo ""
+}
+
 apply_best_config() {
   if is_tls_available; then
     if is_active_config_tls; then
@@ -60,6 +68,8 @@ else
 fi
 
 LAST_TLS_FINGERPRINT="$(current_tls_fingerprint)"
+LAST_CERT_MTIME="$(current_file_mtime "${CERT_PATH}")"
+LAST_KEY_MTIME="$(current_file_mtime "${KEY_PATH}")"
 
 nginx -g "daemon off;" &
 NGINX_PID=$!
@@ -74,14 +84,22 @@ while kill -0 "${NGINX_PID}" 2>/dev/null; do
   fi
 
   if is_tls_available && is_active_config_tls; then
-    CURRENT_TLS_FINGERPRINT="$(current_tls_fingerprint)"
-    if [ -n "${CURRENT_TLS_FINGERPRINT}" ] && [ "${CURRENT_TLS_FINGERPRINT}" != "${LAST_TLS_FINGERPRINT}" ]; then
-      LAST_TLS_FINGERPRINT="${CURRENT_TLS_FINGERPRINT}"
-      echo "[nginx-miniapp] TLS certificate changed, reloading nginx."
-      nginx -s reload || true
+    CURRENT_CERT_MTIME="$(current_file_mtime "${CERT_PATH}")"
+    CURRENT_KEY_MTIME="$(current_file_mtime "${KEY_PATH}")"
+    if [ "${CURRENT_CERT_MTIME}" != "${LAST_CERT_MTIME}" ] || [ "${CURRENT_KEY_MTIME}" != "${LAST_KEY_MTIME}" ]; then
+      LAST_CERT_MTIME="${CURRENT_CERT_MTIME}"
+      LAST_KEY_MTIME="${CURRENT_KEY_MTIME}"
+      CURRENT_TLS_FINGERPRINT="$(current_tls_fingerprint)"
+      if [ -n "${CURRENT_TLS_FINGERPRINT}" ] && [ "${CURRENT_TLS_FINGERPRINT}" != "${LAST_TLS_FINGERPRINT}" ]; then
+        LAST_TLS_FINGERPRINT="${CURRENT_TLS_FINGERPRINT}"
+        echo "[nginx-miniapp] TLS certificate changed, reloading nginx."
+        nginx -s reload || true
+      fi
     fi
   else
     LAST_TLS_FINGERPRINT=""
+    LAST_CERT_MTIME=""
+    LAST_KEY_MTIME=""
   fi
 
   if ! kill -0 "${NGINX_PID}" 2>/dev/null; then
