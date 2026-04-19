@@ -32,6 +32,7 @@ from vtelemax.infrastructure.postgres import (
     build_session_factory,
 )
 from vtelemax.infrastructure import IikoLoyaltyGateway, configure_logging
+from vtelemax.infrastructure import HttpVkPhoneVerificationGateway
 from vtelemax.settings import AppSettings
 
 
@@ -192,6 +193,26 @@ def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     )
 
 
+def build_vk_phone_verification_gateway(
+    settings: AppSettings,
+) -> HttpVkPhoneVerificationGateway | None:
+    """Создает HTTP gateway проверки статуса VK Mini App верификации телефона."""
+
+    if not settings.vk_phone_verification_miniapp_enabled:
+        return None
+    if not settings.vk_phone_verification_status_url.strip():
+        logger.bind(platform="vk", component="app", stage="startup").warning(
+            "VK Mini App верификация включена, но VK_PHONE_VERIFICATION_STATUS_URL пуст. "
+            "Используем безопасный fallback на ручной ввод телефона."
+        )
+        return None
+    return HttpVkPhoneVerificationGateway(
+        status_url=settings.vk_phone_verification_status_url,
+        api_token=settings.vk_phone_verification_api_token,
+        timeout_seconds=settings.vk_phone_verification_timeout_seconds,
+    )
+
+
 def build_bot(settings: AppSettings) -> Bot:
     """Создает и конфигурирует экземпляр VK-бота."""
 
@@ -208,6 +229,7 @@ def build_bot(settings: AppSettings) -> Bot:
     list_person_tickets_use_case = build_list_person_tickets_use_case(session_factory)
     get_person_tickets_page_use_case = build_get_person_tickets_page_use_case(session_factory)
     iiko_gateway = build_iiko_gateway(settings)
+    vk_phone_verification_gateway = build_vk_phone_verification_gateway(settings)
     balance_use_case = GetLoyaltyBalanceUseCase(iiko_gateway) if iiko_gateway is not None else None
     virtual_card_use_case = GetVirtualCardUseCase(iiko_gateway) if iiko_gateway is not None else None
     enqueue_profile_sync_use_case = (
@@ -218,6 +240,9 @@ def build_bot(settings: AppSettings) -> Bot:
     adapter = VkIdentityAdapter(
         registration_use_case,
         lookup_use_case,
+        vk_phone_verification_miniapp_enabled=settings.vk_phone_verification_miniapp_enabled,
+        vk_phone_verification_miniapp_url=settings.vk_phone_verification_miniapp_url,
+        vk_phone_verification_gateway=vk_phone_verification_gateway,
         create_support_ticket_use_case=create_ticket_use_case,
         add_guest_message_to_ticket_use_case=add_guest_message_use_case,
         moderator_reply_use_case=moderator_reply_use_case,

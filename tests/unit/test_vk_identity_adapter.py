@@ -6,6 +6,7 @@ from datetime import date
 from types import TracebackType
 
 from vtelemax.adapters.vk import VkIdentityAdapter
+from vtelemax.infrastructure import VkPhoneVerificationGatewayError, VkPhoneVerificationStatus
 from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
@@ -164,6 +165,25 @@ class LegacyPrefillLoyaltyGateway(LoyaltyGateway):
         return LoyaltyIssueCardResult(card_number="79123456789_20260325", message="issued")
 
 
+class StubVkPhoneVerificationGateway:
+    """Тестовый gateway проверки статуса VK Mini App."""
+
+    def __init__(self, status: VkPhoneVerificationStatus) -> None:
+        self._status = status
+
+    def check_status(self, *, vk_user_id: int) -> VkPhoneVerificationStatus:
+        assert vk_user_id > 0
+        return self._status
+
+
+class FailingVkPhoneVerificationGateway:
+    """Тестовый gateway, имитирующий сбой внешнего сервиса."""
+
+    def check_status(self, *, vk_user_id: int) -> VkPhoneVerificationStatus:
+        assert vk_user_id > 0
+        raise VkPhoneVerificationGatewayError("service unavailable")
+
+
 def _build_adapter(with_support: bool = False) -> VkIdentityAdapter:
     repository = InMemoryIdentityRepository()
     support_repository = InMemorySupportRepository()
@@ -271,6 +291,133 @@ def test_vk_onboarding_moves_from_rules_to_phone() -> None:
     assert "+79991234567" in response.text
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
+
+
+def test_vk_phone_check_uses_miniapp_verified_phone() -> None:
+    """Проверяет Mini App путь: verified-статус переводит onboarding на следующий шаг."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
+            VkPhoneVerificationStatus(state="verified", phone_e164="+79123456789")
+        ),
+    )
+
+    adapter.handle_start(vk_user_id=5101)
+    adapter.handle_incoming(vk_user_id=5101, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(
+        vk_user_id=5101,
+        text="",
+        payload={"cmd": "vk_phone_verification_check"},
+    )
+    person = lookup_use_case.execute(GetPersonByAccountCommand(platform="vk", external_id="5101"))
+
+    assert response.screen is None
+    assert "напишите ваше имя" in response.text.lower()
+    assert person is not None
+    assert person.phone_e164 == "+79123456789"
+    assert person.phone_verification_method == "vk_miniapp"
+
+
+def test_vk_phone_check_shows_pending_state_when_not_verified() -> None:
+    """Проверяет Mini App путь: pending-статус оставляет пользователя на экране телефона."""
+
+    repository = InMemoryIdentityRepository()
+    adapter = VkIdentityAdapter(
+        RegisterOrAttachAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        GetPersonByAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
+            VkPhoneVerificationStatus(state="pending")
+        ),
+    )
+
+    adapter.handle_start(vk_user_id=5102)
+    adapter.handle_incoming(vk_user_id=5102, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(
+        vk_user_id=5102,
+        text="",
+        payload={"cmd": "vk_phone_verification_check"},
+    )
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_contact"
+    assert "еще не завершено" in response.text.lower()
+
+
+def test_vk_phone_check_handles_gateway_error_with_manual_fallback() -> None:
+    """Проверяет Mini App путь: при ошибке gateway пользователь получает безопасный fallback."""
+
+    repository = InMemoryIdentityRepository()
+    adapter = VkIdentityAdapter(
+        RegisterOrAttachAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        GetPersonByAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_gateway=FailingVkPhoneVerificationGateway(),
+    )
+
+    adapter.handle_start(vk_user_id=5103)
+    adapter.handle_incoming(vk_user_id=5103, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(
+        vk_user_id=5103,
+        text="",
+        payload={"cmd": "vk_phone_verification_check"},
+    )
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_contact"
+    assert "не удалось получить статус" in response.text.lower()
+
+
+def test_vk_phone_check_returns_manual_flow_when_feature_disabled() -> None:
+    """Проверяет безопасный fallback: при выключенном флаге остается ручной ввод телефона."""
+
+    repository = InMemoryIdentityRepository()
+    adapter = VkIdentityAdapter(
+        RegisterOrAttachAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        GetPersonByAccountTransactionalUseCase(
+            unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+        ),
+        vk_phone_verification_miniapp_enabled=False,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
+            VkPhoneVerificationStatus(state="verified", phone_e164="+79123456789")
+        ),
+    )
+
+    adapter.handle_start(vk_user_id=5104)
+    adapter.handle_incoming(vk_user_id=5104, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(
+        vk_user_id=5104,
+        text="",
+        payload={"cmd": "vk_phone_verification_check"},
+    )
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_contact"
+    assert "сейчас отключена" in response.text.lower()
 
 
 def test_vk_migrated_legacy_user_goes_to_legacy_phone_after_rules_consent() -> None:

@@ -10,6 +10,10 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
+from vtelemax.infrastructure import (
+    HttpVkPhoneVerificationGateway,
+    VkPhoneVerificationGatewayError,
+)
 from vtelemax.core import (
     AddGuestMessageToTicketCommand,
     AddGuestMessageToTicketTransactionalUseCase,
@@ -160,6 +164,9 @@ class VkIdentityAdapter:
         registration_use_case: RegisterOrAttachAccountTransactionalUseCase,
         person_lookup_use_case: GetPersonByAccountTransactionalUseCase,
         menu_adapter: VkGuestMenuAdapter | None = None,
+        vk_phone_verification_miniapp_enabled: bool = False,
+        vk_phone_verification_miniapp_url: str = "",
+        vk_phone_verification_gateway: HttpVkPhoneVerificationGateway | None = None,
         create_support_ticket_use_case: CreateSupportTicketTransactionalUseCase | None = None,
         add_guest_message_to_ticket_use_case: AddGuestMessageToTicketTransactionalUseCase | None = None,
         moderator_reply_use_case: RouteModeratorReplyTransactionalUseCase | None = None,
@@ -177,7 +184,12 @@ class VkIdentityAdapter:
         self._logger = logger.bind(platform="vk", component="identity_adapter")
         self._registration_use_case = registration_use_case
         self._person_lookup_use_case = person_lookup_use_case
-        self._menu_adapter = menu_adapter or VkGuestMenuAdapter()
+        self._vk_phone_verification_miniapp_enabled = vk_phone_verification_miniapp_enabled
+        self._vk_phone_verification_gateway = vk_phone_verification_gateway
+        self._menu_adapter = menu_adapter or VkGuestMenuAdapter(
+            vk_phone_verification_miniapp_enabled=vk_phone_verification_miniapp_enabled,
+            vk_phone_verification_miniapp_url=vk_phone_verification_miniapp_url,
+        )
         self._state_by_user_id: dict[int, str] = {}
         self._reply_ticket_id_by_user_id: dict[int, UUID] = {}
         self._onboarding_draft_by_user_id: dict[int, _OnboardingDraft] = {}
@@ -337,6 +349,8 @@ class VkIdentityAdapter:
             return self._handle_rules_consent(vk_user_id=vk_user_id, text=text, payload=payload)
         if state == _STATE_WAITING_PHONE:
             action = resolve_action_from_vk_payload(payload)
+            if action == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK:
+                return self._handle_vk_phone_verification_check(vk_user_id=vk_user_id, is_legacy=False)
             if action == GuestMenuAction.SHARE_CONTACT:
                 return VkAdapterResponse(
                     text="Введите номер телефона в формате +79991234567.",
@@ -354,6 +368,9 @@ class VkIdentityAdapter:
         if state == _STATE_WAITING_IIKO_SYNC:
             return self._handle_iiko_sync_retry(vk_user_id=vk_user_id, text=text, payload=payload)
         if state == _STATE_WAITING_LEGACY_PHONE:
+            action = resolve_action_from_vk_payload(payload)
+            if action == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK:
+                return self._handle_vk_phone_verification_check(vk_user_id=vk_user_id, is_legacy=True)
             return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=True)
         if state == _STATE_WAITING_SUPPORT_QUESTION:
             action = resolve_action_from_vk_payload(payload)
@@ -529,7 +546,82 @@ class VkIdentityAdapter:
             screen = self._menu_adapter.build_start_rules_screen()
         return VkAdapterResponse(text=next_transition.message, screen=screen)
 
-    def _handle_phone_input(self, vk_user_id: int, text: str, *, is_legacy: bool) -> VkAdapterResponse:
+    def _handle_vk_phone_verification_check(self, *, vk_user_id: int, is_legacy: bool) -> VkAdapterResponse:
+        """Проверяет статус верификации телефона через внешний VK Mini App сервис."""
+
+        method_logger = self._logger.bind(stage="vk_phone_verification_check", user_id=str(vk_user_id))
+        if not self._vk_phone_verification_miniapp_enabled:
+            return VkAdapterResponse(
+                text=(
+                    "Проверка через VK Mini App сейчас отключена. "
+                    "Введите номер телефона текстом в формате +79991234567."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+        if self._vk_phone_verification_gateway is None:
+            method_logger.warning("VK Mini App верификация включена, но gateway статуса не настроен.")
+            return VkAdapterResponse(
+                text=(
+                    "Сервис проверки номера сейчас недоступен. "
+                    "Введите номер телефона текстом в формате +79991234567."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+
+        try:
+            verification_status = self._vk_phone_verification_gateway.check_status(vk_user_id=vk_user_id)
+        except VkPhoneVerificationGatewayError as error:
+            method_logger.warning("Ошибка запроса статуса верификации VK телефона: {error}.", error=error)
+            return VkAdapterResponse(
+                text=(
+                    "Не удалось получить статус подтверждения номера в VK Mini App. "
+                    "Проверьте подключение и повторите попытку или введите номер вручную."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+
+        if verification_status.is_verified and verification_status.phone_e164:
+            method_logger.info("VK Mini App вернул подтвержденный номер, продолжаем onboarding.")
+            return self._handle_phone_input(
+                vk_user_id=vk_user_id,
+                text=verification_status.phone_e164,
+                is_legacy=is_legacy,
+                phone_verification_method="vk_miniapp",
+            )
+        if verification_status.state == "pending":
+            return VkAdapterResponse(
+                text=(
+                    "Подтверждение номера еще не завершено в VK Mini App. "
+                    "Завершите шаг в сервисе и нажмите «✅ Я подтвердил номер» повторно."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+
+        if verification_status.state == "not_found":
+            return VkAdapterResponse(
+                text=(
+                    "Сервис не нашел подтвержденный номер для вашего VK-аккаунта. "
+                    "Откройте VK Mini App и завершите подтверждение."
+                ),
+                screen=self._menu_adapter.build_start_contact_screen(),
+            )
+
+        failure_message = verification_status.message or (
+            "Сервис VK Mini App не смог подтвердить номер. Попробуйте снова или введите номер вручную."
+        )
+        return VkAdapterResponse(
+            text=failure_message,
+            screen=self._menu_adapter.build_start_contact_screen(),
+        )
+
+    def _handle_phone_input(
+        self,
+        vk_user_id: int,
+        text: str,
+        *,
+        is_legacy: bool,
+        phone_verification_method: str = "vk_text_input",
+    ) -> VkAdapterResponse:
         """Обрабатывает ввод телефона для регистрации/legacy-обновления."""
 
         method_logger = self._logger.bind(stage="phone_input", user_id=str(vk_user_id))
@@ -552,7 +644,7 @@ class VkIdentityAdapter:
                     rules_accepted=True if draft.rules_accepted_at is not None else None,
                     rules_accepted_at=draft.rules_accepted_at,
                     phone_verified_at=phone_verified_at,
-                    phone_verification_method="vk_text_input",
+                    phone_verification_method=phone_verification_method,
                 )
             )
         except IdentityConflictError:
@@ -575,7 +667,7 @@ class VkIdentityAdapter:
 
         draft.phone_e164 = person.phone_e164
         draft.phone_verified_at = phone_verified_at
-        draft.phone_verification_method = "vk_text_input"
+        draft.phone_verification_method = phone_verification_method
         legacy_flow_active = is_legacy or bool(person.is_legacy)
         # Проверяем, нужно ли собирать согласия для этой платформы
         platform_consents_complete = (

@@ -13,6 +13,8 @@ from vtelemax.core import (
     PersonSupportTicketSummary,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_PROFILE_EDIT_CANCEL,
+    BUTTON_VK_MINIAPP_VERIFY_CHECK,
+    BUTTON_VK_MINIAPP_VERIFY_PHONE,
     build_about_screen,
     build_balance_screen,
     build_delivery_screen,
@@ -97,6 +99,15 @@ def _to_vk_button(button: MenuButtonContract) -> VkButton:
 class VkGuestMenuAdapter:
     """Преобразует core-контент в формат VK-экрана."""
 
+    def __init__(
+        self,
+        *,
+        vk_phone_verification_miniapp_enabled: bool = False,
+        vk_phone_verification_miniapp_url: str = "",
+    ) -> None:
+        self._vk_phone_verification_miniapp_enabled = vk_phone_verification_miniapp_enabled
+        self._vk_phone_verification_miniapp_url = vk_phone_verification_miniapp_url.strip()
+
     def build_start_rules_screen(self) -> VkScreen:
         """Стартовый экран правил."""
 
@@ -108,8 +119,40 @@ class VkGuestMenuAdapter:
         """Экран запроса телефона."""
 
         screen = build_start_contact_screen(platform="vk")
-        rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
-        return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+        if not self._is_vk_miniapp_phone_verification_enabled():
+            rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
+            return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
+        miniapp_text = (
+            "📱 Чтобы подключиться к программе лояльности, подтвердите номер через VK Mini App.\n\n"
+            "1. Нажмите «🛡️ Подтвердить номер» и завершите проверку в сервисе.\n"
+            "2. Вернитесь в бот и нажмите «✅ Я подтвердил номер».\n\n"
+            "Если сервис временно недоступен, можно отправить номер текстом в формате +79991234567."
+        )
+        rows = (
+            (
+                VkButton(
+                    label=BUTTON_VK_MINIAPP_VERIFY_PHONE,
+                    payload=build_vk_payload(GuestMenuAction.OPEN_DOCS),
+                    url=self._vk_phone_verification_miniapp_url,
+                ),
+            ),
+            (
+                VkButton(
+                    label=BUTTON_VK_MINIAPP_VERIFY_CHECK,
+                    payload=build_vk_payload(GuestMenuAction.VK_PHONE_VERIFICATION_CHECK),
+                ),
+            ),
+        )
+        return VkScreen(screen_id=screen.screen_id, text=miniapp_text, rows=rows)
+
+    def _is_vk_miniapp_phone_verification_enabled(self) -> bool:
+        """Возвращает `True`, если VK Mini App верификация включена и настроена."""
+
+        return (
+            self._vk_phone_verification_miniapp_enabled
+            and bool(self._vk_phone_verification_miniapp_url)
+        )
 
     def build_main_menu_screen(self, user_name: str = "Гость") -> VkScreen:
         """Главное меню гостя (пять разделов, вертикальный список)."""

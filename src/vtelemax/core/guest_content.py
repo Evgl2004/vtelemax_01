@@ -46,6 +46,8 @@ BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF = "❌ Выключить уведомл
 BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
 BUTTON_SEND_PHONE = "📱 Поделиться контактом"
+BUTTON_VK_MINIAPP_VERIFY_PHONE = "🛡️ Подтвердить номер"
+BUTTON_VK_MINIAPP_VERIFY_CHECK = "✅ Я подтвердил номер"
 BUTTON_ACCEPT_RULES = "✅ Согласен"
 BUTTON_DOCS_LINK = "📄 Открыть документы"
 BUTTON_BONUSES = "💰 Бонусы"
@@ -158,6 +160,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_PROFILE_NOTIFICATIONS_ENABLE.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE,
         BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
         BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
+        BUTTON_VK_MINIAPP_VERIFY_CHECK.lower(): GuestMenuAction.VK_PHONE_VERIFICATION_CHECK,
         BUTTON_HELP.lower(): GuestMenuAction.HELP,
         "/help": GuestMenuAction.HELP,
         BUTTON_ABOUT.lower(): GuestMenuAction.ABOUT,

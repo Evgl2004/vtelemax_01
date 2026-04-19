@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from vtelemax.adapters.vk import VkGuestMenuAdapter, build_vk_payload, resolve_action_from_vk_payload
-from vtelemax.core import GuestMenuAction
+from vtelemax.core import (
+    BUTTON_VK_MINIAPP_VERIFY_CHECK,
+    BUTTON_VK_MINIAPP_VERIFY_PHONE,
+    GuestMenuAction,
+)
 
 
 def test_vk_payload_build_and_resolve_roundtrip() -> None:
@@ -85,6 +89,30 @@ def test_vk_start_contact_screen_has_no_buttons_for_manual_input() -> None:
     screen = adapter.build_start_contact_screen()
 
     assert screen.rows == ()
+
+
+def test_vk_start_contact_screen_uses_miniapp_buttons_when_feature_enabled() -> None:
+    """Проверяет, что VK-экран телефона содержит Mini App flow-кнопки при включенном флаге."""
+
+    adapter = VkGuestMenuAdapter(
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+    )
+    screen = adapter.build_start_contact_screen()
+
+    assert screen.screen_id == "start_contact"
+    assert len(screen.rows) == 2
+
+    open_miniapp_button = screen.rows[0][0]
+    check_status_button = screen.rows[1][0]
+
+    assert open_miniapp_button.label == BUTTON_VK_MINIAPP_VERIFY_PHONE
+    assert open_miniapp_button.url == "https://example.org/vk-miniapp"
+    assert open_miniapp_button.payload.get("cmd") == GuestMenuAction.OPEN_DOCS.value
+
+    assert check_status_button.label == BUTTON_VK_MINIAPP_VERIFY_CHECK
+    assert check_status_button.url is None
+    assert check_status_button.payload.get("cmd") == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK.value
 
 
 def test_vk_support_feedback_screen_contains_link_and_back_button() -> None:

@@ -44,6 +44,27 @@ class AppSettings(BaseSettings):
     telegram_bot_username: str = Field(default="", alias="TELEGRAM_BOT_USERNAME")
     vk_bot_token: str = Field(default="", alias="VK_BOT_TOKEN")
     vk_group_id: int = Field(default=0, alias="VK_GROUP_ID")
+    vk_phone_verification_miniapp_enabled: bool = Field(
+        default=False,
+        alias="VK_PHONE_VERIFICATION_MINIAPP_ENABLED",
+    )
+    vk_phone_verification_miniapp_url: str = Field(
+        default="",
+        alias="VK_PHONE_VERIFICATION_MINIAPP_URL",
+    )
+    vk_phone_verification_status_url: str = Field(
+        default="",
+        alias="VK_PHONE_VERIFICATION_STATUS_URL",
+    )
+    vk_phone_verification_api_token: str = Field(
+        default="",
+        alias="VK_PHONE_VERIFICATION_API_TOKEN",
+    )
+    vk_phone_verification_timeout_seconds: float = Field(
+        default=5.0,
+        alias="VK_PHONE_VERIFICATION_TIMEOUT_SECONDS",
+        gt=0,
+    )
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
     moderation_delivery_interval_seconds: float = Field(

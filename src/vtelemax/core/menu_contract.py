@@ -54,6 +54,7 @@ class GuestMenuAction(StrEnum):
     RETRY_IIKO_SYNC = "retry_iiko_sync"
     BUSINESS_LUNCH = "business_lunch"
     TABLE_BOOKING = "table_booking"
+    VK_PHONE_VERIFICATION_CHECK = "vk_phone_verification_check"
 
 
 @dataclass(frozen=True, slots=True)
