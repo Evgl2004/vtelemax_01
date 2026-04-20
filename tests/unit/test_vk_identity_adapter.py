@@ -391,6 +391,41 @@ def test_vk_phone_check_handles_gateway_error_with_manual_fallback() -> None:
     assert response.screen is not None
     assert response.screen.screen_id == "start_contact"
     assert "не удалось получить статус" in response.text.lower()
+    manual_input_response = adapter.handle_incoming(vk_user_id=5103, text="+79123456789", payload=None)
+    assert manual_input_response.screen is None
+    assert "напишите ваше имя" in manual_input_response.text.lower()
+
+
+def test_vk_phone_manual_input_is_blocked_before_technical_fallback() -> None:
+    """Проверяет, что ручной ввод до техошибки Mini App не запускает регистрацию."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
+            VkPhoneVerificationStatus(state="pending")
+        ),
+        vk_phone_verification_link_secret="secret",
+    )
+
+    adapter.handle_start(vk_user_id=5105)
+    adapter.handle_incoming(vk_user_id=5105, text="✅ Согласен", payload=None)
+    response = adapter.handle_incoming(vk_user_id=5105, text="+79123456789", payload=None)
+    person = lookup_use_case.execute(GetPersonByAccountCommand(platform="vk", external_id="5105"))
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "start_contact"
+    assert "сначала подтвердите номер через vk mini app" in response.text.lower()
+    assert person is None
 
 
 def test_vk_phone_check_returns_manual_flow_when_feature_disabled() -> None:
@@ -437,6 +472,9 @@ def test_vk_rules_to_phone_builds_signed_miniapp_url_for_user() -> None:
         ),
         vk_phone_verification_miniapp_enabled=True,
         vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
+            VkPhoneVerificationStatus(state="pending")
+        ),
         vk_phone_verification_link_secret="secret",
     )
 

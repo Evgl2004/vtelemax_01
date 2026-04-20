@@ -102,6 +102,7 @@ def test_vk_start_contact_screen_uses_miniapp_buttons_when_feature_enabled() -> 
 
     assert screen.screen_id == "start_contact"
     assert len(screen.rows) == 2
+    assert "+79991234567" not in screen.text
 
     open_miniapp_button = screen.rows[0][0]
     check_status_button = screen.rows[1][0]

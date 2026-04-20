@@ -198,6 +198,7 @@ class VkIdentityAdapter:
         self._state_by_user_id: dict[int, str] = {}
         self._reply_ticket_id_by_user_id: dict[int, UUID] = {}
         self._onboarding_draft_by_user_id: dict[int, _OnboardingDraft] = {}
+        self._vk_manual_phone_input_by_user_id: dict[int, bool] = {}
         self._moderator_state_by_user_id: dict[int, str] = {}
         self._moderator_context_by_user_id: dict[int, dict[str, str]] = {}
         self._onboarding_flow = OnboardingFlowService(platform="vk")
@@ -356,9 +357,12 @@ class VkIdentityAdapter:
             action = resolve_action_from_vk_payload(payload)
             if action == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK:
                 return self._handle_vk_phone_verification_check(vk_user_id=vk_user_id, is_legacy=False)
-            if action == GuestMenuAction.SHARE_CONTACT:
+            if not self._is_vk_manual_phone_input_enabled(vk_user_id):
                 return VkAdapterResponse(
-                    text="Введите номер телефона в формате +79991234567.",
+                    text=(
+                        "Сначала подтвердите номер через VK Mini App и нажмите «✅ Я подтвердил номер».\n\n"
+                        "Если сервис проверки временно недоступен, бот сам предложит ручной ввод номера."
+                    ),
                     screen=self._build_start_contact_screen_for_user(vk_user_id),
                 )
             return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=False)
@@ -376,6 +380,14 @@ class VkIdentityAdapter:
             action = resolve_action_from_vk_payload(payload)
             if action == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK:
                 return self._handle_vk_phone_verification_check(vk_user_id=vk_user_id, is_legacy=True)
+            if not self._is_vk_manual_phone_input_enabled(vk_user_id):
+                return VkAdapterResponse(
+                    text=(
+                        "Сначала подтвердите номер через VK Mini App и нажмите «✅ Я подтвердил номер».\n\n"
+                        "Если сервис проверки временно недоступен, бот сам предложит ручной ввод номера."
+                    ),
+                    screen=self._build_start_contact_screen_for_user(vk_user_id),
+                )
             return self._handle_phone_input(vk_user_id=vk_user_id, text=text, is_legacy=True)
         if state == _STATE_WAITING_SUPPORT_QUESTION:
             action = resolve_action_from_vk_payload(payload)
@@ -551,10 +563,29 @@ class VkIdentityAdapter:
             screen = self._menu_adapter.build_start_rules_screen()
         return VkAdapterResponse(text=next_transition.message, screen=screen)
 
-    def _build_start_contact_screen_for_user(self, vk_user_id: int) -> VkScreen:
-        """Строит экран шага телефона с персонализированной Mini App ссылкой (если включено)."""
+    def _build_start_contact_screen_for_user(
+        self,
+        vk_user_id: int,
+        *,
+        force_manual: bool | None = None,
+    ) -> VkScreen:
+        """Строит экран шага телефона с переключением Mini App/manual fallback."""
 
         signed_url = self._build_signed_vk_miniapp_url(vk_user_id=vk_user_id)
+        miniapp_available = self._is_vk_miniapp_phone_verification_available(signed_url=signed_url)
+        should_use_manual = (
+            force_manual is True
+            or not miniapp_available
+            or (
+                force_manual is None
+                and self._is_vk_manual_phone_input_enabled(vk_user_id)
+            )
+        )
+        if should_use_manual:
+            self._set_vk_manual_phone_input_enabled(vk_user_id, enabled=True)
+            return self._menu_adapter.build_start_contact_screen(force_manual=True)
+
+        self._set_vk_manual_phone_input_enabled(vk_user_id, enabled=False)
         return self._menu_adapter.build_start_contact_screen(miniapp_url_override=signed_url)
 
     def _build_signed_vk_miniapp_url(self, *, vk_user_id: int) -> str | None:
@@ -578,6 +609,28 @@ class VkIdentityAdapter:
             issued_at=int(time.time()),
         )
 
+    def _is_vk_miniapp_phone_verification_available(self, *, signed_url: str | None) -> bool:
+        """Проверяет, можно ли использовать Mini App flow на шаге телефона."""
+
+        return (
+            self._vk_phone_verification_miniapp_enabled
+            and bool(signed_url)
+            and self._vk_phone_verification_gateway is not None
+        )
+
+    def _set_vk_manual_phone_input_enabled(self, vk_user_id: int, *, enabled: bool) -> None:
+        """Включает/выключает ручной fallback ввода телефона для пользователя."""
+
+        if enabled:
+            self._vk_manual_phone_input_by_user_id[vk_user_id] = True
+        else:
+            self._vk_manual_phone_input_by_user_id.pop(vk_user_id, None)
+
+    def _is_vk_manual_phone_input_enabled(self, vk_user_id: int) -> bool:
+        """Возвращает `True`, если для пользователя включен ручной fallback."""
+
+        return self._vk_manual_phone_input_by_user_id.get(vk_user_id, False)
+
     def _handle_vk_phone_verification_check(self, *, vk_user_id: int, is_legacy: bool) -> VkAdapterResponse:
         """Проверяет статус верификации телефона через внешний VK Mini App сервис."""
 
@@ -588,7 +641,7 @@ class VkIdentityAdapter:
                     "Проверка через VK Mini App сейчас отключена. "
                     "Введите номер телефона текстом в формате +79991234567."
                 ),
-                screen=self._build_start_contact_screen_for_user(vk_user_id),
+                screen=self._build_start_contact_screen_for_user(vk_user_id, force_manual=True),
             )
         if self._vk_phone_verification_gateway is None:
             method_logger.warning("VK Mini App верификация включена, но gateway статуса не настроен.")
@@ -597,7 +650,7 @@ class VkIdentityAdapter:
                     "Сервис проверки номера сейчас недоступен. "
                     "Введите номер телефона текстом в формате +79991234567."
                 ),
-                screen=self._build_start_contact_screen_for_user(vk_user_id),
+                screen=self._build_start_contact_screen_for_user(vk_user_id, force_manual=True),
             )
 
         try:
@@ -609,11 +662,12 @@ class VkIdentityAdapter:
                     "Не удалось получить статус подтверждения номера в VK Mini App. "
                     "Проверьте подключение и повторите попытку или введите номер вручную."
                 ),
-                screen=self._build_start_contact_screen_for_user(vk_user_id),
+                screen=self._build_start_contact_screen_for_user(vk_user_id, force_manual=True),
             )
 
         if verification_status.is_verified and verification_status.phone_e164:
             method_logger.info("VK Mini App вернул подтвержденный номер, продолжаем onboarding.")
+            self._set_vk_manual_phone_input_enabled(vk_user_id, enabled=False)
             return self._handle_phone_input(
                 vk_user_id=vk_user_id,
                 text=verification_status.phone_e164,
@@ -621,29 +675,32 @@ class VkIdentityAdapter:
                 phone_verification_method="vk_miniapp",
             )
         if verification_status.state == "pending":
+            self._set_vk_manual_phone_input_enabled(vk_user_id, enabled=False)
             return VkAdapterResponse(
                 text=(
                     "Подтверждение номера еще не завершено в VK Mini App. "
                     "Завершите шаг в сервисе и нажмите «✅ Я подтвердил номер» повторно."
                 ),
-                screen=self._build_start_contact_screen_for_user(vk_user_id),
+                screen=self._build_start_contact_screen_for_user(vk_user_id, force_manual=False),
             )
 
         if verification_status.state == "not_found":
+            self._set_vk_manual_phone_input_enabled(vk_user_id, enabled=False)
             return VkAdapterResponse(
                 text=(
                     "Сервис не нашел подтвержденный номер для вашего VK-аккаунта. "
                     "Откройте VK Mini App и завершите подтверждение."
                 ),
-                screen=self._build_start_contact_screen_for_user(vk_user_id),
+                screen=self._build_start_contact_screen_for_user(vk_user_id, force_manual=False),
             )
 
         failure_message = verification_status.message or (
-            "Сервис VK Mini App не смог подтвердить номер. Попробуйте снова или введите номер вручную."
+            "Сервис VK Mini App не смог подтвердить номер. Откройте Mini App и повторите проверку."
         )
+        self._set_vk_manual_phone_input_enabled(vk_user_id, enabled=False)
         return VkAdapterResponse(
             text=failure_message,
-            screen=self._build_start_contact_screen_for_user(vk_user_id),
+            screen=self._build_start_contact_screen_for_user(vk_user_id, force_manual=False),
         )
 
     def _handle_phone_input(
@@ -700,6 +757,7 @@ class VkIdentityAdapter:
         draft.phone_e164 = person.phone_e164
         draft.phone_verified_at = phone_verified_at
         draft.phone_verification_method = phone_verification_method
+        self._set_vk_manual_phone_input_enabled(vk_user_id, enabled=False)
         legacy_flow_active = is_legacy or bool(person.is_legacy)
         # Проверяем, нужно ли собирать согласия для этой платформы
         platform_consents_complete = (

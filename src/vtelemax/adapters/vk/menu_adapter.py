@@ -119,10 +119,14 @@ class VkGuestMenuAdapter:
         self,
         *,
         miniapp_url_override: str | None = None,
+        force_manual: bool = False,
     ) -> VkScreen:
         """Экран запроса телефона."""
 
         screen = build_start_contact_screen(platform="vk")
+        if force_manual:
+            return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=())
+
         effective_miniapp_url = (miniapp_url_override or self._vk_phone_verification_miniapp_url).strip()
         if not self._is_vk_miniapp_phone_verification_enabled(effective_miniapp_url):
             rows = ((_to_vk_button(screen.buttons[0]),),) if screen.buttons else ()
@@ -131,8 +135,7 @@ class VkGuestMenuAdapter:
         miniapp_text = (
             "📱 Чтобы подключиться к программе лояльности, подтвердите номер через VK Mini App.\n\n"
             "1. Нажмите «🛡️ Подтвердить номер» и завершите проверку в сервисе.\n"
-            "2. Вернитесь в бот и нажмите «✅ Я подтвердил номер».\n\n"
-            "Если сервис временно недоступен, можно отправить номер текстом в формате +79991234567."
+            "2. Вернитесь в бот и нажмите «✅ Я подтвердил номер»."
         )
         rows = (
             (
