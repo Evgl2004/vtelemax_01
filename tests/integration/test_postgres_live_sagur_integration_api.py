@@ -104,6 +104,52 @@ def _add_person_with_channel(
     )
 
 
+def _add_channel_for_existing_person(
+    session: Session,
+    *,
+    person_id: UUID,
+    platform: str,
+    external_id: str,
+    account_created_at: datetime,
+) -> None:
+    """Добавляет новый канал существующему гостю."""
+
+    session.add(
+        PlatformAccountRow(
+            account_id=uuid4(),
+            person_id=person_id,
+            platform=platform,
+            external_id=external_id,
+            created_at=account_created_at,
+        )
+    )
+
+
+def _set_platform_state(
+    session: Session,
+    *,
+    person_id: UUID,
+    platform: str,
+    updated_at: datetime,
+    rules_accepted: bool,
+    notifications_allowed: bool,
+    is_registered: bool,
+) -> None:
+    """Обновляет платформенное состояние существующего канала гостя."""
+
+    state_row = session.get(PersonPlatformStateRow, (person_id, platform))
+    if state_row is None:
+        raise AssertionError("Platform state row not found for update in live test.")
+
+    state_row.rules_accepted = rules_accepted
+    state_row.rules_accepted_at = updated_at if rules_accepted else None
+    state_row.notifications_allowed = notifications_allowed
+    state_row.notifications_allowed_at = updated_at if notifications_allowed else None
+    state_row.is_registered = is_registered
+    state_row.registered_at = updated_at if is_registered else None
+    state_row.updated_at = updated_at
+
+
 @pytest.fixture(scope="function")
 def postgres_session_factory() -> sessionmaker[Session]:
     """Подготавливает изолированную схему в реальном PostgreSQL."""
@@ -291,3 +337,129 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
 
     max_seen_combined = max(first_max_seen, second_max_seen)
     assert max_seen_combined == _utc(2026, 5, 5, 10, 2, 0)
+
+
+@pytest.mark.postgres_live
+def test_live_delta_includes_new_guest_channel(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет, что новый гость попадает в delta по created_at канала."""
+
+    since = _utc(2026, 5, 5, 10, 0, 0)
+    with postgres_session_factory() as session:
+        _add_person_with_channel(
+            session,
+            person_id=UUID("00000000-0000-0000-0000-000000000021"),
+            phone_e164="+79990000021",
+            platform="telegram",
+            external_id="tg-21",
+            account_created_at=_utc(2026, 5, 5, 10, 5, 0),
+            state_updated_at=None,
+            rules_accepted=False,
+            notifications_allowed=False,
+            is_registered=False,
+        )
+        session.commit()
+
+    items, next_cursor, max_seen_updated_at = _fetch_delta_page(
+        session_factory=postgres_session_factory,
+        since=since,
+        limit=10,
+        cursor=None,
+    )
+    assert next_cursor is None
+    assert max_seen_updated_at == _utc(2026, 5, 5, 10, 5, 0)
+    assert ("00000000-0000-0000-0000-000000000021", "telegram") in {
+        (item["person_id"], item["platform"]) for item in items
+    }
+
+
+@pytest.mark.postgres_live
+def test_live_delta_includes_new_channel_for_existing_guest(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет попадание нового канала существующего гостя в delta."""
+
+    since = _utc(2026, 5, 5, 10, 0, 0)
+    person_id = UUID("00000000-0000-0000-0000-000000000022")
+
+    with postgres_session_factory() as session:
+        _add_person_with_channel(
+            session,
+            person_id=person_id,
+            phone_e164="+79990000022",
+            platform="telegram",
+            external_id="tg-22",
+            account_created_at=_utc(2026, 5, 5, 9, 50, 0),
+            state_updated_at=_utc(2026, 5, 5, 9, 55, 0),
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_registered=True,
+        )
+        _add_channel_for_existing_person(
+            session,
+            person_id=person_id,
+            platform="vk",
+            external_id="vk-22",
+            account_created_at=_utc(2026, 5, 5, 10, 6, 0),
+        )
+        session.commit()
+
+    items, _, _ = _fetch_delta_page(
+        session_factory=postgres_session_factory,
+        since=since,
+        limit=10,
+        cursor=None,
+    )
+    keys = {(item["person_id"], item["platform"]) for item in items}
+    assert ("00000000-0000-0000-0000-000000000022", "vk") in keys
+    assert ("00000000-0000-0000-0000-000000000022", "telegram") not in keys
+
+
+@pytest.mark.postgres_live
+def test_live_delta_includes_notifications_deactivation(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет, что отключение уведомлений попадает в delta."""
+
+    since = _utc(2026, 5, 5, 10, 0, 0)
+    person_id = UUID("00000000-0000-0000-0000-000000000023")
+
+    with postgres_session_factory() as session:
+        _add_person_with_channel(
+            session,
+            person_id=person_id,
+            phone_e164="+79990000023",
+            platform="max",
+            external_id="max-23",
+            account_created_at=_utc(2026, 5, 5, 9, 40, 0),
+            state_updated_at=_utc(2026, 5, 5, 9, 50, 0),
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_registered=True,
+        )
+        _set_platform_state(
+            session,
+            person_id=person_id,
+            platform="max",
+            updated_at=_utc(2026, 5, 5, 10, 7, 0),
+            rules_accepted=True,
+            notifications_allowed=False,
+            is_registered=True,
+        )
+        session.commit()
+
+    items, _, _ = _fetch_delta_page(
+        session_factory=postgres_session_factory,
+        since=since,
+        limit=10,
+        cursor=None,
+    )
+    target_items = [
+        item
+        for item in items
+        if item["person_id"] == "00000000-0000-0000-0000-000000000023"
+        and item["platform"] == "max"
+    ]
+    assert len(target_items) == 1
+    assert target_items[0]["notifications_allowed"] is False
