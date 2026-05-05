@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
 from aiohttp.test_utils import make_mocked_request
 from sqlalchemy.orm import sessionmaker
 
+from vtelemax.apps import sagur_integration_api_app as sagur_api
 from vtelemax.apps.sagur_integration_api_app import (
     DeltaCursor,
     SnapshotCursor,
     _build_hmac_payload,
     _build_hmac_signature,
+    _delta_handler,
     _decode_delta_cursor,
     _decode_snapshot_cursor,
     _encode_delta_cursor,
@@ -207,3 +210,75 @@ def test_delta_statement_uses_sqlalchemy_builder_without_raw_cast_syntax() -> No
 
     assert ":since::timestamptz" not in compiled
     assert "WITH ranked_accounts AS" in compiled
+
+
+@pytest.mark.asyncio
+async def test_delta_handler_returns_empty_payload_without_cursor_or_max_seen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = AppSettings()
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+
+    def _fake_fetch_delta_page(**_: object) -> tuple[list[dict[str, object]], None, None]:
+        return [], None, None
+
+    monkeypatch.setattr(sagur_api, "_fetch_delta_page", _fake_fetch_delta_page)
+
+    request = make_mocked_request(
+        "GET",
+        "/internal/integration/v1/sagur/recipients/delta?since=2026-05-05T10:00:00Z",
+        app=app,
+    )
+    response = await _delta_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 200
+    assert body["items"] == []
+    assert body["next_cursor"] is None
+    assert body["max_seen_updated_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_delta_handler_rejects_damaged_cursor_with_400() -> None:
+    settings = AppSettings()
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+
+    request = make_mocked_request(
+        "GET",
+        "/internal/integration/v1/sagur/recipients/delta?since=2026-05-05T10:00:00Z&cursor=broken",
+        app=app,
+    )
+    response = await _delta_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 400
+    assert body["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_delta_handler_rejects_since_mismatch_between_query_and_cursor() -> None:
+    settings = AppSettings()
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+
+    encoded_cursor = _encode_delta_cursor(
+        DeltaCursor(
+            since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
+            effective_updated_at=datetime(2026, 5, 5, 10, 1, 0, tzinfo=timezone.utc),
+            person_id="00000000-0000-0000-0000-000000000001",
+            platform="telegram",
+        )
+    )
+    request = make_mocked_request(
+        "GET",
+        (
+            "/internal/integration/v1/sagur/recipients/delta"
+            f"?since=2026-05-05T11:00:00Z&cursor={encoded_cursor}"
+        ),
+        app=app,
+    )
+    response = await _delta_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 400
+    assert body["status"] == "error"
+    assert "since" in body["message"]
