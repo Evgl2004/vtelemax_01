@@ -1,22 +1,45 @@
-"""Entrypoint for SAGUR integration read-only API service."""
+"""Entrypoint отдельного read-only API сервиса интеграции с SAGUR."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import json
 import signal
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
 from aiohttp import web
 from loguru import logger
+from sqlalchemy import text
+from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.infrastructure import configure_logging
+from vtelemax.infrastructure.postgres import build_engine, build_session_factory
 from vtelemax.settings import AppSettings
 
 _COMPONENT = "sagur_integration_api_app"
 _MAX_JSON_BODY_BYTES = 8 * 1024
 _SETTINGS_KEY = web.AppKey("settings", AppSettings)
+_SESSION_FACTORY_KEY = web.AppKey("session_factory", sessionmaker[Session])
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotCursor:
+    """Позиция пагинации snapshot выдачи."""
+
+    account_created_at: datetime
+    person_id: str
+    platform: str
+
+
+def build_postgres_session_factory(settings: AppSettings) -> sessionmaker[Session]:
+    """Создает PostgreSQL session factory для SAGUR integration API."""
+
+    engine = build_engine(settings.postgres_sqlalchemy_dsn, echo=settings.postgres_echo)
+    return build_session_factory(engine)
 
 
 def _json_response_ok(payload: dict[str, Any]) -> web.Response:
@@ -27,21 +50,272 @@ def _json_response_error(*, status: int, message: str) -> web.Response:
     return web.json_response({"status": "error", "message": message}, status=status)
 
 
+def _to_rfc3339_utc(value: datetime | None) -> str | None:
+    """Сериализует datetime в RFC3339 UTC формат."""
+
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_rfc3339_utc(value: str) -> datetime:
+    """Парсит RFC3339 строку в aware-datetime UTC."""
+
+    raw_value = value.strip()
+    if raw_value.endswith("Z"):
+        raw_value = raw_value[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(raw_value)
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must contain timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _encode_snapshot_cursor(cursor: SnapshotCursor) -> str:
+    """Кодирует snapshot cursor в opaque строку."""
+
+    payload = {
+        "v": 1,
+        "account_created_at": _to_rfc3339_utc(cursor.account_created_at),
+        "person_id": cursor.person_id,
+        "platform": cursor.platform,
+    }
+    json_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(json_bytes).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _decode_snapshot_cursor(raw_cursor: str) -> SnapshotCursor:
+    """Декодирует opaque cursor и валидирует структуру."""
+
+    try:
+        padded = raw_cursor + "=" * (-len(raw_cursor) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("cursor payload must be object")
+
+        version = int(payload.get("v"))
+        if version != 1:
+            raise ValueError("unsupported cursor version")
+
+        account_created_at = _parse_rfc3339_utc(str(payload.get("account_created_at") or "").strip())
+        person_id = str(payload.get("person_id") or "").strip()
+        platform = str(payload.get("platform") or "").strip()
+
+        if not person_id:
+            raise ValueError("person_id is empty")
+        if platform not in {"telegram", "vk", "max"}:
+            raise ValueError("platform is invalid")
+
+        return SnapshotCursor(
+            account_created_at=account_created_at,
+            person_id=person_id,
+            platform=platform,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("Некорректный cursor.") from exc
+
+
+def _parse_limit_from_query(*, request: web.Request, settings: AppSettings) -> int:
+    """Валидирует query limit в рамках default/max."""
+
+    raw_limit = str(request.query.get("limit") or "").strip()
+    if not raw_limit:
+        return settings.sagur_integration_default_limit
+
+    try:
+        limit = int(raw_limit)
+    except ValueError as exc:
+        raise ValueError("Параметр limit должен быть целым числом.") from exc
+
+    if limit <= 0:
+        raise ValueError("Параметр limit должен быть больше 0.")
+    if limit > settings.sagur_integration_max_limit:
+        raise ValueError(
+            f"Параметр limit превышает максимум {settings.sagur_integration_max_limit}."
+        )
+    return limit
+
+
+def _parse_cursor_from_query(request: web.Request) -> SnapshotCursor | None:
+    """Читает и декодирует snapshot cursor из query."""
+
+    raw_cursor = str(request.query.get("cursor") or "").strip()
+    if not raw_cursor:
+        return None
+    return _decode_snapshot_cursor(raw_cursor)
+
+
+def _extract_snapshot_cursor_from_row(row: dict[str, Any]) -> SnapshotCursor:
+    """Формирует cursor из последней возвращенной строки."""
+
+    account_created_at = row["account_created_at"]
+    if not isinstance(account_created_at, datetime):
+        raise ValueError("account_created_at missing in snapshot row")
+    return SnapshotCursor(
+        account_created_at=account_created_at,
+        person_id=str(row["person_id"]),
+        platform=str(row["platform"]),
+    )
+
+
+def _build_snapshot_sql(*, has_cursor: bool) -> str:
+    cursor_clause = ""
+    if has_cursor:
+        cursor_clause = """
+WHERE
+    (ra.account_created_at, ra.person_id, ra.platform)
+    > (
+        :cursor_account_created_at::timestamptz,
+        :cursor_person_id::uuid,
+        :cursor_platform::text
+    )
+"""
+
+    return f"""
+WITH ranked_accounts AS (
+    SELECT
+        pa.person_id,
+        pa.platform,
+        pa.external_id,
+        pa.created_at AS account_created_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY pa.person_id, pa.platform
+            ORDER BY pa.created_at DESC, pa.account_id DESC
+        ) AS row_rank
+    FROM platform_accounts pa
+),
+resolved_accounts AS (
+    SELECT
+        person_id,
+        platform,
+        external_id,
+        account_created_at
+    FROM ranked_accounts
+    WHERE row_rank = 1
+)
+SELECT
+    ra.person_id::text AS person_id,
+    ph.phone_e164 AS phone_e164,
+    ra.platform AS platform,
+    ra.external_id AS external_id,
+    COALESCE(pps.rules_accepted, false) AS rules_accepted,
+    COALESCE(pps.notifications_allowed, false) AS notifications_allowed,
+    COALESCE(pps.is_registered, false) AS is_registered,
+    pps.updated_at AS state_updated_at,
+    ra.account_created_at AS account_created_at
+FROM resolved_accounts ra
+JOIN phones ph
+    ON ph.person_id = ra.person_id
+LEFT JOIN person_platform_states pps
+    ON pps.person_id = ra.person_id
+   AND pps.platform = ra.platform
+{cursor_clause}
+ORDER BY
+    ra.account_created_at ASC,
+    ra.person_id ASC,
+    ra.platform ASC
+LIMIT :page_size
+"""
+
+
+def _fetch_snapshot_page(
+    *,
+    session_factory: sessionmaker[Session],
+    limit: int,
+    cursor: SnapshotCursor | None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Вычитывает snapshot-страницу и возвращает next_cursor."""
+
+    query = _build_snapshot_sql(has_cursor=cursor is not None)
+    params: dict[str, Any] = {"page_size": limit + 1}
+    if cursor is not None:
+        params.update(
+            {
+                "cursor_account_created_at": cursor.account_created_at,
+                "cursor_person_id": cursor.person_id,
+                "cursor_platform": cursor.platform,
+            }
+        )
+
+    with session_factory() as db_session:
+        rows = db_session.execute(text(query), params).mappings().all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+
+    items: list[dict[str, Any]] = []
+    for row in page_rows:
+        items.append(
+            {
+                "person_id": str(row["person_id"]),
+                "phone_e164": str(row["phone_e164"]),
+                "platform": str(row["platform"]),
+                "external_id": str(row["external_id"]),
+                "rules_accepted": bool(row["rules_accepted"]),
+                "notifications_allowed": bool(row["notifications_allowed"]),
+                "is_registered": bool(row["is_registered"]),
+                "state_updated_at": _to_rfc3339_utc(row["state_updated_at"]),
+                "account_created_at": _to_rfc3339_utc(row["account_created_at"]),
+            }
+        )
+
+    if not has_more or not page_rows:
+        return items, None
+
+    next_cursor = _encode_snapshot_cursor(_extract_snapshot_cursor_from_row(dict(page_rows[-1])))
+    return items, next_cursor
+
+
 async def _health_handler(request: web.Request) -> web.Response:
+    """Health endpoint сервиса."""
+
     return _json_response_ok({"status": "ok", "service": "sagur-integration-api"})
 
 
 async def _snapshot_handler(request: web.Request) -> web.Response:
-    return _json_response_error(status=501, message="snapshot endpoint is not implemented yet")
+    """Endpoint полной snapshot-выгрузки получателей."""
+
+    settings = request.app[_SETTINGS_KEY]
+    session_factory = request.app[_SESSION_FACTORY_KEY]
+
+    try:
+        limit = _parse_limit_from_query(request=request, settings=settings)
+        cursor = _parse_cursor_from_query(request)
+    except ValueError as exc:
+        return _json_response_error(status=400, message=str(exc))
+
+    items, next_cursor = _fetch_snapshot_page(
+        session_factory=session_factory,
+        limit=limit,
+        cursor=cursor,
+    )
+    return _json_response_ok(
+        {
+            "items": items,
+            "next_cursor": next_cursor,
+            "generated_at": _to_rfc3339_utc(datetime.now(timezone.utc)),
+        }
+    )
 
 
 async def _delta_handler(request: web.Request) -> web.Response:
-    return _json_response_error(status=501, message="delta endpoint is not implemented yet")
+    """Endpoint инкрементальной delta-выгрузки (будет реализован на следующем шаге)."""
+
+    return _json_response_error(status=501, message="Delta endpoint еще не реализован.")
 
 
-def build_web_app(*, settings: AppSettings) -> web.Application:
+def build_web_app(
+    *,
+    settings: AppSettings,
+    session_factory: sessionmaker[Session],
+) -> web.Application:
+    """Собирает aiohttp приложение SAGUR integration API."""
+
     app = web.Application(client_max_size=_MAX_JSON_BODY_BYTES)
     app[_SETTINGS_KEY] = settings
+    app[_SESSION_FACTORY_KEY] = session_factory
     app.router.add_get("/health", _health_handler)
     app.router.add_get("/internal/integration/v1/sagur/recipients/snapshot", _snapshot_handler)
     app.router.add_get("/internal/integration/v1/sagur/recipients/delta", _delta_handler)
@@ -49,13 +323,15 @@ def build_web_app(*, settings: AppSettings) -> web.Application:
 
 
 async def _wait_for_shutdown_signal(component: str) -> None:
+    """Ожидает SIGTERM/SIGINT для no-op режима выключенного сервиса."""
+
     stop_event = asyncio.Event()
 
     def _request_shutdown(source: str) -> None:
         if stop_event.is_set():
             return
         logger.bind(component=component, stage="shutdown").info(
-            "Shutdown signal received: {source}.",
+            "Получен сигнал остановки сервиса: {source}.",
             source=source,
         )
         stop_event.set()
@@ -69,27 +345,32 @@ async def _wait_for_shutdown_signal(component: str) -> None:
 
 
 def _validate_service_settings(settings: AppSettings) -> None:
+    """Проверяет корректность критичных параметров запуска сервиса."""
+
     if settings.sagur_integration_default_limit > settings.sagur_integration_max_limit:
         raise ValueError(
-            "SAGUR_INTEGRATION_DEFAULT_LIMIT must be less than or equal to "
+            "SAGUR_INTEGRATION_DEFAULT_LIMIT должен быть меньше или равен "
             "SAGUR_INTEGRATION_MAX_LIMIT."
         )
 
 
 async def run_sagur_integration_api(settings: AppSettings | None = None) -> None:
+    """Запускает отдельный SAGUR integration API сервис."""
+
     app_settings = settings or AppSettings()
     configure_logging(service_name="sagur-integration-api", log_level=app_settings.log_level)
     app_logger = logger.bind(component=_COMPONENT, stage="startup")
-    app_logger.info("Initializing SAGUR integration API. ENV={env}.", env=app_settings.env)
+    app_logger.info("Инициализация SAGUR integration API. ENV={env}.", env=app_settings.env)
 
     if not app_settings.sagur_integration_api_enabled:
-        app_logger.info("Service disabled (SAGUR_INTEGRATION_API_ENABLED=false).")
+        app_logger.info("Сервис выключен (SAGUR_INTEGRATION_API_ENABLED=false).")
         await _wait_for_shutdown_signal(component=_COMPONENT)
         return
 
     _validate_service_settings(app_settings)
 
-    web_app = build_web_app(settings=app_settings)
+    session_factory = build_postgres_session_factory(app_settings)
+    web_app = build_web_app(settings=app_settings, session_factory=session_factory)
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(
@@ -99,10 +380,9 @@ async def run_sagur_integration_api(settings: AppSettings | None = None) -> None
     )
     await site.start()
     app_logger.info(
-        "SAGUR integration API started on {host}:{port} at {started_at}.",
+        "SAGUR integration API запущен на {host}:{port}.",
         host=app_settings.sagur_integration_service_host,
         port=app_settings.sagur_integration_service_port,
-        started_at=datetime.now(timezone.utc).isoformat(),
     )
 
     stop_event = asyncio.Event()
@@ -111,7 +391,7 @@ async def run_sagur_integration_api(settings: AppSettings | None = None) -> None
         if stop_event.is_set():
             return
         logger.bind(component=_COMPONENT, stage="shutdown").info(
-            "Shutdown signal received: {source}.",
+            "Получен сигнал остановки сервиса: {source}.",
             source=source,
         )
         stop_event.set()
@@ -125,12 +405,15 @@ async def run_sagur_integration_api(settings: AppSettings | None = None) -> None
         await stop_event.wait()
     finally:
         await runner.cleanup()
-        app_logger.info("SAGUR integration API stopped.")
+        app_logger.info("SAGUR integration API завершен.")
 
 
 def main() -> None:
+    """Синхронная точка входа запуска сервиса из CLI/docker."""
+
     asyncio.run(run_sagur_integration_api())
 
 
 if __name__ == "__main__":
     main()
+
