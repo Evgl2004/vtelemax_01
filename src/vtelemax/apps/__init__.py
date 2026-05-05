@@ -1,8 +1,10 @@
-"""Точки входа приложений vtelemax.
+"""Application entrypoints package.
 
-В пакете размещаются запускаторы конкретных ботов:
+This package contains startup modules for bots and operational services:
 
-1. `telegram_app` — запуск Telegram-бота.
-2. `vk_app` — запуск VK-бота.
-3. `max_app` — запуск MAX-бота.
+1. `telegram_app` - Telegram bot process.
+2. `vk_app` - VK bot process.
+3. `max_app` - MAX bot process.
+4. `sagur_integration_api_app` - read-only integration API for SAGUR.
 """
+

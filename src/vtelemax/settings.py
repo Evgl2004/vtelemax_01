@@ -92,6 +92,47 @@ class AppSettings(BaseSettings):
         alias="VK_PHONE_VERIFICATION_SESSION_TTL_SECONDS",
         gt=30,
     )
+    sagur_integration_api_enabled: bool = Field(
+        default=False,
+        alias="SAGUR_INTEGRATION_API_ENABLED",
+    )
+    sagur_integration_service_host: str = Field(
+        default="0.0.0.0",
+        alias="SAGUR_INTEGRATION_SERVICE_HOST",
+    )
+    sagur_integration_service_port: int = Field(
+        default=8086,
+        alias="SAGUR_INTEGRATION_SERVICE_PORT",
+        gt=0,
+    )
+    sagur_integration_default_limit: int = Field(
+        default=1000,
+        alias="SAGUR_INTEGRATION_DEFAULT_LIMIT",
+        gt=0,
+    )
+    sagur_integration_max_limit: int = Field(
+        default=5000,
+        alias="SAGUR_INTEGRATION_MAX_LIMIT",
+        gt=0,
+    )
+    sagur_integration_rate_limit_rpm: int = Field(
+        default=60,
+        alias="SAGUR_INTEGRATION_RATE_LIMIT_RPM",
+        gt=0,
+    )
+    sagur_integration_hmac_secret: str = Field(
+        default="",
+        alias="SAGUR_INTEGRATION_HMAC_SECRET",
+    )
+    sagur_integration_hmac_max_skew_seconds: int = Field(
+        default=60,
+        alias="SAGUR_INTEGRATION_HMAC_MAX_SKEW_SECONDS",
+        gt=0,
+    )
+    sagur_integration_ip_allowlist: str = Field(
+        default="",
+        alias="SAGUR_INTEGRATION_IP_ALLOWLIST",
+    )
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
     moderation_delivery_interval_seconds: float = Field(
