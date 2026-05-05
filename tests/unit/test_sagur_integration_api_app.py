@@ -9,9 +9,13 @@ from aiohttp.test_utils import make_mocked_request
 from sqlalchemy.orm import sessionmaker
 
 from vtelemax.apps.sagur_integration_api_app import (
+    DeltaCursor,
     SnapshotCursor,
+    _decode_delta_cursor,
     _decode_snapshot_cursor,
+    _encode_delta_cursor,
     _encode_snapshot_cursor,
+    _parse_since_from_query,
     _parse_limit_from_query,
     _validate_service_settings,
     build_web_app,
@@ -60,6 +64,33 @@ def test_snapshot_cursor_roundtrip() -> None:
 def test_snapshot_cursor_decode_rejects_invalid_payload() -> None:
     with pytest.raises(ValueError):
         _decode_snapshot_cursor("not-a-valid-cursor")
+
+
+def test_delta_cursor_roundtrip() -> None:
+    original = DeltaCursor(
+        since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
+        effective_updated_at=datetime(2026, 5, 5, 10, 12, 30, tzinfo=timezone.utc),
+        person_id="7c0bf8b8-0848-4434-a6d9-f2fe810dc5de",
+        platform="vk",
+    )
+
+    encoded = _encode_delta_cursor(original)
+    decoded = _decode_delta_cursor(encoded)
+
+    assert decoded == original
+
+
+def test_parse_since_from_query_parses_rfc3339_and_rejects_empty() -> None:
+    request_ok = make_mocked_request(
+        "GET",
+        "/internal/integration/v1/sagur/recipients/delta?since=2026-05-05T10:00:00Z",
+    )
+    parsed = _parse_since_from_query(request_ok)
+    assert parsed == datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc)
+
+    request_empty = make_mocked_request("GET", "/internal/integration/v1/sagur/recipients/delta")
+    with pytest.raises(ValueError):
+        _parse_since_from_query(request_empty)
 
 
 def test_parse_limit_from_query_uses_default_and_rejects_overflow() -> None:

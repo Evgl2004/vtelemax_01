@@ -1,4 +1,4 @@
-"""Entrypoint отдельного read-only API сервиса интеграции с SAGUR."""
+"""Точка входа отдельного read-only API сервиса интеграции с SAGUR."""
 
 from __future__ import annotations
 
@@ -31,6 +31,16 @@ class SnapshotCursor:
     """Позиция пагинации snapshot выдачи."""
 
     account_created_at: datetime
+    person_id: str
+    platform: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaCursor:
+    """Позиция пагинации delta выдачи."""
+
+    since: datetime
+    effective_updated_at: datetime
     person_id: str
     platform: str
 
@@ -77,6 +87,7 @@ def _encode_snapshot_cursor(cursor: SnapshotCursor) -> str:
 
     payload = {
         "v": 1,
+        "t": "snapshot",
         "account_created_at": _to_rfc3339_utc(cursor.account_created_at),
         "person_id": cursor.person_id,
         "platform": cursor.platform,
@@ -98,6 +109,8 @@ def _decode_snapshot_cursor(raw_cursor: str) -> SnapshotCursor:
         version = int(payload.get("v"))
         if version != 1:
             raise ValueError("unsupported cursor version")
+        if str(payload.get("t") or "") != "snapshot":
+            raise ValueError("unsupported cursor type")
 
         account_created_at = _parse_rfc3339_utc(str(payload.get("account_created_at") or "").strip())
         person_id = str(payload.get("person_id") or "").strip()
@@ -110,6 +123,59 @@ def _decode_snapshot_cursor(raw_cursor: str) -> SnapshotCursor:
 
         return SnapshotCursor(
             account_created_at=account_created_at,
+            person_id=person_id,
+            platform=platform,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("Некорректный cursor.") from exc
+
+
+def _encode_delta_cursor(cursor: DeltaCursor) -> str:
+    """Кодирует delta cursor в opaque строку."""
+
+    payload = {
+        "v": 1,
+        "t": "delta",
+        "since": _to_rfc3339_utc(cursor.since),
+        "effective_updated_at": _to_rfc3339_utc(cursor.effective_updated_at),
+        "person_id": cursor.person_id,
+        "platform": cursor.platform,
+    }
+    json_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(json_bytes).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _decode_delta_cursor(raw_cursor: str) -> DeltaCursor:
+    """Декодирует opaque delta cursor и валидирует структуру."""
+
+    try:
+        padded = raw_cursor + "=" * (-len(raw_cursor) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("cursor payload must be object")
+
+        version = int(payload.get("v"))
+        if version != 1:
+            raise ValueError("unsupported cursor version")
+        if str(payload.get("t") or "") != "delta":
+            raise ValueError("unsupported cursor type")
+
+        since = _parse_rfc3339_utc(str(payload.get("since") or "").strip())
+        effective_updated_at = _parse_rfc3339_utc(
+            str(payload.get("effective_updated_at") or "").strip()
+        )
+        person_id = str(payload.get("person_id") or "").strip()
+        platform = str(payload.get("platform") or "").strip()
+
+        if not person_id:
+            raise ValueError("person_id is empty")
+        if platform not in {"telegram", "vk", "max"}:
+            raise ValueError("platform is invalid")
+
+        return DeltaCursor(
+            since=since,
+            effective_updated_at=effective_updated_at,
             person_id=person_id,
             platform=platform,
         )
@@ -147,6 +213,27 @@ def _parse_cursor_from_query(request: web.Request) -> SnapshotCursor | None:
     return _decode_snapshot_cursor(raw_cursor)
 
 
+def _parse_since_from_query(request: web.Request) -> datetime:
+    """Парсит обязательный параметр since для delta endpoint."""
+
+    raw_since = str(request.query.get("since") or "").strip()
+    if not raw_since:
+        raise ValueError("Параметр since обязателен и должен быть в формате RFC3339 UTC.")
+    try:
+        return _parse_rfc3339_utc(raw_since)
+    except ValueError as exc:
+        raise ValueError("Параметр since должен быть в формате RFC3339 UTC.") from exc
+
+
+def _parse_delta_cursor_from_query(request: web.Request) -> DeltaCursor | None:
+    """Читает и декодирует delta cursor из query."""
+
+    raw_cursor = str(request.query.get("cursor") or "").strip()
+    if not raw_cursor:
+        return None
+    return _decode_delta_cursor(raw_cursor)
+
+
 def _extract_snapshot_cursor_from_row(row: dict[str, Any]) -> SnapshotCursor:
     """Формирует cursor из последней возвращенной строки."""
 
@@ -155,6 +242,20 @@ def _extract_snapshot_cursor_from_row(row: dict[str, Any]) -> SnapshotCursor:
         raise ValueError("account_created_at missing in snapshot row")
     return SnapshotCursor(
         account_created_at=account_created_at,
+        person_id=str(row["person_id"]),
+        platform=str(row["platform"]),
+    )
+
+
+def _extract_delta_cursor_from_row(*, row: dict[str, Any], since: datetime) -> DeltaCursor:
+    """Формирует delta cursor из последней строки страницы."""
+
+    effective_updated_at = row["effective_updated_at"]
+    if not isinstance(effective_updated_at, datetime):
+        raise ValueError("effective_updated_at missing in delta row")
+    return DeltaCursor(
+        since=since,
+        effective_updated_at=effective_updated_at,
         person_id=str(row["person_id"]),
         platform=str(row["platform"]),
     )
@@ -220,6 +321,86 @@ LIMIT :page_size
 """
 
 
+def _build_delta_sql(*, has_cursor: bool) -> str:
+    cursor_clause = ""
+    if has_cursor:
+        cursor_clause = """
+  AND
+    (e.effective_updated_at, e.person_id, e.platform)
+    > (
+        :cursor_effective_updated_at::timestamptz,
+        :cursor_person_id::uuid,
+        :cursor_platform::text
+    )
+"""
+
+    return f"""
+WITH ranked_accounts AS (
+    SELECT
+        pa.person_id,
+        pa.platform,
+        pa.external_id,
+        pa.created_at AS account_created_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY pa.person_id, pa.platform
+            ORDER BY pa.created_at DESC, pa.account_id DESC
+        ) AS row_rank
+    FROM platform_accounts pa
+),
+resolved_accounts AS (
+    SELECT
+        person_id,
+        platform,
+        external_id,
+        account_created_at
+    FROM ranked_accounts
+    WHERE row_rank = 1
+),
+enriched AS (
+    SELECT
+        ra.person_id::text AS person_id,
+        ph.phone_e164 AS phone_e164,
+        ra.platform AS platform,
+        ra.external_id AS external_id,
+        COALESCE(pps.rules_accepted, false) AS rules_accepted,
+        COALESCE(pps.notifications_allowed, false) AS notifications_allowed,
+        COALESCE(pps.is_registered, false) AS is_registered,
+        pps.updated_at AS state_updated_at,
+        ra.account_created_at AS account_created_at,
+        GREATEST(COALESCE(pps.updated_at, ra.account_created_at), ra.account_created_at) AS effective_updated_at
+    FROM resolved_accounts ra
+    JOIN phones ph
+        ON ph.person_id = ra.person_id
+    LEFT JOIN person_platform_states pps
+        ON pps.person_id = ra.person_id
+       AND pps.platform = ra.platform
+)
+SELECT
+    e.person_id,
+    e.phone_e164,
+    e.platform,
+    e.external_id,
+    e.rules_accepted,
+    e.notifications_allowed,
+    e.is_registered,
+    e.state_updated_at,
+    e.account_created_at,
+    e.effective_updated_at
+FROM enriched e
+WHERE
+    (
+        (e.state_updated_at IS NOT NULL AND e.state_updated_at > :since::timestamptz)
+        OR e.account_created_at > :since::timestamptz
+    )
+{cursor_clause}
+ORDER BY
+    e.effective_updated_at ASC,
+    e.person_id ASC,
+    e.platform ASC
+LIMIT :page_size
+"""
+
+
 def _fetch_snapshot_page(
     *,
     session_factory: sessionmaker[Session],
@@ -268,6 +449,67 @@ def _fetch_snapshot_page(
     return items, next_cursor
 
 
+def _fetch_delta_page(
+    *,
+    session_factory: sessionmaker[Session],
+    since: datetime,
+    limit: int,
+    cursor: DeltaCursor | None,
+) -> tuple[list[dict[str, Any]], str | None, datetime | None]:
+    """Вычитывает delta-страницу и возвращает next_cursor и max_seen_updated_at."""
+
+    query = _build_delta_sql(has_cursor=cursor is not None)
+    params: dict[str, Any] = {
+        "since": since,
+        "page_size": limit + 1,
+    }
+    if cursor is not None:
+        params.update(
+            {
+                "cursor_effective_updated_at": cursor.effective_updated_at,
+                "cursor_person_id": cursor.person_id,
+                "cursor_platform": cursor.platform,
+            }
+        )
+
+    with session_factory() as db_session:
+        rows = db_session.execute(text(query), params).mappings().all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+
+    items: list[dict[str, Any]] = []
+    max_seen_updated_at: datetime | None = None
+
+    for row in page_rows:
+        effective_updated_at = row["effective_updated_at"]
+        if isinstance(effective_updated_at, datetime):
+            if max_seen_updated_at is None or effective_updated_at > max_seen_updated_at:
+                max_seen_updated_at = effective_updated_at
+
+        items.append(
+            {
+                "person_id": str(row["person_id"]),
+                "phone_e164": str(row["phone_e164"]),
+                "platform": str(row["platform"]),
+                "external_id": str(row["external_id"]),
+                "rules_accepted": bool(row["rules_accepted"]),
+                "notifications_allowed": bool(row["notifications_allowed"]),
+                "is_registered": bool(row["is_registered"]),
+                "state_updated_at": _to_rfc3339_utc(row["state_updated_at"]),
+                "account_created_at": _to_rfc3339_utc(row["account_created_at"]),
+            }
+        )
+
+    if not has_more or not page_rows:
+        return items, None, max_seen_updated_at
+
+    next_cursor = _encode_delta_cursor(
+        _extract_delta_cursor_from_row(row=dict(page_rows[-1]), since=since)
+    )
+    return items, next_cursor, max_seen_updated_at
+
+
 async def _health_handler(request: web.Request) -> web.Response:
     """Health endpoint сервиса."""
 
@@ -301,9 +543,38 @@ async def _snapshot_handler(request: web.Request) -> web.Response:
 
 
 async def _delta_handler(request: web.Request) -> web.Response:
-    """Endpoint инкрементальной delta-выгрузки (будет реализован на следующем шаге)."""
+    """Endpoint инкрементальной delta-выгрузки получателей."""
 
-    return _json_response_error(status=501, message="Delta endpoint еще не реализован.")
+    settings = request.app[_SETTINGS_KEY]
+    session_factory = request.app[_SESSION_FACTORY_KEY]
+
+    try:
+        since = _parse_since_from_query(request)
+        limit = _parse_limit_from_query(request=request, settings=settings)
+        cursor = _parse_delta_cursor_from_query(request)
+    except ValueError as exc:
+        return _json_response_error(status=400, message=str(exc))
+
+    if cursor is not None and cursor.since != since:
+        return _json_response_error(
+            status=400,
+            message="Параметр since должен совпадать с since внутри cursor.",
+        )
+
+    items, next_cursor, max_seen_updated_at = _fetch_delta_page(
+        session_factory=session_factory,
+        since=since,
+        limit=limit,
+        cursor=cursor,
+    )
+    return _json_response_ok(
+        {
+            "items": items,
+            "next_cursor": next_cursor,
+            "max_seen_updated_at": _to_rfc3339_utc(max_seen_updated_at),
+            "generated_at": _to_rfc3339_utc(datetime.now(timezone.utc)),
+        }
+    )
 
 
 def build_web_app(
@@ -416,4 +687,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
