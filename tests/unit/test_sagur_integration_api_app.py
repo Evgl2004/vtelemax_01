@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from vtelemax.apps.sagur_integration_api_app import (
     DeltaCursor,
     SnapshotCursor,
+    _build_delta_sql,
     _build_hmac_payload,
     _build_hmac_signature,
     _decode_delta_cursor,
@@ -195,3 +196,13 @@ def test_validate_hmac_auth_rejects_invalid_signature_or_stale_timestamp() -> No
     )
     assert stale_error is not None
     assert stale_error.status == 401
+
+
+def test_delta_sql_uses_cast_for_bound_params() -> None:
+    query_without_cursor = _build_delta_sql(has_cursor=False)
+    query_with_cursor = _build_delta_sql(has_cursor=True)
+
+    assert "CAST(:since AS timestamptz)" in query_without_cursor
+    assert ":since::timestamptz" not in query_without_cursor
+    assert "CAST(:cursor_effective_updated_at AS timestamptz)" in query_with_cursor
+    assert "CAST(:cursor_person_id AS text)" in query_with_cursor
