@@ -104,7 +104,7 @@ def _add_person_with_channel(
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def postgres_session_factory() -> sessionmaker[Session]:
     """Подготавливает изолированную схему в реальном PostgreSQL."""
 
