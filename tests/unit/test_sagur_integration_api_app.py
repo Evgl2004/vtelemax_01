@@ -15,6 +15,7 @@ from vtelemax.apps.sagur_integration_api_app import (
     SnapshotCursor,
     _build_hmac_payload,
     _build_hmac_signature,
+    _build_metrics_payload,
     _delta_handler,
     _decode_delta_cursor,
     _decode_snapshot_cursor,
@@ -24,6 +25,7 @@ from vtelemax.apps.sagur_integration_api_app import (
     _is_sagur_protected_path,
     _parse_since_from_query,
     _parse_limit_from_query,
+    _sign_cursor_payload,
     _validate_hmac_auth,
     _validate_service_settings,
     build_web_app,
@@ -43,6 +45,7 @@ def test_sagur_integration_app_registers_required_routes() -> None:
     route_paths = {route.resource.canonical for route in app.router.routes()}
 
     assert "/health" in route_paths
+    assert "/metrics" in route_paths
     assert "/internal/integration/v1/sagur/recipients/snapshot" in route_paths
     assert "/internal/integration/v1/sagur/recipients/delta" in route_paths
 
@@ -62,6 +65,7 @@ def test_snapshot_cursor_roundtrip() -> None:
         account_created_at=datetime(2026, 5, 5, 10, 12, 30, tzinfo=timezone.utc),
         person_id="7c0bf8b8-0848-4434-a6d9-f2fe810dc5de",
         platform="telegram",
+        limit=1000,
     )
 
     encoded = _encode_snapshot_cursor(original)
@@ -81,6 +85,7 @@ def test_delta_cursor_roundtrip() -> None:
         effective_updated_at=datetime(2026, 5, 5, 10, 12, 30, tzinfo=timezone.utc),
         person_id="7c0bf8b8-0848-4434-a6d9-f2fe810dc5de",
         platform="vk",
+        limit=1000,
     )
 
     encoded = _encode_delta_cursor(original)
@@ -240,7 +245,7 @@ async def test_delta_handler_returns_empty_payload_without_cursor_or_max_seen(
 
 @pytest.mark.asyncio
 async def test_delta_handler_rejects_damaged_cursor_with_400() -> None:
-    settings = AppSettings()
+    settings = AppSettings(SAGUR_INTEGRATION_HMAC_SECRET="test-secret")
     app = build_web_app(settings=settings, session_factory=sessionmaker())
 
     request = make_mocked_request(
@@ -257,22 +262,24 @@ async def test_delta_handler_rejects_damaged_cursor_with_400() -> None:
 
 @pytest.mark.asyncio
 async def test_delta_handler_rejects_since_mismatch_between_query_and_cursor() -> None:
-    settings = AppSettings()
+    settings = AppSettings(SAGUR_INTEGRATION_HMAC_SECRET="test-secret")
     app = build_web_app(settings=settings, session_factory=sessionmaker())
 
-    encoded_cursor = _encode_delta_cursor(
+    encoded_payload = _encode_delta_cursor(
         DeltaCursor(
             since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
             effective_updated_at=datetime(2026, 5, 5, 10, 1, 0, tzinfo=timezone.utc),
             person_id="00000000-0000-0000-0000-000000000001",
             platform="telegram",
+            limit=1000,
         )
     )
+    encoded_cursor = _sign_cursor_payload(encoded_payload=encoded_payload, secret="test-secret")
     request = make_mocked_request(
         "GET",
         (
             "/internal/integration/v1/sagur/recipients/delta"
-            f"?since=2026-05-05T11:00:00Z&cursor={encoded_cursor}"
+            f"?since=2026-05-05T11:00:00Z&limit=1000&cursor={encoded_cursor}"
         ),
         app=app,
     )
@@ -282,3 +289,84 @@ async def test_delta_handler_rejects_since_mismatch_between_query_and_cursor() -
     assert response.status == 400
     assert body["status"] == "error"
     assert "since" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_delta_handler_rejects_tampered_signed_cursor_with_400() -> None:
+    settings = AppSettings(SAGUR_INTEGRATION_HMAC_SECRET="test-secret")
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+
+    encoded_payload = _encode_delta_cursor(
+        DeltaCursor(
+            since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
+            effective_updated_at=datetime(2026, 5, 5, 10, 1, 0, tzinfo=timezone.utc),
+            person_id="00000000-0000-0000-0000-000000000002",
+            platform="vk",
+            limit=1000,
+        )
+    )
+    signed_cursor = _sign_cursor_payload(encoded_payload=encoded_payload, secret="test-secret")
+    tampered_cursor = signed_cursor[:-1] + ("0" if signed_cursor[-1] != "0" else "1")
+
+    request = make_mocked_request(
+        "GET",
+        (
+            "/internal/integration/v1/sagur/recipients/delta"
+            f"?since=2026-05-05T10:00:00Z&limit=1000&cursor={tampered_cursor}"
+        ),
+        app=app,
+    )
+    response = await _delta_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 400
+    assert body["status"] == "error"
+    assert "cursor" in body["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delta_handler_rejects_limit_mismatch_between_query_and_cursor() -> None:
+    settings = AppSettings(SAGUR_INTEGRATION_HMAC_SECRET="test-secret")
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+
+    encoded_payload = _encode_delta_cursor(
+        DeltaCursor(
+            since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
+            effective_updated_at=datetime(2026, 5, 5, 10, 1, 0, tzinfo=timezone.utc),
+            person_id="00000000-0000-0000-0000-000000000003",
+            platform="max",
+            limit=1000,
+        )
+    )
+    encoded_cursor = _sign_cursor_payload(encoded_payload=encoded_payload, secret="test-secret")
+
+    request = make_mocked_request(
+        "GET",
+        (
+            "/internal/integration/v1/sagur/recipients/delta"
+            f"?since=2026-05-05T10:00:00Z&limit=999&cursor={encoded_cursor}"
+        ),
+        app=app,
+    )
+    response = await _delta_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 400
+    assert body["status"] == "error"
+    assert "limit" in body["message"].lower()
+
+
+def test_metrics_payload_contains_required_counters() -> None:
+    payload = _build_metrics_payload(
+        {
+            "requests_total": 10.0,
+            "request_latency_seconds_sum": 1.5,
+            "request_latency_seconds_count": 3.0,
+            "rows_returned_total": 25.0,
+            "auth_failures_total": 2.0,
+        }
+    )
+
+    assert "sagur_integration_requests_total 10" in payload
+    assert "sagur_integration_rows_returned_total 25" in payload
+    assert "sagur_integration_auth_failures_total 2" in payload

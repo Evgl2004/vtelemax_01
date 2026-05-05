@@ -328,6 +328,7 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
 
     all_items = first_items + second_items
     assert len(all_items) == 3
+    assert all(item["effective_updated_at"] is not None for item in all_items)
     keys = {(item["person_id"], item["platform"]) for item in all_items}
     assert keys == {
         ("00000000-0000-0000-0000-000000000011", "telegram"),
@@ -369,6 +370,7 @@ def test_live_delta_includes_new_guest_channel(
     )
     assert next_cursor is None
     assert max_seen_updated_at == _utc(2026, 5, 5, 10, 5, 0)
+    assert all(item["effective_updated_at"] is not None for item in items)
     assert ("00000000-0000-0000-0000-000000000021", "telegram") in {
         (item["person_id"], item["platform"]) for item in items
     }

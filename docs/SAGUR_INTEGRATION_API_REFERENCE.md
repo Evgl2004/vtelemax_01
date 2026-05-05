@@ -22,6 +22,7 @@
 
 - `GET /internal/integration/v1/sagur/recipients/snapshot`
 - `GET /internal/integration/v1/sagur/recipients/delta`
+- `GET /metrics` (служебный endpoint метрик, Prometheus text format)
 
 Базовый host (prod): `https://sobalbot.24vds.ru`
 
@@ -98,7 +99,7 @@ signature = hex(hmac_sha256(SAGUR_INTEGRATION_HMAC_SECRET, payload))
 | Параметр | Тип | Обязателен | Описание |
 |---|---|---|---|
 | `limit` | int | нет | Кол-во строк на страницу. По умолчанию `SAGUR_INTEGRATION_DEFAULT_LIMIT`, максимум `SAGUR_INTEGRATION_MAX_LIMIT`. |
-| `cursor` | string | нет | Opaque cursor для следующей страницы. |
+| `cursor` | string | нет | Signed opaque cursor для следующей страницы (`payload.signature`). |
 
 ## 5.2 Пример запроса
 
@@ -151,11 +152,12 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 |---|---|---|---|
 | `since` | RFC3339 UTC | да | Нижняя граница инкремента (строго `>`). |
 | `limit` | int | нет | Кол-во строк на страницу. |
-| `cursor` | string | нет | Opaque cursor следующей страницы. |
+| `cursor` | string | нет | Signed opaque cursor следующей страницы (`payload.signature`). |
 
 Важно:
 
 - если передан `cursor`, поле `since` в query должно совпадать с `since`, который закодирован в cursor;
+- если передан `cursor`, поле `limit` в query должно совпадать с `limit` внутри cursor;
 - иначе вернется `400`.
 
 ## 6.2 Пример запроса
@@ -190,7 +192,8 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
       "notifications_allowed": true,
       "is_registered": true,
       "state_updated_at": "2026-05-01T06:03:52.325334Z",
-      "account_created_at": "2026-05-01T06:03:39.899978Z"
+      "account_created_at": "2026-05-01T06:03:39.899978Z",
+      "effective_updated_at": "2026-05-01T06:03:52.325334Z"
     }
   ],
   "next_cursor": "eyJ...snip...",
@@ -214,6 +217,7 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 | `is_registered` | bool | Признак завершенной регистрации по платформе |
 | `state_updated_at` | RFC3339 UTC \| null | Время обновления платформенного state |
 | `account_created_at` | RFC3339 UTC | Время создания платформенного аккаунта |
+| `effective_updated_at` | RFC3339 UTC \| null | Используется в `delta`: `greatest(coalesce(state_updated_at, account_created_at), account_created_at)` |
 
 ---
 
@@ -232,9 +236,16 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 - сортировка: `effective_updated_at`, `person_id`, `platform` (ASC);
 - `effective_updated_at = greatest(coalesce(state_updated_at, account_created_at), account_created_at)`.
 
+## 8.3 Cursor hardening
+
+- курсор подписывается HMAC (`payload.signature`);
+- подпись курсора проверяется до SQL-выборки;
+- tampered cursor отклоняется с `400`;
+- курсор хранит `limit`, и `limit` в query обязан совпадать с `limit` внутри cursor.
+
 ---
 
-## 8.3 Индексы для производительности
+## 8.4 Индексы для производительности
 
 Для запросов `snapshot/delta` в БД должны быть применены индексы:
 
@@ -254,7 +265,7 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 | HTTP | Причина | Пример |
 |---|---|---|
 | `200` | Успех | Корректный HMAC и параметры |
-| `400` | Ошибка параметров | Некорректный `limit`, пустой/невалидный `since`, конфликт `since` и cursor |
+| `400` | Ошибка параметров | Некорректный `limit`, пустой/невалидный `since`, конфликт `since/limit` с cursor, поврежденный cursor |
 | `401` | Ошибка авторизации | Неверная подпись или просроченный timestamp |
 | `403` | Блокировка на `nginx` | IP не в allowlist |
 | `426` | HTTP bootstrap mode | TLS еще не активирован, для SAGUR endpoint требуется HTTPS |
@@ -297,7 +308,21 @@ sudo docker compose exec nginx sh -lc "wget -qO- http://sagur-integration-api:80
 {"status":"ok","service":"sagur-integration-api"}
 ```
 
-## 10.3 Аудит-логи сервиса
+## 10.3 Проверка endpoint метрик
+
+```bash
+sudo docker compose exec nginx sh -lc "wget -qO- http://sagur-integration-api:8086/metrics | head -n 20"
+```
+
+Ожидается текст с метриками:
+
+- `sagur_integration_requests_total`
+- `sagur_integration_request_latency_seconds_sum`
+- `sagur_integration_request_latency_seconds_count`
+- `sagur_integration_rows_returned_total`
+- `sagur_integration_auth_failures_total`
+
+## 10.4 Аудит-логи сервиса
 
 ```bash
 sudo docker compose logs --tail=120 sagur-integration-api

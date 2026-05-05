@@ -35,10 +35,12 @@ _REQUEST_ID_KEY = web.AppKey("request_id", str)
 _AUDIT_ROWS_KEY = web.AppKey("audit_rows", int)
 _AUDIT_SINCE_KEY = web.AppKey("audit_since", str | None)
 _AUDIT_CURSOR_HASH_KEY = web.AppKey("audit_cursor_hash", str | None)
+_METRICS_KEY = web.AppKey("metrics", dict[str, float])
 _SAGUR_PATH_PREFIX = "/internal/integration/v1/sagur/"
 _H_TIMESTAMP = "X-Sagur-Timestamp"
 _H_SIGNATURE = "X-Sagur-Signature"
 _H_REQUEST_ID = "X-Request-Id"
+_CURSOR_SIG_PREFIX = "cursor\n"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +50,7 @@ class SnapshotCursor:
     account_created_at: datetime
     person_id: str
     platform: str
+    limit: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +61,7 @@ class DeltaCursor:
     effective_updated_at: datetime
     person_id: str
     platform: str
+    limit: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +115,28 @@ def _hash_for_log(raw_value: str | None) -> str | None:
     if not value:
         return None
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+def _build_metrics_state() -> dict[str, float]:
+    """Инициализирует in-memory метрики интеграционного API."""
+
+    return {
+        "requests_total": 0.0,
+        "request_latency_seconds_sum": 0.0,
+        "request_latency_seconds_count": 0.0,
+        "rows_returned_total": 0.0,
+        "auth_failures_total": 0.0,
+    }
+
+
+def _metrics_record_request(*, app: web.Application, latency_seconds: float, rows: int = 0) -> None:
+    """Обновляет счетчики запросов/латентности/строк в ответе."""
+
+    metrics = app[_METRICS_KEY]
+    metrics["requests_total"] += 1
+    metrics["request_latency_seconds_sum"] += max(latency_seconds, 0.0)
+    metrics["request_latency_seconds_count"] += 1
+    metrics["rows_returned_total"] += max(rows, 0)
 
 
 def _resolve_request_id(request: web.Request) -> str:
@@ -191,6 +217,9 @@ async def _sagur_auth_middleware(
     settings = request.app[_SETTINGS_KEY]
     auth_error = _validate_hmac_auth(request=request, settings=settings)
     if auth_error is not None:
+        latency_seconds = time.perf_counter() - started_at
+        _metrics_record_request(app=request.app, latency_seconds=latency_seconds)
+        request.app[_METRICS_KEY]["auth_failures_total"] += 1
         logger.bind(component=_COMPONENT, stage="integration_audit").warning(
             "Запрос отклонен по авторизации. request_id={request_id}, caller_ip={caller_ip}, endpoint={endpoint}, status={status}.",
             request_id=request_id,
@@ -202,6 +231,12 @@ async def _sagur_auth_middleware(
     response = await handler(request)
 
     latency_ms = (time.perf_counter() - started_at) * 1000
+    rows = request.get(_AUDIT_ROWS_KEY)
+    _metrics_record_request(
+        app=request.app,
+        latency_seconds=latency_ms / 1000.0,
+        rows=rows if isinstance(rows, int) else 0,
+    )
     logger.bind(component=_COMPONENT, stage="integration_audit").info(
         "Интеграционный запрос обработан. request_id={request_id}, caller_ip={caller_ip}, endpoint={endpoint}, "
         "since={since}, cursor_hash={cursor_hash}, rows={rows}, status={status}, latency_ms={latency_ms:.2f}.",
@@ -227,6 +262,59 @@ def _to_rfc3339_utc(value: datetime | None) -> str | None:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _resolve_cursor_hmac_secret(settings: AppSettings) -> str:
+    """Возвращает HMAC-секрет для подписи cursor.
+
+    Примечание:
+    если секрет пустой, внешний доступ к endpoint всё равно блокируется middleware
+    с 503, а fallback нужен для unit-тестов прямого вызова handler.
+    """
+
+    secret = settings.sagur_integration_hmac_secret.strip()
+    if secret:
+        return secret
+    return "__local-dev-cursor-secret__"
+
+
+def _sign_cursor_payload(*, encoded_payload: str, secret: str) -> str:
+    """Подписывает cursor-полезную нагрузку и возвращает opaque signed cursor."""
+
+    signature = _build_hmac_signature(
+        secret=secret,
+        payload=f"{_CURSOR_SIG_PREFIX}{encoded_payload}",
+    ).lower()
+    return f"{encoded_payload}.{signature}"
+
+
+def _extract_signed_cursor_payload(*, raw_cursor: str, secret: str) -> tuple[str, bool]:
+    """Извлекает полезную нагрузку из signed cursor.
+
+    Возвращает:
+    - payload cursor;
+    - флаг signed (True/False).
+
+    Legacy-режим:
+    - cursor без подписи (без '.'): допускаем как v1 cursor для обратной совместимости.
+    """
+
+    if "." not in raw_cursor:
+        return raw_cursor, False
+
+    payload, signature = raw_cursor.rsplit(".", 1)
+    payload = payload.strip()
+    signature = signature.strip().lower()
+    if not payload or not signature:
+        raise ValueError("Некорректный cursor.")
+
+    expected_signature = _build_hmac_signature(
+        secret=secret,
+        payload=f"{_CURSOR_SIG_PREFIX}{payload}",
+    ).lower()
+    if not hmac.compare_digest(expected_signature, signature):
+        raise ValueError("Некорректный cursor.")
+    return payload, True
+
+
 def _parse_rfc3339_utc(value: str) -> datetime:
     """Парсит RFC3339 строку в aware-datetime UTC."""
 
@@ -243,18 +331,19 @@ def _encode_snapshot_cursor(cursor: SnapshotCursor) -> str:
     """Кодирует snapshot cursor в opaque строку."""
 
     payload = {
-        "v": 1,
+        "v": 2,
         "t": "snapshot",
         "account_created_at": _to_rfc3339_utc(cursor.account_created_at),
         "person_id": cursor.person_id,
         "platform": cursor.platform,
+        "limit": cursor.limit,
     }
     json_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     encoded = base64.urlsafe_b64encode(json_bytes).decode("ascii")
     return encoded.rstrip("=")
 
 
-def _decode_snapshot_cursor(raw_cursor: str) -> SnapshotCursor:
+def _decode_snapshot_cursor(raw_cursor: str, *, fallback_limit: int | None = None) -> SnapshotCursor:
     """Декодирует opaque cursor и валидирует структуру."""
 
     try:
@@ -264,24 +353,33 @@ def _decode_snapshot_cursor(raw_cursor: str) -> SnapshotCursor:
             raise ValueError("cursor payload must be object")
 
         version = int(payload.get("v"))
-        if version != 1:
-            raise ValueError("unsupported cursor version")
         if str(payload.get("t") or "") != "snapshot":
             raise ValueError("unsupported cursor type")
 
         account_created_at = _parse_rfc3339_utc(str(payload.get("account_created_at") or "").strip())
         person_id = str(payload.get("person_id") or "").strip()
         platform = str(payload.get("platform") or "").strip()
+        if version == 1:
+            if fallback_limit is None:
+                raise ValueError("legacy cursor requires fallback_limit")
+            limit = fallback_limit
+        elif version == 2:
+            limit = int(payload.get("limit"))
+        else:
+            raise ValueError("unsupported cursor version")
 
         if not person_id:
             raise ValueError("person_id is empty")
         if platform not in {"telegram", "vk", "max"}:
             raise ValueError("platform is invalid")
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
 
         return SnapshotCursor(
             account_created_at=account_created_at,
             person_id=person_id,
             platform=platform,
+            limit=limit,
         )
     except Exception as exc:  # noqa: BLE001
         raise ValueError("Некорректный cursor.") from exc
@@ -291,19 +389,20 @@ def _encode_delta_cursor(cursor: DeltaCursor) -> str:
     """Кодирует delta cursor в opaque строку."""
 
     payload = {
-        "v": 1,
+        "v": 2,
         "t": "delta",
         "since": _to_rfc3339_utc(cursor.since),
         "effective_updated_at": _to_rfc3339_utc(cursor.effective_updated_at),
         "person_id": cursor.person_id,
         "platform": cursor.platform,
+        "limit": cursor.limit,
     }
     json_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     encoded = base64.urlsafe_b64encode(json_bytes).decode("ascii")
     return encoded.rstrip("=")
 
 
-def _decode_delta_cursor(raw_cursor: str) -> DeltaCursor:
+def _decode_delta_cursor(raw_cursor: str, *, fallback_limit: int | None = None) -> DeltaCursor:
     """Декодирует opaque delta cursor и валидирует структуру."""
 
     try:
@@ -313,8 +412,6 @@ def _decode_delta_cursor(raw_cursor: str) -> DeltaCursor:
             raise ValueError("cursor payload must be object")
 
         version = int(payload.get("v"))
-        if version != 1:
-            raise ValueError("unsupported cursor version")
         if str(payload.get("t") or "") != "delta":
             raise ValueError("unsupported cursor type")
 
@@ -324,17 +421,28 @@ def _decode_delta_cursor(raw_cursor: str) -> DeltaCursor:
         )
         person_id = str(payload.get("person_id") or "").strip()
         platform = str(payload.get("platform") or "").strip()
+        if version == 1:
+            if fallback_limit is None:
+                raise ValueError("legacy cursor requires fallback_limit")
+            limit = fallback_limit
+        elif version == 2:
+            limit = int(payload.get("limit"))
+        else:
+            raise ValueError("unsupported cursor version")
 
         if not person_id:
             raise ValueError("person_id is empty")
         if platform not in {"telegram", "vk", "max"}:
             raise ValueError("platform is invalid")
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
 
         return DeltaCursor(
             since=since,
             effective_updated_at=effective_updated_at,
             person_id=person_id,
             platform=platform,
+            limit=limit,
         )
     except Exception as exc:  # noqa: BLE001
         raise ValueError("Некорректный cursor.") from exc
@@ -361,13 +469,27 @@ def _parse_limit_from_query(*, request: web.Request, settings: AppSettings) -> i
     return limit
 
 
-def _parse_cursor_from_query(request: web.Request) -> SnapshotCursor | None:
+def _parse_cursor_from_query(
+    request: web.Request,
+    *,
+    settings: AppSettings,
+    expected_limit: int,
+) -> SnapshotCursor | None:
     """Читает и декодирует snapshot cursor из query."""
 
     raw_cursor = str(request.query.get("cursor") or "").strip()
     if not raw_cursor:
         return None
-    return _decode_snapshot_cursor(raw_cursor)
+
+    secret = _resolve_cursor_hmac_secret(settings)
+    payload, is_signed = _extract_signed_cursor_payload(raw_cursor=raw_cursor, secret=secret)
+    cursor = _decode_snapshot_cursor(
+        payload,
+        fallback_limit=expected_limit if not is_signed else None,
+    )
+    if cursor.limit != expected_limit:
+        raise ValueError("Параметр limit должен совпадать с limit внутри cursor.")
+    return cursor
 
 
 def _parse_since_from_query(request: web.Request) -> datetime:
@@ -382,16 +504,30 @@ def _parse_since_from_query(request: web.Request) -> datetime:
         raise ValueError("Параметр since должен быть в формате RFC3339 UTC.") from exc
 
 
-def _parse_delta_cursor_from_query(request: web.Request) -> DeltaCursor | None:
+def _parse_delta_cursor_from_query(
+    request: web.Request,
+    *,
+    settings: AppSettings,
+    expected_limit: int,
+) -> DeltaCursor | None:
     """Читает и декодирует delta cursor из query."""
 
     raw_cursor = str(request.query.get("cursor") or "").strip()
     if not raw_cursor:
         return None
-    return _decode_delta_cursor(raw_cursor)
+
+    secret = _resolve_cursor_hmac_secret(settings)
+    payload, is_signed = _extract_signed_cursor_payload(raw_cursor=raw_cursor, secret=secret)
+    cursor = _decode_delta_cursor(
+        payload,
+        fallback_limit=expected_limit if not is_signed else None,
+    )
+    if cursor.limit != expected_limit:
+        raise ValueError("Параметр limit должен совпадать с limit внутри cursor.")
+    return cursor
 
 
-def _extract_snapshot_cursor_from_row(row: Any) -> SnapshotCursor:
+def _extract_snapshot_cursor_from_row(row: Any, *, limit: int) -> SnapshotCursor:
     """Формирует cursor из последней возвращенной строки."""
 
     account_created_at = row.account_created_at
@@ -401,10 +537,11 @@ def _extract_snapshot_cursor_from_row(row: Any) -> SnapshotCursor:
         account_created_at=account_created_at,
         person_id=row.person_id,
         platform=row.platform,
+        limit=limit,
     )
 
 
-def _extract_delta_cursor_from_row(*, row: Any, since: datetime) -> DeltaCursor:
+def _extract_delta_cursor_from_row(*, row: Any, since: datetime, limit: int) -> DeltaCursor:
     """Формирует delta cursor из последней строки страницы."""
 
     effective_updated_at = row.effective_updated_at
@@ -415,6 +552,7 @@ def _extract_delta_cursor_from_row(*, row: Any, since: datetime) -> DeltaCursor:
         effective_updated_at=effective_updated_at,
         person_id=row.person_id,
         platform=row.platform,
+        limit=limit,
     )
 
 
@@ -457,7 +595,9 @@ def _fetch_snapshot_page(
     if not has_more or not page_rows:
         return items, None
 
-    next_cursor = _encode_snapshot_cursor(_extract_snapshot_cursor_from_row(page_rows[-1]))
+    next_cursor = _encode_snapshot_cursor(
+        _extract_snapshot_cursor_from_row(page_rows[-1], limit=limit)
+    )
     return items, next_cursor
 
 
@@ -503,6 +643,9 @@ def _fetch_delta_page(
                 "is_registered": row.is_registered,
                 "state_updated_at": _to_rfc3339_utc(row.state_updated_at),
                 "account_created_at": _to_rfc3339_utc(row.account_created_at),
+                "effective_updated_at": _to_rfc3339_utc(
+                    effective_updated_at if isinstance(effective_updated_at, datetime) else None
+                ),
             }
         )
 
@@ -510,15 +653,49 @@ def _fetch_delta_page(
         return items, None, max_seen_updated_at
 
     next_cursor = _encode_delta_cursor(
-        _extract_delta_cursor_from_row(row=page_rows[-1], since=since)
+        _extract_delta_cursor_from_row(row=page_rows[-1], since=since, limit=limit)
     )
     return items, next_cursor, max_seen_updated_at
+
+
+def _build_metrics_payload(metrics: dict[str, float]) -> str:
+    """Формирует ответ /metrics в формате Prometheus text exposition."""
+
+    lines = [
+        "# HELP sagur_integration_requests_total Total integration API requests.",
+        "# TYPE sagur_integration_requests_total counter",
+        f"sagur_integration_requests_total {int(metrics['requests_total'])}",
+        "# HELP sagur_integration_request_latency_seconds_sum Accumulated request latency in seconds.",
+        "# TYPE sagur_integration_request_latency_seconds_sum counter",
+        f"sagur_integration_request_latency_seconds_sum {metrics['request_latency_seconds_sum']:.6f}",
+        "# HELP sagur_integration_request_latency_seconds_count Count of latency observations.",
+        "# TYPE sagur_integration_request_latency_seconds_count counter",
+        f"sagur_integration_request_latency_seconds_count {int(metrics['request_latency_seconds_count'])}",
+        "# HELP sagur_integration_rows_returned_total Total rows returned by snapshot/delta endpoints.",
+        "# TYPE sagur_integration_rows_returned_total counter",
+        f"sagur_integration_rows_returned_total {int(metrics['rows_returned_total'])}",
+        "# HELP sagur_integration_auth_failures_total Total failed auth checks.",
+        "# TYPE sagur_integration_auth_failures_total counter",
+        f"sagur_integration_auth_failures_total {int(metrics['auth_failures_total'])}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 async def _health_handler(request: web.Request) -> web.Response:
     """Health endpoint сервиса."""
 
     return _json_response_ok({"status": "ok", "service": "sagur-integration-api"})
+
+
+async def _metrics_handler(request: web.Request) -> web.Response:
+    """Prometheus-совместимый endpoint служебных метрик API."""
+
+    payload = _build_metrics_payload(request.app[_METRICS_KEY])
+    return web.Response(
+        status=200,
+        text=payload,
+        content_type="text/plain",
+    )
 
 
 async def _snapshot_handler(request: web.Request) -> web.Response:
@@ -533,15 +710,25 @@ async def _snapshot_handler(request: web.Request) -> web.Response:
 
     try:
         limit = _parse_limit_from_query(request=request, settings=settings)
-        cursor = _parse_cursor_from_query(request)
+        cursor = _parse_cursor_from_query(
+            request,
+            settings=settings,
+            expected_limit=limit,
+        )
     except ValueError as exc:
         return _json_response_error(status=400, message=str(exc))
 
-    items, next_cursor = _fetch_snapshot_page(
+    items, internal_next_cursor = _fetch_snapshot_page(
         session_factory=session_factory,
         limit=limit,
         cursor=cursor,
     )
+    next_cursor: str | None = None
+    if internal_next_cursor:
+        next_cursor = _sign_cursor_payload(
+            encoded_payload=internal_next_cursor,
+            secret=_resolve_cursor_hmac_secret(settings),
+        )
     request[_AUDIT_ROWS_KEY] = len(items)
     return _json_response_ok(
         {
@@ -564,7 +751,11 @@ async def _delta_handler(request: web.Request) -> web.Response:
     try:
         since = _parse_since_from_query(request)
         limit = _parse_limit_from_query(request=request, settings=settings)
-        cursor = _parse_delta_cursor_from_query(request)
+        cursor = _parse_delta_cursor_from_query(
+            request,
+            settings=settings,
+            expected_limit=limit,
+        )
     except ValueError as exc:
         return _json_response_error(status=400, message=str(exc))
 
@@ -575,12 +766,18 @@ async def _delta_handler(request: web.Request) -> web.Response:
         )
 
     request[_AUDIT_SINCE_KEY] = _to_rfc3339_utc(since)
-    items, next_cursor, max_seen_updated_at = _fetch_delta_page(
+    items, internal_next_cursor, max_seen_updated_at = _fetch_delta_page(
         session_factory=session_factory,
         since=since,
         limit=limit,
         cursor=cursor,
     )
+    next_cursor: str | None = None
+    if internal_next_cursor:
+        next_cursor = _sign_cursor_payload(
+            encoded_payload=internal_next_cursor,
+            secret=_resolve_cursor_hmac_secret(settings),
+        )
     request[_AUDIT_ROWS_KEY] = len(items)
     return _json_response_ok(
         {
@@ -605,7 +802,9 @@ def build_web_app(
     )
     app[_SETTINGS_KEY] = settings
     app[_SESSION_FACTORY_KEY] = session_factory
+    app[_METRICS_KEY] = _build_metrics_state()
     app.router.add_get("/health", _health_handler)
+    app.router.add_get("/metrics", _metrics_handler)
     app.router.add_get("/internal/integration/v1/sagur/recipients/snapshot", _snapshot_handler)
     app.router.add_get("/internal/integration/v1/sagur/recipients/delta", _delta_handler)
     return app
