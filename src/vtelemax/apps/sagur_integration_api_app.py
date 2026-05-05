@@ -422,9 +422,9 @@ def _build_snapshot_sql(*, has_cursor: bool) -> str:
 WHERE
     (ra.account_created_at, ra.person_id, ra.platform)
     > (
-        :cursor_account_created_at::timestamptz,
-        :cursor_person_id::uuid,
-        :cursor_platform::text
+        CAST(:cursor_account_created_at AS timestamptz),
+        CAST(:cursor_person_id AS uuid),
+        CAST(:cursor_platform AS text)
     )
 """
 
@@ -482,9 +482,9 @@ def _build_delta_sql(*, has_cursor: bool) -> str:
   AND
     (e.effective_updated_at, e.person_id, e.platform)
     > (
-        :cursor_effective_updated_at::timestamptz,
-        :cursor_person_id::uuid,
-        :cursor_platform::text
+        CAST(:cursor_effective_updated_at AS timestamptz),
+        CAST(:cursor_person_id AS text),
+        CAST(:cursor_platform AS text)
     )
 """
 
@@ -543,8 +543,8 @@ SELECT
 FROM enriched e
 WHERE
     (
-        (e.state_updated_at IS NOT NULL AND e.state_updated_at > :since::timestamptz)
-        OR e.account_created_at > :since::timestamptz
+        (e.state_updated_at IS NOT NULL AND e.state_updated_at > CAST(:since AS timestamptz))
+        OR e.account_created_at > CAST(:since AS timestamptz)
     )
 {cursor_clause}
 ORDER BY
