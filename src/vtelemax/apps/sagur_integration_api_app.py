@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hashlib
+import hmac
 import json
 import signal
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -24,6 +27,9 @@ _COMPONENT = "sagur_integration_api_app"
 _MAX_JSON_BODY_BYTES = 8 * 1024
 _SETTINGS_KEY = web.AppKey("settings", AppSettings)
 _SESSION_FACTORY_KEY = web.AppKey("session_factory", sessionmaker[Session])
+_SAGUR_PATH_PREFIX = "/internal/integration/v1/sagur/"
+_H_TIMESTAMP = "X-Sagur-Timestamp"
+_H_SIGNATURE = "X-Sagur-Signature"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +51,14 @@ class DeltaCursor:
     platform: str
 
 
+@dataclass(frozen=True, slots=True)
+class AuthError:
+    """Ошибка проверки подписи интеграционного запроса."""
+
+    status: int
+    message: str
+
+
 def build_postgres_session_factory(settings: AppSettings) -> sessionmaker[Session]:
     """Создает PostgreSQL session factory для SAGUR integration API."""
 
@@ -58,6 +72,85 @@ def _json_response_ok(payload: dict[str, Any]) -> web.Response:
 
 def _json_response_error(*, status: int, message: str) -> web.Response:
     return web.json_response({"status": "error", "message": message}, status=status)
+
+
+def _is_sagur_protected_path(path: str) -> bool:
+    """Определяет, требует ли path обязательную S2S-аутентификацию."""
+
+    return path.startswith(_SAGUR_PATH_PREFIX)
+
+
+def _build_hmac_payload(*, method: str, path_qs: str, timestamp: int) -> str:
+    """Собирает canonical payload для проверки HMAC подписи."""
+
+    return f"{method.upper()}\n{path_qs}\n{timestamp}"
+
+
+def _build_hmac_signature(*, secret: str, payload: str) -> str:
+    """Строит hex sha256 HMAC подпись."""
+
+    digest = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return digest
+
+
+def _validate_hmac_auth(
+    *,
+    request: web.Request,
+    settings: AppSettings,
+    now_epoch: int | None = None,
+) -> AuthError | None:
+    """Проверяет S2S подпись интеграционного запроса."""
+
+    secret = settings.sagur_integration_hmac_secret.strip()
+    if not secret:
+        return AuthError(
+            status=503,
+            message="Сервис интеграции временно недоступен: не настроен HMAC секрет.",
+        )
+
+    timestamp_raw = str(request.headers.get(_H_TIMESTAMP) or "").strip()
+    signature_raw = str(request.headers.get(_H_SIGNATURE) or "").strip().lower()
+    if not timestamp_raw or not signature_raw:
+        return AuthError(
+            status=401,
+            message="Не переданы обязательные заголовки интеграционной авторизации.",
+        )
+
+    try:
+        timestamp = int(timestamp_raw)
+    except ValueError:
+        return AuthError(status=401, message="Некорректный формат X-Sagur-Timestamp.")
+
+    current_epoch = int(time.time()) if now_epoch is None else int(now_epoch)
+    if abs(current_epoch - timestamp) > settings.sagur_integration_hmac_max_skew_seconds:
+        return AuthError(status=401, message="Подпись просрочена или время запроса недопустимо.")
+
+    payload = _build_hmac_payload(
+        method=request.method,
+        path_qs=request.path_qs,
+        timestamp=timestamp,
+    )
+    expected_signature = _build_hmac_signature(secret=secret, payload=payload)
+    if not hmac.compare_digest(expected_signature, signature_raw):
+        return AuthError(status=401, message="Неверная подпись интеграционного запроса.")
+    return None
+
+
+@web.middleware
+async def _sagur_auth_middleware(
+    request: web.Request,
+    handler: Any,
+) -> web.StreamResponse:
+    """Middleware обязательной S2S авторизации для SAGUR endpoint."""
+
+    if not _is_sagur_protected_path(request.path):
+        return await handler(request)
+
+    settings = request.app[_SETTINGS_KEY]
+    auth_error = _validate_hmac_auth(request=request, settings=settings)
+    if auth_error is not None:
+        return _json_response_error(status=auth_error.status, message=auth_error.message)
+    return await handler(request)
 
 
 def _to_rfc3339_utc(value: datetime | None) -> str | None:
@@ -584,7 +677,10 @@ def build_web_app(
 ) -> web.Application:
     """Собирает aiohttp приложение SAGUR integration API."""
 
-    app = web.Application(client_max_size=_MAX_JSON_BODY_BYTES)
+    app = web.Application(
+        client_max_size=_MAX_JSON_BODY_BYTES,
+        middlewares=[_sagur_auth_middleware],
+    )
     app[_SETTINGS_KEY] = settings
     app[_SESSION_FACTORY_KEY] = session_factory
     app.router.add_get("/health", _health_handler)

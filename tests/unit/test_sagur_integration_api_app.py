@@ -11,12 +11,16 @@ from sqlalchemy.orm import sessionmaker
 from vtelemax.apps.sagur_integration_api_app import (
     DeltaCursor,
     SnapshotCursor,
+    _build_hmac_payload,
+    _build_hmac_signature,
     _decode_delta_cursor,
     _decode_snapshot_cursor,
     _encode_delta_cursor,
     _encode_snapshot_cursor,
+    _is_sagur_protected_path,
     _parse_since_from_query,
     _parse_limit_from_query,
+    _validate_hmac_auth,
     _validate_service_settings,
     build_web_app,
 )
@@ -108,3 +112,77 @@ def test_parse_limit_from_query_uses_default_and_rejects_overflow() -> None:
     )
     with pytest.raises(ValueError):
         _parse_limit_from_query(request=request_overflow, settings=settings)
+
+
+def test_is_sagur_protected_path_detects_integration_routes() -> None:
+    assert _is_sagur_protected_path("/internal/integration/v1/sagur/recipients/snapshot") is True
+    assert _is_sagur_protected_path("/internal/integration/v1/sagur/recipients/delta") is True
+    assert _is_sagur_protected_path("/health") is False
+
+
+def test_validate_hmac_auth_accepts_valid_signature() -> None:
+    settings = AppSettings(
+        SAGUR_INTEGRATION_HMAC_SECRET="test-secret",
+        SAGUR_INTEGRATION_HMAC_MAX_SKEW_SECONDS=60,
+    )
+    timestamp = 1_777_777_777
+    path_qs = "/internal/integration/v1/sagur/recipients/snapshot?limit=1000"
+    payload = _build_hmac_payload(method="GET", path_qs=path_qs, timestamp=timestamp)
+    signature = _build_hmac_signature(secret="test-secret", payload=payload)
+
+    request = make_mocked_request(
+        "GET",
+        path_qs,
+        headers={
+            "X-Sagur-Timestamp": str(timestamp),
+            "X-Sagur-Signature": signature,
+        },
+    )
+
+    auth_error = _validate_hmac_auth(request=request, settings=settings, now_epoch=timestamp)
+    assert auth_error is None
+
+
+def test_validate_hmac_auth_rejects_invalid_signature_or_stale_timestamp() -> None:
+    settings = AppSettings(
+        SAGUR_INTEGRATION_HMAC_SECRET="test-secret",
+        SAGUR_INTEGRATION_HMAC_MAX_SKEW_SECONDS=60,
+    )
+    path_qs = "/internal/integration/v1/sagur/recipients/snapshot?limit=1000"
+    request_bad_signature = make_mocked_request(
+        "GET",
+        path_qs,
+        headers={
+            "X-Sagur-Timestamp": "1777777777",
+            "X-Sagur-Signature": "deadbeef",
+        },
+    )
+    bad_signature_error = _validate_hmac_auth(
+        request=request_bad_signature,
+        settings=settings,
+        now_epoch=1_777_777_777,
+    )
+    assert bad_signature_error is not None
+    assert bad_signature_error.status == 401
+
+    valid_payload = _build_hmac_payload(
+        method="GET",
+        path_qs=path_qs,
+        timestamp=1_777_777_000,
+    )
+    valid_signature = _build_hmac_signature(secret="test-secret", payload=valid_payload)
+    request_stale = make_mocked_request(
+        "GET",
+        path_qs,
+        headers={
+            "X-Sagur-Timestamp": "1777777000",
+            "X-Sagur-Signature": valid_signature,
+        },
+    )
+    stale_error = _validate_hmac_auth(
+        request=request_stale,
+        settings=settings,
+        now_epoch=1_777_777_777,
+    )
+    assert stale_error is not None
+    assert stale_error.status == 401
