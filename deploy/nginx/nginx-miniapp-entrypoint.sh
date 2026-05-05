@@ -3,6 +3,9 @@ set -eu
 
 DOMAIN="${TLS_DOMAIN:-sobalbot.24vds.ru}"
 CHECK_INTERVAL_SECONDS="${NGINX_CONFIG_CHECK_INTERVAL_SECONDS:-300}"
+SAGUR_IP_ALLOWLIST="${SAGUR_INTEGRATION_IP_ALLOWLIST:-}"
+SAGUR_RATE_LIMIT_RPM="${SAGUR_INTEGRATION_RATE_LIMIT_RPM:-60}"
+SAGUR_SERVICE_PORT="${SAGUR_INTEGRATION_SERVICE_PORT:-8086}"
 
 HTTP_TEMPLATE="/etc/nginx/templates/vk-miniapp-http.conf"
 TLS_TEMPLATE="/etc/nginx/templates/vk-miniapp-tls.conf"
@@ -12,11 +15,44 @@ CERT_PATH="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
 KEY_PATH="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
 
 render_http_config() {
-  cp "${HTTP_TEMPLATE}" "${ACTIVE_CONFIG}"
+  ALLOWLIST_BLOCK="$(build_sagur_allowlist_block)"
+  sed \
+    -e "s|__SAGUR_RATE_LIMIT_RPM__|${SAGUR_RATE_LIMIT_RPM}|g" \
+    -e "s|__SAGUR_SERVICE_PORT__|${SAGUR_SERVICE_PORT}|g" \
+    "${HTTP_TEMPLATE}" \
+    | awk -v block="${ALLOWLIST_BLOCK}" '
+      { if ($0 ~ /__SAGUR_ALLOWLIST_BLOCK__/) { print block; next } print }
+    ' > "${ACTIVE_CONFIG}"
 }
 
 render_tls_config() {
-  sed "s|__TLS_DOMAIN__|${DOMAIN}|g" "${TLS_TEMPLATE}" > "${ACTIVE_CONFIG}"
+  ALLOWLIST_BLOCK="$(build_sagur_allowlist_block)"
+  sed \
+    -e "s|__TLS_DOMAIN__|${DOMAIN}|g" \
+    -e "s|__SAGUR_RATE_LIMIT_RPM__|${SAGUR_RATE_LIMIT_RPM}|g" \
+    -e "s|__SAGUR_SERVICE_PORT__|${SAGUR_SERVICE_PORT}|g" \
+    "${TLS_TEMPLATE}" \
+    | awk -v block="${ALLOWLIST_BLOCK}" '
+      { if ($0 ~ /__SAGUR_ALLOWLIST_BLOCK__/) { print block; next } print }
+    ' > "${ACTIVE_CONFIG}"
+}
+
+build_sagur_allowlist_block() {
+  if [ -z "${SAGUR_IP_ALLOWLIST}" ]; then
+    printf '%s\n' 'deny all;'
+    return 0
+  fi
+
+  OLD_IFS="$IFS"
+  IFS=','
+  for token in ${SAGUR_IP_ALLOWLIST}; do
+    ip="$(echo "${token}" | xargs)"
+    if [ -n "${ip}" ]; then
+      printf 'allow %s;\n' "${ip}"
+    fi
+  done
+  IFS="$OLD_IFS"
+  printf '%s\n' 'deny all;'
 }
 
 is_tls_available() {
