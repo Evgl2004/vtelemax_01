@@ -17,11 +17,14 @@ from typing import Any
 
 from aiohttp import web
 from loguru import logger
-from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.infrastructure import configure_logging
-from vtelemax.infrastructure.postgres import build_engine, build_session_factory
+from vtelemax.infrastructure.postgres import (
+    SQLAlchemySagurRecipientsRepository,
+    build_engine,
+    build_session_factory,
+)
 from vtelemax.settings import AppSettings
 
 _COMPONENT = "sagur_integration_api_app"
@@ -388,171 +391,31 @@ def _parse_delta_cursor_from_query(request: web.Request) -> DeltaCursor | None:
     return _decode_delta_cursor(raw_cursor)
 
 
-def _extract_snapshot_cursor_from_row(row: dict[str, Any]) -> SnapshotCursor:
+def _extract_snapshot_cursor_from_row(row: Any) -> SnapshotCursor:
     """Формирует cursor из последней возвращенной строки."""
 
-    account_created_at = row["account_created_at"]
+    account_created_at = row.account_created_at
     if not isinstance(account_created_at, datetime):
         raise ValueError("account_created_at missing in snapshot row")
     return SnapshotCursor(
         account_created_at=account_created_at,
-        person_id=str(row["person_id"]),
-        platform=str(row["platform"]),
+        person_id=row.person_id,
+        platform=row.platform,
     )
 
 
-def _extract_delta_cursor_from_row(*, row: dict[str, Any], since: datetime) -> DeltaCursor:
+def _extract_delta_cursor_from_row(*, row: Any, since: datetime) -> DeltaCursor:
     """Формирует delta cursor из последней строки страницы."""
 
-    effective_updated_at = row["effective_updated_at"]
+    effective_updated_at = row.effective_updated_at
     if not isinstance(effective_updated_at, datetime):
         raise ValueError("effective_updated_at missing in delta row")
     return DeltaCursor(
         since=since,
         effective_updated_at=effective_updated_at,
-        person_id=str(row["person_id"]),
-        platform=str(row["platform"]),
+        person_id=row.person_id,
+        platform=row.platform,
     )
-
-
-def _build_snapshot_sql(*, has_cursor: bool) -> str:
-    cursor_clause = ""
-    if has_cursor:
-        cursor_clause = """
-WHERE
-    (ra.account_created_at, ra.person_id, ra.platform)
-    > (
-        CAST(:cursor_account_created_at AS timestamptz),
-        CAST(:cursor_person_id AS uuid),
-        CAST(:cursor_platform AS text)
-    )
-"""
-
-    return f"""
-WITH ranked_accounts AS (
-    SELECT
-        pa.person_id,
-        pa.platform,
-        pa.external_id,
-        pa.created_at AS account_created_at,
-        ROW_NUMBER() OVER (
-            PARTITION BY pa.person_id, pa.platform
-            ORDER BY pa.created_at DESC, pa.account_id DESC
-        ) AS row_rank
-    FROM platform_accounts pa
-),
-resolved_accounts AS (
-    SELECT
-        person_id,
-        platform,
-        external_id,
-        account_created_at
-    FROM ranked_accounts
-    WHERE row_rank = 1
-)
-SELECT
-    ra.person_id::text AS person_id,
-    ph.phone_e164 AS phone_e164,
-    ra.platform AS platform,
-    ra.external_id AS external_id,
-    COALESCE(pps.rules_accepted, false) AS rules_accepted,
-    COALESCE(pps.notifications_allowed, false) AS notifications_allowed,
-    COALESCE(pps.is_registered, false) AS is_registered,
-    pps.updated_at AS state_updated_at,
-    ra.account_created_at AS account_created_at
-FROM resolved_accounts ra
-JOIN phones ph
-    ON ph.person_id = ra.person_id
-LEFT JOIN person_platform_states pps
-    ON pps.person_id = ra.person_id
-   AND pps.platform = ra.platform
-{cursor_clause}
-ORDER BY
-    ra.account_created_at ASC,
-    ra.person_id ASC,
-    ra.platform ASC
-LIMIT :page_size
-"""
-
-
-def _build_delta_sql(*, has_cursor: bool) -> str:
-    cursor_clause = ""
-    if has_cursor:
-        cursor_clause = """
-  AND
-    (e.effective_updated_at, e.person_id, e.platform)
-    > (
-        CAST(:cursor_effective_updated_at AS timestamptz),
-        CAST(:cursor_person_id AS text),
-        CAST(:cursor_platform AS text)
-    )
-"""
-
-    return f"""
-WITH ranked_accounts AS (
-    SELECT
-        pa.person_id,
-        pa.platform,
-        pa.external_id,
-        pa.created_at AS account_created_at,
-        ROW_NUMBER() OVER (
-            PARTITION BY pa.person_id, pa.platform
-            ORDER BY pa.created_at DESC, pa.account_id DESC
-        ) AS row_rank
-    FROM platform_accounts pa
-),
-resolved_accounts AS (
-    SELECT
-        person_id,
-        platform,
-        external_id,
-        account_created_at
-    FROM ranked_accounts
-    WHERE row_rank = 1
-),
-enriched AS (
-    SELECT
-        ra.person_id::text AS person_id,
-        ph.phone_e164 AS phone_e164,
-        ra.platform AS platform,
-        ra.external_id AS external_id,
-        COALESCE(pps.rules_accepted, false) AS rules_accepted,
-        COALESCE(pps.notifications_allowed, false) AS notifications_allowed,
-        COALESCE(pps.is_registered, false) AS is_registered,
-        pps.updated_at AS state_updated_at,
-        ra.account_created_at AS account_created_at,
-        GREATEST(COALESCE(pps.updated_at, ra.account_created_at), ra.account_created_at) AS effective_updated_at
-    FROM resolved_accounts ra
-    JOIN phones ph
-        ON ph.person_id = ra.person_id
-    LEFT JOIN person_platform_states pps
-        ON pps.person_id = ra.person_id
-       AND pps.platform = ra.platform
-)
-SELECT
-    e.person_id,
-    e.phone_e164,
-    e.platform,
-    e.external_id,
-    e.rules_accepted,
-    e.notifications_allowed,
-    e.is_registered,
-    e.state_updated_at,
-    e.account_created_at,
-    e.effective_updated_at
-FROM enriched e
-WHERE
-    (
-        (e.state_updated_at IS NOT NULL AND e.state_updated_at > CAST(:since AS timestamptz))
-        OR e.account_created_at > CAST(:since AS timestamptz)
-    )
-{cursor_clause}
-ORDER BY
-    e.effective_updated_at ASC,
-    e.person_id ASC,
-    e.platform ASC
-LIMIT :page_size
-"""
 
 
 def _fetch_snapshot_page(
@@ -563,19 +426,14 @@ def _fetch_snapshot_page(
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Вычитывает snapshot-страницу и возвращает next_cursor."""
 
-    query = _build_snapshot_sql(has_cursor=cursor is not None)
-    params: dict[str, Any] = {"page_size": limit + 1}
-    if cursor is not None:
-        params.update(
-            {
-                "cursor_account_created_at": cursor.account_created_at,
-                "cursor_person_id": cursor.person_id,
-                "cursor_platform": cursor.platform,
-            }
-        )
-
     with session_factory() as db_session:
-        rows = db_session.execute(text(query), params).mappings().all()
+        repository = SQLAlchemySagurRecipientsRepository(db_session)
+        rows = repository.fetch_snapshot_page(
+            page_size=limit + 1,
+            cursor_account_created_at=cursor.account_created_at if cursor is not None else None,
+            cursor_person_id=cursor.person_id if cursor is not None else None,
+            cursor_platform=cursor.platform if cursor is not None else None,
+        )
 
     has_more = len(rows) > limit
     page_rows = rows[:limit]
@@ -584,22 +442,22 @@ def _fetch_snapshot_page(
     for row in page_rows:
         items.append(
             {
-                "person_id": str(row["person_id"]),
-                "phone_e164": str(row["phone_e164"]),
-                "platform": str(row["platform"]),
-                "external_id": str(row["external_id"]),
-                "rules_accepted": bool(row["rules_accepted"]),
-                "notifications_allowed": bool(row["notifications_allowed"]),
-                "is_registered": bool(row["is_registered"]),
-                "state_updated_at": _to_rfc3339_utc(row["state_updated_at"]),
-                "account_created_at": _to_rfc3339_utc(row["account_created_at"]),
+                "person_id": row.person_id,
+                "phone_e164": row.phone_e164,
+                "platform": row.platform,
+                "external_id": row.external_id,
+                "rules_accepted": row.rules_accepted,
+                "notifications_allowed": row.notifications_allowed,
+                "is_registered": row.is_registered,
+                "state_updated_at": _to_rfc3339_utc(row.state_updated_at),
+                "account_created_at": _to_rfc3339_utc(row.account_created_at),
             }
         )
 
     if not has_more or not page_rows:
         return items, None
 
-    next_cursor = _encode_snapshot_cursor(_extract_snapshot_cursor_from_row(dict(page_rows[-1])))
+    next_cursor = _encode_snapshot_cursor(_extract_snapshot_cursor_from_row(page_rows[-1]))
     return items, next_cursor
 
 
@@ -612,22 +470,15 @@ def _fetch_delta_page(
 ) -> tuple[list[dict[str, Any]], str | None, datetime | None]:
     """Вычитывает delta-страницу и возвращает next_cursor и max_seen_updated_at."""
 
-    query = _build_delta_sql(has_cursor=cursor is not None)
-    params: dict[str, Any] = {
-        "since": since,
-        "page_size": limit + 1,
-    }
-    if cursor is not None:
-        params.update(
-            {
-                "cursor_effective_updated_at": cursor.effective_updated_at,
-                "cursor_person_id": cursor.person_id,
-                "cursor_platform": cursor.platform,
-            }
-        )
-
     with session_factory() as db_session:
-        rows = db_session.execute(text(query), params).mappings().all()
+        repository = SQLAlchemySagurRecipientsRepository(db_session)
+        rows = repository.fetch_delta_page(
+            since=since,
+            page_size=limit + 1,
+            cursor_effective_updated_at=cursor.effective_updated_at if cursor is not None else None,
+            cursor_person_id=cursor.person_id if cursor is not None else None,
+            cursor_platform=cursor.platform if cursor is not None else None,
+        )
 
     has_more = len(rows) > limit
     page_rows = rows[:limit]
@@ -636,22 +487,22 @@ def _fetch_delta_page(
     max_seen_updated_at: datetime | None = None
 
     for row in page_rows:
-        effective_updated_at = row["effective_updated_at"]
+        effective_updated_at = row.effective_updated_at
         if isinstance(effective_updated_at, datetime):
             if max_seen_updated_at is None or effective_updated_at > max_seen_updated_at:
                 max_seen_updated_at = effective_updated_at
 
         items.append(
             {
-                "person_id": str(row["person_id"]),
-                "phone_e164": str(row["phone_e164"]),
-                "platform": str(row["platform"]),
-                "external_id": str(row["external_id"]),
-                "rules_accepted": bool(row["rules_accepted"]),
-                "notifications_allowed": bool(row["notifications_allowed"]),
-                "is_registered": bool(row["is_registered"]),
-                "state_updated_at": _to_rfc3339_utc(row["state_updated_at"]),
-                "account_created_at": _to_rfc3339_utc(row["account_created_at"]),
+                "person_id": row.person_id,
+                "phone_e164": row.phone_e164,
+                "platform": row.platform,
+                "external_id": row.external_id,
+                "rules_accepted": row.rules_accepted,
+                "notifications_allowed": row.notifications_allowed,
+                "is_registered": row.is_registered,
+                "state_updated_at": _to_rfc3339_utc(row.state_updated_at),
+                "account_created_at": _to_rfc3339_utc(row.account_created_at),
             }
         )
 
@@ -659,7 +510,7 @@ def _fetch_delta_page(
         return items, None, max_seen_updated_at
 
     next_cursor = _encode_delta_cursor(
-        _extract_delta_cursor_from_row(row=dict(page_rows[-1]), since=since)
+        _extract_delta_cursor_from_row(row=page_rows[-1], since=since)
     )
     return items, next_cursor, max_seen_updated_at
 

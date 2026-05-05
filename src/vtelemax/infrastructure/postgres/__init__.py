@@ -13,6 +13,7 @@ from .schema import (
     VkPhoneVerificationSessionRow,
 )
 from .session import build_engine, build_session_factory
+from .sagur_recipients_repository import SQLAlchemySagurRecipientsRepository
 from .support_repository import SQLAlchemySupportRepository
 from .uow import SQLAlchemyIdentityUnitOfWork
 
@@ -28,6 +29,7 @@ __all__ = [
     "VkPhoneVerificationSessionRow",
     "SQLAlchemyIdentityRepository",
     "SQLAlchemySupportRepository",
+    "SQLAlchemySagurRecipientsRepository",
     "SQLAlchemyIdentityUnitOfWork",
     "build_engine",
     "build_session_factory",

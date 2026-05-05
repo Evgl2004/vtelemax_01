@@ -11,7 +11,6 @@ from sqlalchemy.orm import sessionmaker
 from vtelemax.apps.sagur_integration_api_app import (
     DeltaCursor,
     SnapshotCursor,
-    _build_delta_sql,
     _build_hmac_payload,
     _build_hmac_signature,
     _decode_delta_cursor,
@@ -26,6 +25,7 @@ from vtelemax.apps.sagur_integration_api_app import (
     _validate_service_settings,
     build_web_app,
 )
+from vtelemax.infrastructure.postgres.sagur_recipients_repository import _build_delta_statement
 from vtelemax.settings import AppSettings
 
 
@@ -198,11 +198,12 @@ def test_validate_hmac_auth_rejects_invalid_signature_or_stale_timestamp() -> No
     assert stale_error.status == 401
 
 
-def test_delta_sql_uses_cast_for_bound_params() -> None:
-    query_without_cursor = _build_delta_sql(has_cursor=False)
-    query_with_cursor = _build_delta_sql(has_cursor=True)
+def test_delta_statement_uses_sqlalchemy_builder_without_raw_cast_syntax() -> None:
+    statement = _build_delta_statement(
+        since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
+        page_size=10,
+    )
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": False}))
 
-    assert "CAST(:since AS timestamptz)" in query_without_cursor
-    assert ":since::timestamptz" not in query_without_cursor
-    assert "CAST(:cursor_effective_updated_at AS timestamptz)" in query_with_cursor
-    assert "CAST(:cursor_person_id AS text)" in query_with_cursor
+    assert ":since::timestamptz" not in compiled
+    assert "WITH ranked_accounts AS" in compiled
