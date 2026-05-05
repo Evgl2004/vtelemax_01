@@ -94,6 +94,12 @@ class PersonPlatformStateRow(Base):
         ),
         Index("ix_person_platform_states_person_id", "person_id"),
         Index("ix_person_platform_states_platform", "platform"),
+        Index(
+            "ix_person_platform_states_updated_at_person_id_platform",
+            "updated_at",
+            "person_id",
+            "platform",
+        ),
     )
 
     person_id: Mapped[UUID] = mapped_column(
@@ -165,6 +171,13 @@ class PlatformAccountRow(Base):
             name="ck_platform_accounts_platform_allowed",
         ),
         Index("ix_platform_accounts_person_id", "person_id"),
+        Index(
+            "ix_platform_accounts_created_at_person_id_platform",
+            "created_at",
+            "person_id",
+            "platform",
+        ),
+        Index("ix_platform_accounts_person_id_platform", "person_id", "platform"),
     )
 
     account_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
