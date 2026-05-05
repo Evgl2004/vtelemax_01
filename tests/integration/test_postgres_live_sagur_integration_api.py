@@ -83,6 +83,9 @@ def _add_person_with_channel(
             created_at=account_created_at,
         )
     )
+    # На live PostgreSQL фиксируем родительские записи до platform state,
+    # чтобы исключить нарушение FK из-за порядка пакетной вставки.
+    session.flush()
     if state_updated_at is None:
         return
     session.add(
@@ -288,4 +291,3 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
 
     max_seen_combined = max(first_max_seen, second_max_seen)
     assert max_seen_combined == _utc(2026, 5, 5, 10, 2, 0)
-
