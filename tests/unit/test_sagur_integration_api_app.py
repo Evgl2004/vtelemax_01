@@ -17,6 +17,7 @@ from vtelemax.apps.sagur_integration_api_app import (
     _decode_snapshot_cursor,
     _encode_delta_cursor,
     _encode_snapshot_cursor,
+    _hash_for_log,
     _is_sagur_protected_path,
     _parse_since_from_query,
     _parse_limit_from_query,
@@ -112,6 +113,14 @@ def test_parse_limit_from_query_uses_default_and_rejects_overflow() -> None:
     )
     with pytest.raises(ValueError):
         _parse_limit_from_query(request=request_overflow, settings=settings)
+
+
+def test_hash_for_log_returns_none_for_empty_and_short_hash_for_value() -> None:
+    assert _hash_for_log(None) is None
+    assert _hash_for_log("") is None
+    result = _hash_for_log("cursor-value")
+    assert isinstance(result, str)
+    assert len(result) == 12
 
 
 def test_is_sagur_protected_path_detects_integration_routes() -> None:

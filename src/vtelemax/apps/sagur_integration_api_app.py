@@ -10,6 +10,7 @@ import hmac
 import json
 import signal
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -27,9 +28,14 @@ _COMPONENT = "sagur_integration_api_app"
 _MAX_JSON_BODY_BYTES = 8 * 1024
 _SETTINGS_KEY = web.AppKey("settings", AppSettings)
 _SESSION_FACTORY_KEY = web.AppKey("session_factory", sessionmaker[Session])
+_REQUEST_ID_KEY = web.AppKey("request_id", str)
+_AUDIT_ROWS_KEY = web.AppKey("audit_rows", int)
+_AUDIT_SINCE_KEY = web.AppKey("audit_since", str | None)
+_AUDIT_CURSOR_HASH_KEY = web.AppKey("audit_cursor_hash", str | None)
 _SAGUR_PATH_PREFIX = "/internal/integration/v1/sagur/"
 _H_TIMESTAMP = "X-Sagur-Timestamp"
 _H_SIGNATURE = "X-Sagur-Signature"
+_H_REQUEST_ID = "X-Request-Id"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +99,35 @@ def _build_hmac_signature(*, secret: str, payload: str) -> str:
     return digest
 
 
+def _hash_for_log(raw_value: str | None) -> str | None:
+    """Возвращает короткий безопасный hash для логирования чувствительных параметров."""
+
+    if raw_value is None:
+        return None
+    value = raw_value.strip()
+    if not value:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+def _resolve_request_id(request: web.Request) -> str:
+    """Возвращает request id из заголовка или генерирует новый."""
+
+    raw_request_id = str(request.headers.get(_H_REQUEST_ID) or "").strip()
+    if raw_request_id:
+        return raw_request_id[:128]
+    return uuid.uuid4().hex
+
+
+def _resolve_caller_ip(request: web.Request) -> str:
+    """Определяет IP вызывающей стороны для аудит-логов."""
+
+    x_real_ip = str(request.headers.get("X-Real-IP") or "").strip()
+    if x_real_ip:
+        return x_real_ip
+    return str(request.remote or "-")
+
+
 def _validate_hmac_auth(
     *,
     request: web.Request,
@@ -143,14 +178,40 @@ async def _sagur_auth_middleware(
 ) -> web.StreamResponse:
     """Middleware обязательной S2S авторизации для SAGUR endpoint."""
 
+    request_id = _resolve_request_id(request)
+    request[_REQUEST_ID_KEY] = request_id
     if not _is_sagur_protected_path(request.path):
         return await handler(request)
+
+    started_at = time.perf_counter()
 
     settings = request.app[_SETTINGS_KEY]
     auth_error = _validate_hmac_auth(request=request, settings=settings)
     if auth_error is not None:
+        logger.bind(component=_COMPONENT, stage="integration_audit").warning(
+            "Запрос отклонен по авторизации. request_id={request_id}, caller_ip={caller_ip}, endpoint={endpoint}, status={status}.",
+            request_id=request_id,
+            caller_ip=_resolve_caller_ip(request),
+            endpoint=request.path_qs,
+            status=auth_error.status,
+        )
         return _json_response_error(status=auth_error.status, message=auth_error.message)
-    return await handler(request)
+    response = await handler(request)
+
+    latency_ms = (time.perf_counter() - started_at) * 1000
+    logger.bind(component=_COMPONENT, stage="integration_audit").info(
+        "Интеграционный запрос обработан. request_id={request_id}, caller_ip={caller_ip}, endpoint={endpoint}, "
+        "since={since}, cursor_hash={cursor_hash}, rows={rows}, status={status}, latency_ms={latency_ms:.2f}.",
+        request_id=request_id,
+        caller_ip=_resolve_caller_ip(request),
+        endpoint=request.path_qs,
+        since=request.get(_AUDIT_SINCE_KEY),
+        cursor_hash=request.get(_AUDIT_CURSOR_HASH_KEY),
+        rows=request.get(_AUDIT_ROWS_KEY),
+        status=response.status,
+        latency_ms=latency_ms,
+    )
+    return response
 
 
 def _to_rfc3339_utc(value: datetime | None) -> str | None:
@@ -615,6 +676,10 @@ async def _snapshot_handler(request: web.Request) -> web.Response:
     settings = request.app[_SETTINGS_KEY]
     session_factory = request.app[_SESSION_FACTORY_KEY]
 
+    raw_cursor = str(request.query.get("cursor") or "").strip()
+    request[_AUDIT_SINCE_KEY] = None
+    request[_AUDIT_CURSOR_HASH_KEY] = _hash_for_log(raw_cursor)
+
     try:
         limit = _parse_limit_from_query(request=request, settings=settings)
         cursor = _parse_cursor_from_query(request)
@@ -626,6 +691,7 @@ async def _snapshot_handler(request: web.Request) -> web.Response:
         limit=limit,
         cursor=cursor,
     )
+    request[_AUDIT_ROWS_KEY] = len(items)
     return _json_response_ok(
         {
             "items": items,
@@ -641,6 +707,9 @@ async def _delta_handler(request: web.Request) -> web.Response:
     settings = request.app[_SETTINGS_KEY]
     session_factory = request.app[_SESSION_FACTORY_KEY]
 
+    raw_cursor = str(request.query.get("cursor") or "").strip()
+    request[_AUDIT_CURSOR_HASH_KEY] = _hash_for_log(raw_cursor)
+
     try:
         since = _parse_since_from_query(request)
         limit = _parse_limit_from_query(request=request, settings=settings)
@@ -654,12 +723,14 @@ async def _delta_handler(request: web.Request) -> web.Response:
             message="Параметр since должен совпадать с since внутри cursor.",
         )
 
+    request[_AUDIT_SINCE_KEY] = _to_rfc3339_utc(since)
     items, next_cursor, max_seen_updated_at = _fetch_delta_page(
         session_factory=session_factory,
         since=since,
         limit=limit,
         cursor=cursor,
     )
+    request[_AUDIT_ROWS_KEY] = len(items)
     return _json_response_ok(
         {
             "items": items,
