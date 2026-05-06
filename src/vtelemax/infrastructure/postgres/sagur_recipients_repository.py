@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import and_, cast, false, func, or_, select, tuple_
+from sqlalchemy import and_, cast, false, func, select, tuple_
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
 from sqlalchemy.types import String
 
-from .schema import PersonPlatformStateRow, PhoneRow, PlatformAccountRow
+from .schema import PersonPlatformStateRow, PersonRow, PhoneRow, PlatformAccountRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,13 +21,18 @@ class SagurRecipientProjection:
     person_id: str
     phone_e164: str
     platform: str
-    external_id: str
+    external_id: str | None
     rules_accepted: bool
     notifications_allowed: bool
     is_registered: bool
     state_updated_at: datetime | None
     account_created_at: datetime
     effective_updated_at: datetime
+    profile_first_name: str | None
+    profile_last_name: str | None
+    profile_gender: str | None
+    profile_email: str | None
+    profile_birthdate: date | None
 
 
 class SQLAlchemySagurRecipientsRepository:
@@ -78,17 +83,23 @@ class SQLAlchemySagurRecipientsRepository:
 
 
 def _to_projection(row: Any) -> SagurRecipientProjection:
+    external_id_raw = row["external_id"]
     return SagurRecipientProjection(
         person_id=str(row["person_id"]),
         phone_e164=str(row["phone_e164"]),
         platform=str(row["platform"]),
-        external_id=str(row["external_id"]),
+        external_id=None if external_id_raw is None else str(external_id_raw),
         rules_accepted=bool(row["rules_accepted"]),
         notifications_allowed=bool(row["notifications_allowed"]),
         is_registered=bool(row["is_registered"]),
         state_updated_at=row["state_updated_at"],
         account_created_at=row["account_created_at"],
         effective_updated_at=row["effective_updated_at"],
+        profile_first_name=row["profile_first_name"],
+        profile_last_name=row["profile_last_name"],
+        profile_gender=row["profile_gender"],
+        profile_email=row["profile_email"],
+        profile_birthdate=row["profile_birthdate"],
     )
 
 
@@ -139,13 +150,22 @@ def _build_enriched_cte() -> Any:
             func.coalesce(PersonPlatformStateRow.is_registered, false()).label("is_registered"),
             PersonPlatformStateRow.updated_at.label("state_updated_at"),
             resolved_accounts.c.account_created_at.label("account_created_at"),
+            PersonRow.first_name_input.label("profile_first_name"),
+            PersonRow.last_name_input.label("profile_last_name"),
+            PersonRow.gender.label("profile_gender"),
+            PersonRow.email.label("profile_email"),
+            PersonRow.birth_date.label("profile_birthdate"),
+            PersonRow.updated_at.label("profile_updated_at"),
             func.greatest(
                 func.coalesce(PersonPlatformStateRow.updated_at, resolved_accounts.c.account_created_at),
                 resolved_accounts.c.account_created_at,
+                PersonRow.updated_at,
             ).label("effective_updated_at"),
         )
         .select_from(
-            resolved_accounts.join(PhoneRow, PhoneRow.person_id == resolved_accounts.c.person_id).outerjoin(
+            resolved_accounts.join(PersonRow, PersonRow.person_id == resolved_accounts.c.person_id)
+            .join(PhoneRow, PhoneRow.person_id == resolved_accounts.c.person_id)
+            .outerjoin(
                 PersonPlatformStateRow,
                 and_(
                     PersonPlatformStateRow.person_id == resolved_accounts.c.person_id,
@@ -169,6 +189,11 @@ def _select_projection_from_enriched(enriched: Any) -> Select[Any]:
         enriched.c.state_updated_at,
         enriched.c.account_created_at,
         enriched.c.effective_updated_at,
+        enriched.c.profile_first_name,
+        enriched.c.profile_last_name,
+        enriched.c.profile_gender,
+        enriched.c.profile_email,
+        enriched.c.profile_birthdate,
     )
 
 
@@ -208,12 +233,7 @@ def _build_delta_statement(
     cursor_platform: str | None = None,
 ) -> Select[Any]:
     enriched = _build_enriched_cte()
-    statement = _select_projection_from_enriched(enriched).where(
-        or_(
-            and_(enriched.c.state_updated_at.is_not(None), enriched.c.state_updated_at > since),
-            enriched.c.account_created_at > since,
-        )
-    )
+    statement = _select_projection_from_enriched(enriched).where(enriched.c.effective_updated_at > since)
 
     if (
         cursor_effective_updated_at is not None
@@ -230,4 +250,3 @@ def _build_delta_statement(
         enriched.c.person_id.asc(),
         enriched.c.platform.asc(),
     ).limit(page_size)
-

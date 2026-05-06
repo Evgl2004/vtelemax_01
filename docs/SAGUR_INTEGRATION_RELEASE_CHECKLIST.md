@@ -11,8 +11,8 @@
   - `person_id ASC`
   - `platform ASC`
 - Отбор `delta`:
-  - `person_platform_states.updated_at > since`
-  - или `platform_accounts.created_at > since`
+  - `effective_updated_at > since`
+  - где `effective_updated_at = greatest(coalesce(state_updated_at, account_created_at), account_created_at, profile_updated_at)`
 - HMAC-аутентификация запроса (`X-Sagur-Timestamp`, `X-Sagur-Signature`).
 - Cursor hardening:
   - signed cursor (`payload.signature`);
@@ -20,6 +20,12 @@
   - `limit` в cursor, контроль совпадения с query.
 - Расширение ответа `delta`:
   - поле `effective_updated_at` в `items[]`.
+- Профиль гостя в `items[]`:
+  - `profile.first_name`
+  - `profile.last_name`
+  - `profile.gender`
+  - `profile.email`
+  - `profile.birthdate` (`YYYY-MM-DD`)
 - Метрики `/metrics` в формате Prometheus.
 - Индексы производительности:
   - `person_platform_states(updated_at, person_id, platform)`
@@ -58,6 +64,7 @@
   - `next_cursor` корректно продвигает страницу;
   - `max_seen_updated_at` корректен.
 - На `delta` доступно поле `effective_updated_at`.
+- В `snapshot/delta` доступен блок `profile` по контракту v1.1.
 - Метрики `/metrics` доступны и читаются.
 - В логах есть `request_id`, endpoint, rows, status, latency.
 

@@ -193,7 +193,14 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
       "is_registered": true,
       "state_updated_at": "2026-05-01T06:03:52.325334Z",
       "account_created_at": "2026-05-01T06:03:39.899978Z",
-      "effective_updated_at": "2026-05-01T06:03:52.325334Z"
+      "effective_updated_at": "2026-05-01T06:03:52.325334Z",
+      "profile": {
+        "first_name": "Иван",
+        "last_name": "Иванов",
+        "gender": "male",
+        "email": "ivan@example.com",
+        "birthdate": "1991-05-17"
+      }
     }
   ],
   "next_cursor": "eyJ...snip...",
@@ -211,13 +218,18 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 | `person_id` | UUID string | Идентификатор персоны в vtelemax |
 | `phone_e164` | string | Телефон в формате E.164 |
 | `platform` | enum | `telegram` \| `vk` \| `max` |
-| `external_id` | string | Идентификатор пользователя в платформе |
+| `external_id` | string \| null | Идентификатор пользователя в платформе |
 | `rules_accepted` | bool | Согласие с правилами по платформе |
 | `notifications_allowed` | bool | Согласие на рассылку по платформе |
 | `is_registered` | bool | Признак завершенной регистрации по платформе |
 | `state_updated_at` | RFC3339 UTC \| null | Время обновления платформенного state |
-| `account_created_at` | RFC3339 UTC | Время создания платформенного аккаунта |
-| `effective_updated_at` | RFC3339 UTC \| null | Используется в `delta`: `greatest(coalesce(state_updated_at, account_created_at), account_created_at)` |
+| `account_created_at` | RFC3339 UTC \| null | Время создания платформенного аккаунта |
+| `effective_updated_at` | RFC3339 UTC \| null | Используется в `delta`: `greatest(coalesce(state_updated_at, account_created_at), account_created_at, profile_updated_at)` |
+| `profile.first_name` | string \| null | Имя гостя |
+| `profile.last_name` | string \| null | Фамилия гостя |
+| `profile.gender` | string \| null | Пол |
+| `profile.email` | string \| null | Email |
+| `profile.birthdate` | `YYYY-MM-DD` \| null | Дата рождения |
 
 ---
 
@@ -230,11 +242,9 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 
 ## 8.2 Delta
 
-- строка попадает в delta, если:
-  - `state_updated_at > since`, или
-  - `account_created_at > since`;
+- строка попадает в delta, если `effective_updated_at > since`;
 - сортировка: `effective_updated_at`, `person_id`, `platform` (ASC);
-- `effective_updated_at = greatest(coalesce(state_updated_at, account_created_at), account_created_at)`.
+- `effective_updated_at = greatest(coalesce(state_updated_at, account_created_at), account_created_at, profile_updated_at)`.
 
 ## 8.3 Cursor hardening
 

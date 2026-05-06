@@ -241,6 +241,8 @@ def test_live_snapshot_fetches_all_rows_without_duplicates(
     channel_keys = {(item["person_id"], item["platform"]) for item in all_items}
     assert len(all_items) == 3
     assert len(channel_keys) == 3
+    assert all("effective_updated_at" in item for item in all_items)
+    assert all("profile" in item for item in all_items)
 
 
 @pytest.mark.postgres_live
@@ -329,6 +331,7 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
     all_items = first_items + second_items
     assert len(all_items) == 3
     assert all(item["effective_updated_at"] is not None for item in all_items)
+    assert all("profile" in item for item in all_items)
     keys = {(item["person_id"], item["platform"]) for item in all_items}
     assert keys == {
         ("00000000-0000-0000-0000-000000000011", "telegram"),
@@ -371,6 +374,7 @@ def test_live_delta_includes_new_guest_channel(
     assert next_cursor is None
     assert max_seen_updated_at == _utc(2026, 5, 5, 10, 5, 0)
     assert all(item["effective_updated_at"] is not None for item in items)
+    assert all("profile" in item for item in items)
     assert ("00000000-0000-0000-0000-000000000021", "telegram") in {
         (item["person_id"], item["platform"]) for item in items
     }
@@ -465,3 +469,56 @@ def test_live_delta_includes_notifications_deactivation(
     ]
     assert len(target_items) == 1
     assert target_items[0]["notifications_allowed"] is False
+
+
+@pytest.mark.postgres_live
+def test_live_delta_includes_profile_changes(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет, что изменение профильных полей в persons попадает в delta."""
+
+    since = _utc(2026, 5, 5, 10, 0, 0)
+    person_id = UUID("00000000-0000-0000-0000-000000000024")
+    profile_updated_at = _utc(2026, 5, 5, 10, 8, 0)
+
+    with postgres_session_factory() as session:
+        _add_person_with_channel(
+            session,
+            person_id=person_id,
+            phone_e164="+79990000024",
+            platform="telegram",
+            external_id="tg-24",
+            account_created_at=_utc(2026, 5, 5, 9, 40, 0),
+            state_updated_at=_utc(2026, 5, 5, 9, 45, 0),
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_registered=True,
+        )
+        session.commit()
+
+    with postgres_session_factory() as session:
+        person_row = session.get(PersonRow, person_id)
+        assert person_row is not None
+        person_row.first_name_input = "Иван"
+        person_row.last_name_input = "Иванов"
+        person_row.updated_at = profile_updated_at
+        session.commit()
+
+    items, _, max_seen_updated_at = _fetch_delta_page(
+        session_factory=postgres_session_factory,
+        since=since,
+        limit=10,
+        cursor=None,
+    )
+
+    target_items = [
+        item
+        for item in items
+        if item["person_id"] == "00000000-0000-0000-0000-000000000024"
+        and item["platform"] == "telegram"
+    ]
+    assert len(target_items) == 1
+    assert target_items[0]["profile"]["first_name"] == "Иван"
+    assert target_items[0]["profile"]["last_name"] == "Иванов"
+    assert target_items[0]["effective_updated_at"] == "2026-05-05T10:08:00Z"
+    assert max_seen_updated_at == profile_updated_at

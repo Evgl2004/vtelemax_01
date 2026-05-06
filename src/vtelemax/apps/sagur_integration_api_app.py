@@ -589,6 +589,18 @@ def _fetch_snapshot_page(
                 "is_registered": row.is_registered,
                 "state_updated_at": _to_rfc3339_utc(row.state_updated_at),
                 "account_created_at": _to_rfc3339_utc(row.account_created_at),
+                "effective_updated_at": _to_rfc3339_utc(row.effective_updated_at),
+                "profile": {
+                    "first_name": row.profile_first_name,
+                    "last_name": row.profile_last_name,
+                    "gender": row.profile_gender,
+                    "email": row.profile_email,
+                    "birthdate": (
+                        row.profile_birthdate.isoformat()
+                        if row.profile_birthdate is not None
+                        else None
+                    ),
+                },
             }
         )
 
@@ -646,6 +658,17 @@ def _fetch_delta_page(
                 "effective_updated_at": _to_rfc3339_utc(
                     effective_updated_at if isinstance(effective_updated_at, datetime) else None
                 ),
+                "profile": {
+                    "first_name": row.profile_first_name,
+                    "last_name": row.profile_last_name,
+                    "gender": row.profile_gender,
+                    "email": row.profile_email,
+                    "birthdate": (
+                        row.profile_birthdate.isoformat()
+                        if row.profile_birthdate is not None
+                        else None
+                    ),
+                },
             }
         )
 
