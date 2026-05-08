@@ -123,3 +123,15 @@ def test_settings_rejects_non_positive_profile_sync_batch_limit_and_attempts() -
 
     with pytest.raises(ValidationError):
         AppSettings(PROFILE_SYNC_MAX_ATTEMPTS=0)
+
+
+def test_settings_reads_max_contact_hash_flags() -> None:
+    """Проверяет чтение флагов strict/shadow верификации MAX-контакта."""
+
+    settings = AppSettings(
+        MAX_CONTACT_STRICT_HASH_ENABLED=True,
+        MAX_CONTACT_HASH_SHADOW_MODE_ENABLED=False,
+    )
+
+    assert settings.max_contact_strict_hash_enabled is True
+    assert settings.max_contact_hash_shadow_mode_enabled is False

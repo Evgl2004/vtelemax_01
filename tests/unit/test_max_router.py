@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from types import SimpleNamespace
 
 import pytest
@@ -11,9 +13,11 @@ from vtelemax.adapters.max.router import (
     _extract_callback_message_id,
     _extract_max_upload_token,
     _extract_contact_attachment,
+    _extract_contact_attachment_details,
     _extract_phone_from_vcf,
     _is_message_not_modified_error,
     _send_response,
+    _verify_max_contact_hash,
 )
 
 
@@ -55,6 +59,68 @@ def test_extract_contact_attachment_reads_vcf_phone_from_attachment() -> None:
     result = _extract_contact_attachment(event)
 
     assert result == "+79123456789"
+
+
+def test_extract_contact_attachment_data_reads_hash_and_owner() -> None:
+    """Проверяет извлечение hash/max_info.user_id из contact-вложения MAX."""
+
+    event = SimpleNamespace(
+        message=SimpleNamespace(
+            body=SimpleNamespace(
+                attachments=[
+                    SimpleNamespace(
+                        type="contact",
+                        payload=SimpleNamespace(
+                            vcf_info="BEGIN:VCARD\r\nVERSION:3.0\r\nTEL;TYPE=CELL:+7 (912) 345-67-89\r\nEND:VCARD\r\n",
+                            hash="abc123",
+                            max_info=SimpleNamespace(user_id=555001),
+                        ),
+                    )
+                ]
+            )
+        )
+    )
+
+    result = _extract_contact_attachment_details(event)
+
+    assert result is not None
+    assert result.phone_number == "+79123456789"
+    assert result.contact_hash == "abc123"
+    assert result.max_user_id == 555001
+
+
+def test_verify_max_contact_hash_accepts_crlf_and_lf_variants() -> None:
+    """Проверяет устойчивую верификацию hash при отличиях переносов строк в vcf_info."""
+
+    token = "test-token"
+    vcf_crlf = "BEGIN:VCARD\r\nVERSION:3.0\r\nTEL;TYPE=CELL:+79123456789\r\nEND:VCARD\r\n"
+    expected_hash = hmac.new(
+        token.encode("utf-8"),
+        vcf_crlf.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    vcf_lf = vcf_crlf.replace("\r\n", "\n")
+
+    assert _verify_max_contact_hash(
+        access_token=token,
+        vcf_info=vcf_crlf,
+        provided_hash=expected_hash,
+    )
+    assert _verify_max_contact_hash(
+        access_token=token,
+        vcf_info=vcf_lf,
+        provided_hash=expected_hash,
+    )
+
+
+def test_verify_max_contact_hash_rejects_invalid_signature() -> None:
+    """Проверяет отклонение невалидного hash."""
+
+    assert not _verify_max_contact_hash(
+        access_token="test-token",
+        vcf_info="BEGIN:VCARD\r\nTEL:+79123456789\r\nEND:VCARD\r\n",
+        provided_hash="deadbeef",
+    )
 
 
 def test_extract_contact_attachment_returns_none_for_invalid_payload() -> None:

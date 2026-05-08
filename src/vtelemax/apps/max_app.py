@@ -250,7 +250,13 @@ def build_dispatcher(settings: AppSettings) -> Any:
 
     dispatcher = Dispatcher()
     router = Router()
-    register_max_guest_handlers(router, adapter)
+    register_max_guest_handlers(
+        router,
+        adapter,
+        max_bot_token=settings.max_bot_token,
+        max_contact_strict_hash_enabled=settings.max_contact_strict_hash_enabled,
+        max_contact_hash_shadow_mode_enabled=settings.max_contact_hash_shadow_mode_enabled,
+    )
     dispatcher.include_routers(router)
     return dispatcher
 

@@ -135,6 +135,14 @@ class AppSettings(BaseSettings):
     )
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
+    max_contact_strict_hash_enabled: bool = Field(
+        default=False,
+        alias="MAX_CONTACT_STRICT_HASH_ENABLED",
+    )
+    max_contact_hash_shadow_mode_enabled: bool = Field(
+        default=True,
+        alias="MAX_CONTACT_HASH_SHADOW_MODE_ENABLED",
+    )
     moderation_delivery_interval_seconds: float = Field(
         default=15.0,
         alias="MODERATION_DELIVERY_INTERVAL_SECONDS",

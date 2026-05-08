@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
@@ -21,7 +24,7 @@ from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
-from .menu_adapter import MOD_PHONE_SHOW_PREFIX, MOD_REPLY_PREFIX
+from .menu_adapter import MOD_PHONE_SHOW_PREFIX, MOD_REPLY_PREFIX, MaxGuestMenuAdapter
 
 _START_COMMANDS = {"/start", "начать"}
 _GUEST_MESSAGE_CLOSE_PAYLOAD = "guest_msg_close"
@@ -29,6 +32,16 @@ _GUEST_MESSAGE_CLOSE_PAYLOAD = "guest_msg_close"
 
 _VCF_PHONE_PATTERN = re.compile(r"TEL[^:]*:([^\r\n]+)", flags=re.IGNORECASE)
 _PHONE_SANITIZE_PATTERN = re.compile(r"[^0-9+]")
+
+
+@dataclass(frozen=True, slots=True)
+class _MaxContactAttachmentData:
+    """Структурированные данные contact-вложения MAX."""
+
+    phone_number: str | None
+    vcf_info: str | None
+    contact_hash: str | None
+    max_user_id: int | None
 
 
 def _is_message_not_modified_error(error: Exception) -> bool:
@@ -207,6 +220,9 @@ def register_max_guest_handlers(
     delivery_processor: PendingModeratorDeliveryProcessor | None = None,
     delivery_lock: asyncio.Lock | None = None,
     delivery_batch_limit: int = 20,
+    max_bot_token: str = "",
+    max_contact_strict_hash_enabled: bool = False,
+    max_contact_hash_shadow_mode_enabled: bool = True,
 ) -> None:
     """Регистрирует обработчики MAX-бота на переданном `router`."""
 
@@ -291,13 +307,63 @@ def register_max_guest_handlers(
         if user_id is None:
             return
         text = _extract_message_text(event)
-        contact_phone = _extract_contact_attachment(event)
+        contact_data = _extract_contact_attachment_details(event)
+        contact_phone = contact_data.phone_number if contact_data is not None else None
         lowered = text.strip().lower()
         event_logger = router_logger.bind(stage="message_created", user_id=str(user_id))
+        contact_hash_present = bool(
+            contact_data is not None and contact_data.contact_hash and contact_data.vcf_info
+        )
+        contact_hash_verified: bool | None = None
+        contact_owner_matches_sender: bool | None = None
+        strict_reject_reason: str | None = None
+        if contact_data is not None:
+            if contact_data.max_user_id is not None:
+                contact_owner_matches_sender = contact_data.max_user_id == user_id
+            if contact_hash_present:
+                contact_hash_verified = _verify_max_contact_hash(
+                    access_token=max_bot_token,
+                    vcf_info=contact_data.vcf_info or "",
+                    provided_hash=contact_data.contact_hash or "",
+                )
+            if max_contact_hash_shadow_mode_enabled:
+                if contact_hash_present and contact_hash_verified is False:
+                    event_logger.warning(
+                        "MAX contact hash mismatch (shadow). phone={phone}, max_user_id={max_user_id}, sender_id={sender_id}.",
+                        phone=contact_phone,
+                        max_user_id=contact_data.max_user_id,
+                        sender_id=user_id,
+                    )
+                if contact_owner_matches_sender is False:
+                    event_logger.warning(
+                        "MAX contact owner mismatch (shadow). phone={phone}, max_user_id={max_user_id}, sender_id={sender_id}.",
+                        phone=contact_phone,
+                        max_user_id=contact_data.max_user_id,
+                        sender_id=user_id,
+                    )
+            if max_contact_strict_hash_enabled:
+                if not contact_hash_present:
+                    strict_reject_reason = "missing_hash"
+                elif contact_hash_verified is not True:
+                    strict_reject_reason = "hash_mismatch"
+                elif contact_owner_matches_sender is False:
+                    strict_reject_reason = "owner_mismatch"
+                if strict_reject_reason is not None:
+                    event_logger.warning(
+                        "MAX strict contact verification rejected. reason={reason}, phone={phone}, max_user_id={max_user_id}, sender_id={sender_id}.",
+                        reason=strict_reject_reason,
+                        phone=contact_phone,
+                        max_user_id=contact_data.max_user_id,
+                        sender_id=user_id,
+                    )
+                    contact_phone = None
         event_logger.debug(
             "Получено сообщение от пользователя. text={text}, contact={contact}.",
             text=text,
             contact=contact_phone,
+            hash_present=contact_hash_present,
+            hash_verified=contact_hash_verified,
+            owner_match=contact_owner_matches_sender,
         )
 
         if lowered in _START_COMMANDS:
@@ -305,12 +371,22 @@ def register_max_guest_handlers(
             moderation_reply_prompt_message_id_by_user_id.pop(user_id, None)
             response = adapter.handle_start(max_user_id=user_id)
         else:
-            response = adapter.handle_incoming(
-                max_user_id=user_id,
-                text=text,
-                payload=None,
-                contact_phone=contact_phone,
-            )
+            if strict_reject_reason is not None:
+                contact_screen = MaxGuestMenuAdapter().build_start_contact_screen()
+                response = MaxAdapterResponse(
+                    text=(
+                        "🔒 Не удалось подтвердить контакт.\n\n"
+                        "Отправьте номер только кнопкой «Поделиться контактом» и повторите шаг."
+                    ),
+                    screen=contact_screen,
+                )
+            else:
+                response = adapter.handle_incoming(
+                    max_user_id=user_id,
+                    text=text,
+                    payload=None,
+                    contact_phone=contact_phone,
+                )
             screen_id = response.screen.screen_id if response.screen is not None else None
             if screen_id == "support_question_confirmation":
                 await _cleanup_support_prompt(bot=getattr(event, "bot", None), max_user_id=user_id)
@@ -581,6 +657,128 @@ def _extract_contact_attachment(event: Any) -> str | None:
                 return parsed_phone
 
     return None
+
+
+def _read_object_field(obj: Any, field_name: str) -> Any:
+    """Читает поле из dict-подобного или объектного payload."""
+
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(field_name)
+    return getattr(obj, field_name, None)
+
+
+def _extract_max_info_user_id(max_info: Any) -> int | None:
+    """Извлекает user_id из payload.max_info."""
+
+    value = _read_object_field(max_info, "user_id")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_contact_attachment_details(event: Any) -> _MaxContactAttachmentData | None:
+    """Извлекает расширенные поля contact-вложения MAX (телефон/hash/max_info.user_id)."""
+
+    if (
+        hasattr(event, "message")
+        and hasattr(event.message, "body")
+        and hasattr(event.message.body, "contact")
+        and event.message.body.contact is not None
+    ):
+        contact = event.message.body.contact
+        phone = _read_object_field(contact, "phone_number")
+        if phone is not None:
+            return _MaxContactAttachmentData(
+                phone_number=str(phone),
+                vcf_info=None,
+                contact_hash=None,
+                max_user_id=None,
+            )
+
+    if (
+        hasattr(event, "message")
+        and hasattr(event.message, "body")
+        and hasattr(event.message.body, "attachments")
+        and event.message.body.attachments is not None
+    ):
+        for attachment in event.message.body.attachments:
+            if _read_object_field(attachment, "type") != "contact":
+                continue
+            payload = _read_object_field(attachment, "payload")
+            if payload is None:
+                continue
+
+            payload_phone = _read_object_field(payload, "phone_number")
+            payload_vcf_info = _read_object_field(payload, "vcf_info")
+            payload_hash = _read_object_field(payload, "hash")
+            payload_max_info = _read_object_field(payload, "max_info")
+            payload_max_user_id = _extract_max_info_user_id(payload_max_info)
+
+            phone: str | None = None
+            if payload_phone is not None:
+                phone = str(payload_phone)
+            elif payload_vcf_info is not None:
+                phone = _extract_phone_from_vcf(str(payload_vcf_info))
+
+            if phone is None:
+                continue
+
+            return _MaxContactAttachmentData(
+                phone_number=phone,
+                vcf_info=str(payload_vcf_info) if payload_vcf_info is not None else None,
+                contact_hash=str(payload_hash) if payload_hash is not None else None,
+                max_user_id=payload_max_user_id,
+            )
+
+    return None
+
+
+def _verify_max_contact_hash(*, access_token: str, vcf_info: str, provided_hash: str) -> bool:
+    """Проверяет hash для contact-вложения MAX через HMAC-SHA256."""
+
+    token = access_token.strip()
+    actual_hash = provided_hash.strip().lower()
+    if not token or not vcf_info or not actual_hash:
+        return False
+
+    for candidate in _build_vcf_hash_candidates(vcf_info):
+        expected_hash = hmac.new(
+            token.encode("utf-8"),
+            candidate.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest().lower()
+        if hmac.compare_digest(expected_hash, actual_hash):
+            return True
+    return False
+
+
+def _build_vcf_hash_candidates(vcf_info: str) -> tuple[str, ...]:
+    """Готовит варианты vcf_info для устойчивой проверки hash при разных переносах."""
+
+    candidates: list[str] = []
+
+    def _add(value: str) -> None:
+        if value and value not in candidates:
+            candidates.append(value)
+
+    raw = vcf_info
+    _add(raw)
+
+    escaped_to_lf = raw.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
+    normalized_lf = escaped_to_lf.replace("\r\n", "\n").replace("\r", "\n")
+    _add(normalized_lf)
+
+    normalized_crlf = normalized_lf.replace("\n", "\r\n")
+    _add(normalized_crlf)
+    if not normalized_crlf.endswith("\r\n"):
+        _add(normalized_crlf + "\r\n")
+
+    return tuple(candidates)
 
 
 def _extract_callback_message_id(event: Any) -> str | int | None:
