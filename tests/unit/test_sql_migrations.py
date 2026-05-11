@@ -107,32 +107,17 @@ def test_migration_0012_adds_platform_account_lifecycle_and_active_unique_index(
     upper = content.upper()
 
     assert "ADD COLUMN IF NOT EXISTS LIFECYCLE_STATUS" in upper
+    assert "SET LIFECYCLE_STATUS = 'HISTORICAL'" in upper
+    assert "WHERE PLATFORM = 'VK'" in upper
     assert "PENDING_VERIFICATION" in upper
-    assert "HISTORICAL" in upper
+    assert "WHERE PLATFORM = 'MAX'" in upper
+    assert "PA.PLATFORM = 'TELEGRAM'" in upper
+    assert "PPS.REGISTERED_AT IS NOT NULL" in upper
+    assert "ROW_NUMBER() OVER" in upper
     assert "ALTER COLUMN LIFECYCLE_STATUS SET DEFAULT 'ACTIVE'" in upper
     assert "ALTER COLUMN LIFECYCLE_STATUS SET NOT NULL" in upper
     assert "CREATE INDEX IF NOT EXISTS IX_PLATFORM_ACCOUNTS_PERSON_ID_PLATFORM_LIFECYCLE" in upper
     assert "CREATE UNIQUE INDEX IF NOT EXISTS UX_PLATFORM_ACCOUNTS_ONE_ACTIVE_PER_PERSON_PLATFORM" in upper
-
-
-def test_migration_0013_reclassifies_platform_account_statuses_by_platform_rules() -> None:
-    """Проверяет, что 0013 задает целевую переклассификацию lifecycle по TG/VK/MAX."""
-
-    migration_file = (
-        _PROJECT_ROOT / "migrations" / "sql" / "0013_platform_accounts_lifecycle_reclassification.sql"
-    )
-    content = migration_file.read_text(encoding="utf-8")
-    upper = content.upper()
-
-    assert "WHERE PLATFORM = 'VK'" in upper
-    assert "SET LIFECYCLE_STATUS = 'PENDING_VERIFICATION'" in upper
-    assert "WHERE PLATFORM = 'MAX'" in upper
-    assert "SET LIFECYCLE_STATUS = 'ACTIVE'" in upper
-    assert "WHERE PLATFORM = 'TELEGRAM'" in upper
-    assert "SET LIFECYCLE_STATUS = 'HISTORICAL'" in upper
-    assert "JOIN PERSON_PLATFORM_STATES AS PPS" in upper
-    assert "PPS.REGISTERED_AT IS NOT NULL" in upper
-    assert "ROW_NUMBER() OVER" in upper
 
 
 def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
