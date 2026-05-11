@@ -40,8 +40,8 @@ def main() -> int:
         return 1
 
     print(
-        "[migrations] SQL-миграции успешно применены. "
-        f"Каталог: {migrations_dir}. Количество файлов: {applied_count}."
+        "[migrations] SQL-миграции успешно обработаны. "
+        f"Каталог: {migrations_dir}. Применено новых файлов: {applied_count}."
     )
     return 0
 

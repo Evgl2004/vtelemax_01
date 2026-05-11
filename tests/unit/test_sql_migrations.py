@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
+from sqlalchemy import create_engine
 
 from vtelemax.infrastructure.migrations import (
+    apply_migrations,
     list_migration_files,
     read_sql_statements,
 )
@@ -130,3 +133,65 @@ def test_migration_0013_reclassifies_platform_account_statuses_by_platform_rules
     assert "JOIN PERSON_PLATFORM_STATES AS PPS" in upper
     assert "PPS.REGISTERED_AT IS NOT NULL" in upper
     assert "ROW_NUMBER() OVER" in upper
+
+
+def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
+    """Проверяет, что миграция применяется один раз и не выполняется повторно."""
+
+    migrations_dir = tmp_path / "sql"
+    migrations_dir.mkdir(parents=True, exist_ok=True)
+    migration_file = migrations_dir / "0001_test.sql"
+    migration_file.write_text(
+        dedent(
+            """
+            BEGIN;
+            CREATE TABLE IF NOT EXISTS test_items (
+                id INTEGER PRIMARY KEY,
+                value TEXT
+            );
+            INSERT INTO test_items (id, value) VALUES (1, 'ok');
+            COMMIT;
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+
+    first_applied = apply_migrations(engine=engine, migrations_dir=migrations_dir)
+    second_applied = apply_migrations(engine=engine, migrations_dir=migrations_dir)
+
+    assert first_applied == 1
+    assert second_applied == 0
+
+    with engine.begin() as connection:
+        rows = connection.exec_driver_sql("SELECT COUNT(*) FROM test_items").scalar_one()
+        history_rows = connection.exec_driver_sql(
+            "SELECT COUNT(*) FROM sql_migration_history WHERE migration_name = '0001_test.sql'"
+        ).scalar_one()
+
+    assert rows == 1
+    assert history_rows == 1
+
+
+def test_apply_migrations_fails_if_applied_migration_was_changed(tmp_path: Path) -> None:
+    """Проверяет защиту от изменения уже применённого SQL-файла."""
+
+    migrations_dir = tmp_path / "sql"
+    migrations_dir.mkdir(parents=True, exist_ok=True)
+    migration_file = migrations_dir / "0001_test.sql"
+    migration_file.write_text("CREATE TABLE IF NOT EXISTS x(id INTEGER PRIMARY KEY);\n", encoding="utf-8")
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    applied = apply_migrations(engine=engine, migrations_dir=migrations_dir)
+    assert applied == 1
+
+    # Меняем файл после "применения" и проверяем, что система это отлавливает.
+    migration_file.write_text(
+        "CREATE TABLE IF NOT EXISTS x(id INTEGER PRIMARY KEY, value TEXT);\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        apply_migrations(engine=engine, migrations_dir=migrations_dir)
