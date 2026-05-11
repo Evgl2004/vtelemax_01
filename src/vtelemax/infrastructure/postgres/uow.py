@@ -89,9 +89,11 @@ class SQLAlchemyIdentityUnitOfWork(IdentityUnitOfWork):
             "uq_phones_phone_e164",
             "uq_phones_person_id",
             "uq_platform_accounts_platform_external_id",
+            "ux_platform_accounts_one_active_per_person_platform",
             "phones.phone_e164",
             "phones.person_id",
             "platform_accounts.platform, platform_accounts.external_id",
             "platform_accounts.platform, external_id",
+            "platform_accounts.person_id, platform_accounts.platform",
         )
         return any(hint in error_text for hint in hints)

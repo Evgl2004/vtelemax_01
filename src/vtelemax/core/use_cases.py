@@ -62,6 +62,10 @@ class RegisterOrAttachAccountCommand:
 
     def to_profile_patch(self) -> PersonProfilePatch:
         """Преобразует команду в объект частичного обновления профиля."""
+        platform_registered_at = None
+        if self.is_registered:
+            platform_registered_at = self.notifications_allowed_at
+
         patch_kwargs = {
             "rules_accepted": self.rules_accepted,
             "rules_accepted_at": self.rules_accepted_at,
@@ -82,7 +86,7 @@ class RegisterOrAttachAccountCommand:
             "platform_notifications_allowed": self.notifications_allowed,
             "platform_notifications_allowed_at": self.notifications_allowed_at,
             "platform_is_registered": self.is_registered,
-            "platform_registered_at": self.notifications_allowed_at if self.is_registered else None,
+            "platform_registered_at": platform_registered_at,
         }
 
         return PersonProfilePatch(**patch_kwargs)
@@ -140,6 +144,12 @@ class RegisterOrAttachAccountUseCase:
             )
 
         account = PlatformAccount(platform=command.platform, external_id=external_id_value)
+        if command.platform == "vk":
+            account = PlatformAccount(
+                platform=command.platform,
+                external_id=external_id_value,
+                lifecycle_status="pending_verification",
+            )
         if account not in person.accounts:
             self._repository.attach_account(person.person_id, account)
             person.accounts.add(account)
@@ -255,8 +265,8 @@ def _apply_profile_patch(person: Person, patch: PersonProfilePatch) -> None:
     """Применяет частичное обновление профиля к доменной модели `Person`."""
 
     if patch.rules_accepted is not None:
-        person.rules_accepted = patch.rules_accepted
-    if patch.rules_accepted_at is not None:
+        person.rules_accepted = person.rules_accepted or patch.rules_accepted
+    if patch.rules_accepted_at is not None and person.rules_accepted_at is None:
         person.rules_accepted_at = patch.rules_accepted_at
     if patch.notifications_allowed is not None:
         person.notifications_allowed = patch.notifications_allowed
@@ -294,7 +304,7 @@ def _apply_profile_patch(person: Person, patch: PersonProfilePatch) -> None:
     if patch.is_legacy is not None:
         person.is_legacy = patch.is_legacy
     if patch.is_registered is not None:
-        person.is_registered = patch.is_registered
+        person.is_registered = person.is_registered or patch.is_registered
     if patch.first_name_input is not None:
         person.first_name_input = patch.first_name_input
     if patch.last_name_input is not None:
@@ -317,12 +327,16 @@ def _apply_profile_patch(person: Person, patch: PersonProfilePatch) -> None:
             rules_accepted=(
                 current_state.rules_accepted
                 if patch.platform_rules_accepted is None
-                else patch.platform_rules_accepted
+                else current_state.rules_accepted or patch.platform_rules_accepted
             ),
             rules_accepted_at=(
                 current_state.rules_accepted_at
                 if patch.platform_rules_accepted_at is None
-                else patch.platform_rules_accepted_at
+                else (
+                    current_state.rules_accepted_at
+                    if current_state.rules_accepted_at is not None
+                    else patch.platform_rules_accepted_at
+                )
             ),
             notifications_allowed=(
                 current_state.notifications_allowed
@@ -337,12 +351,16 @@ def _apply_profile_patch(person: Person, patch: PersonProfilePatch) -> None:
             is_registered=(
                 current_state.is_registered
                 if patch.platform_is_registered is None
-                else patch.platform_is_registered
+                else current_state.is_registered or patch.platform_is_registered
             ),
             registered_at=(
                 current_state.registered_at
                 if patch.platform_registered_at is None
-                else patch.platform_registered_at
+                else (
+                    current_state.registered_at
+                    if current_state.registered_at is not None
+                    else patch.platform_registered_at
+                )
             ),
         )
         person.set_platform_state(updated_state)

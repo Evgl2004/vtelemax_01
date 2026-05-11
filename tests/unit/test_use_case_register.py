@@ -1,5 +1,7 @@
 """Тесты use-case регистрации/привязки аккаунта."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from vtelemax.core import (
@@ -139,3 +141,97 @@ def test_use_case_rejects_unknown_platform() -> None:
                 raw_phone="+79123456789",
             )
         )
+
+
+def test_use_case_keeps_once_true_flags_for_platform_state() -> None:
+    """Проверяет инвариант: `rules_accepted/is_registered` не откатываются в false."""
+
+    repository = InMemoryIdentityRepository()
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    first_registered_at = datetime(2026, 5, 11, 10, 0, tzinfo=timezone.utc)
+    use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-1001",
+            raw_phone="+79123456789",
+            rules_accepted=True,
+            rules_accepted_at=first_registered_at,
+            notifications_allowed=True,
+            notifications_allowed_at=first_registered_at,
+            is_registered=True,
+        )
+    )
+
+    person = use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-1001",
+            raw_phone="+79123456789",
+            rules_accepted=False,
+            notifications_allowed=False,
+            is_registered=False,
+        )
+    )
+
+    state = person.get_platform_state("telegram")
+    assert state.rules_accepted is True
+    assert state.is_registered is True
+    assert person.rules_accepted is True
+    assert person.is_registered is True
+
+
+def test_use_case_does_not_overwrite_registered_at_after_reconsent() -> None:
+    """Проверяет, что `registered_at` фиксируется один раз и не перезаписывается."""
+
+    repository = InMemoryIdentityRepository()
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    first_registered_at = datetime(2026, 5, 11, 10, 0, tzinfo=timezone.utc)
+    second_notifications_at = datetime(2026, 5, 11, 12, 30, tzinfo=timezone.utc)
+
+    use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="max",
+            external_id="max-1001",
+            raw_phone="+79990001122",
+            rules_accepted=True,
+            rules_accepted_at=first_registered_at,
+            notifications_allowed=True,
+            notifications_allowed_at=first_registered_at,
+            is_registered=True,
+        )
+    )
+    person = use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="max",
+            external_id="max-1001",
+            raw_phone="+79990001122",
+            notifications_allowed=False,
+            notifications_allowed_at=second_notifications_at,
+            is_registered=True,
+        )
+    )
+
+    state = person.get_platform_state("max")
+    assert state.registered_at == first_registered_at
+    assert state.notifications_allowed_at == second_notifications_at
+
+
+def test_use_case_sets_vk_account_pending_verification_by_default() -> None:
+    """Проверяет, что новые VK-аккаунты стартуют со статусом pending_verification."""
+
+    repository = InMemoryIdentityRepository()
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    person = use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-1001",
+            raw_phone="+79001234567",
+        )
+    )
+
+    vk_accounts = [account for account in person.accounts if account.platform == "vk"]
+    assert len(vk_accounts) == 1
+    assert vk_accounts[0].lifecycle_status == "pending_verification"

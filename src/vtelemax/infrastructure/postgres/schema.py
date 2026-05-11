@@ -170,6 +170,10 @@ class PlatformAccountRow(Base):
             "platform IN ('telegram', 'vk', 'max')",
             name="ck_platform_accounts_platform_allowed",
         ),
+        CheckConstraint(
+            "lifecycle_status IN ('active', 'pending_verification', 'historical')",
+            name="ck_platform_accounts_lifecycle_status_allowed",
+        ),
         Index("ix_platform_accounts_person_id", "person_id"),
         Index(
             "ix_platform_accounts_created_at_person_id_platform",
@@ -178,6 +182,19 @@ class PlatformAccountRow(Base):
             "platform",
         ),
         Index("ix_platform_accounts_person_id_platform", "person_id", "platform"),
+        Index(
+            "ix_platform_accounts_person_id_platform_lifecycle",
+            "person_id",
+            "platform",
+            "lifecycle_status",
+        ),
+        Index(
+            "ux_platform_accounts_one_active_per_person_platform",
+            "person_id",
+            "platform",
+            unique=True,
+            postgresql_where=text("lifecycle_status = 'active'"),
+        ),
     )
 
     account_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
@@ -188,6 +205,11 @@ class PlatformAccountRow(Base):
     )
     platform: Mapped[str] = mapped_column(String(16), nullable=False)
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    lifecycle_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=text("'active'"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -115,8 +115,10 @@ from .models import (
     Person,
     PersonProfilePatch,
     PlatformAccount,
+    PlatformAccountLifecycleStatus,
     PlatformName,
     PlatformRegistrationState,
+    SUPPORTED_PLATFORM_ACCOUNT_LIFECYCLE_STATUSES,
     SUPPORTED_PLATFORMS,
 )
 from .phone import normalize_phone
@@ -203,8 +205,10 @@ __all__ = [
     "Person",
     "PersonProfilePatch",
     "PlatformAccount",
+    "PlatformAccountLifecycleStatus",
     "PlatformRegistrationState",
     "PlatformName",
+    "SUPPORTED_PLATFORM_ACCOUNT_LIFECYCLE_STATUSES",
     "SUPPORTED_PLATFORMS",
     "GetPersonByIdCommand",
     "GetPersonByIdUseCase",

@@ -18,6 +18,12 @@ from uuid import UUID
 
 PlatformName = Literal["telegram", "vk", "max"]
 SUPPORTED_PLATFORMS: tuple[PlatformName, ...] = ("telegram", "vk", "max")
+PlatformAccountLifecycleStatus = Literal["active", "pending_verification", "historical"]
+SUPPORTED_PLATFORM_ACCOUNT_LIFECYCLE_STATUSES: tuple[PlatformAccountLifecycleStatus, ...] = (
+    "active",
+    "pending_verification",
+    "historical",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +37,7 @@ class PlatformAccount:
 
     platform: PlatformName
     external_id: str
+    lifecycle_status: PlatformAccountLifecycleStatus = field(default="active", compare=False)
 
 
 @dataclass(slots=True)

@@ -97,8 +97,8 @@ class InMemoryIdentityRepository(IdentityRepository):
 
         person = self._persons_by_id[person_id]
         if patch.rules_accepted is not None:
-            person.rules_accepted = patch.rules_accepted
-        if patch.rules_accepted_at is not None:
+            person.rules_accepted = person.rules_accepted or patch.rules_accepted
+        if patch.rules_accepted_at is not None and person.rules_accepted_at is None:
             person.rules_accepted_at = patch.rules_accepted_at
         if patch.notifications_allowed is not None:
             person.notifications_allowed = patch.notifications_allowed
@@ -109,7 +109,7 @@ class InMemoryIdentityRepository(IdentityRepository):
         if patch.is_moderator is not None:
             person.is_moderator = patch.is_moderator
         if patch.is_registered is not None:
-            person.is_registered = patch.is_registered
+            person.is_registered = person.is_registered or patch.is_registered
         if patch.first_name_input is not None:
             person.first_name_input = patch.first_name_input
         if patch.last_name_input is not None:
@@ -152,17 +152,19 @@ class InMemoryIdentityRepository(IdentityRepository):
         if patch.platform is not None:
             state = person.get_platform_state(patch.platform)
             if patch.platform_rules_accepted is not None:
-                state.rules_accepted = patch.platform_rules_accepted
+                state.rules_accepted = state.rules_accepted or patch.platform_rules_accepted
             if patch.platform_rules_accepted_at is not None:
-                state.rules_accepted_at = patch.platform_rules_accepted_at
+                if state.rules_accepted_at is None:
+                    state.rules_accepted_at = patch.platform_rules_accepted_at
             if patch.platform_notifications_allowed is not None:
                 state.notifications_allowed = patch.platform_notifications_allowed
             if patch.platform_notifications_allowed_at is not None:
                 state.notifications_allowed_at = patch.platform_notifications_allowed_at
             if patch.platform_is_registered is not None:
-                state.is_registered = patch.platform_is_registered
+                state.is_registered = state.is_registered or patch.platform_is_registered
             if patch.platform_registered_at is not None:
-                state.registered_at = patch.platform_registered_at
+                if state.registered_at is None:
+                    state.registered_at = patch.platform_registered_at
             person.set_platform_state(state)
 
     def enqueue_profile_sync(

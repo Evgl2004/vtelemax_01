@@ -61,6 +61,7 @@ def test_platform_accounts_constraints_are_strict() -> None:
 
     assert "uq_platform_accounts_platform_external_id" in unique_constraints
     assert "ck_platform_accounts_platform_allowed" in check_constraints
+    assert "ck_platform_accounts_lifecycle_status_allowed" in check_constraints
 
 
 def test_person_platform_states_constraints_are_strict() -> None:

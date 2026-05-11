@@ -94,3 +94,19 @@ def test_migration_0008_syncs_legacy_platform_consents_from_platform_states() ->
     assert "NOTIFICATIONS_ALLOWED_TG" in upper
     assert "NOTIFICATIONS_ALLOWED_VK" in upper
     assert "NOTIFICATIONS_ALLOWED_MAX" in upper
+
+
+def test_migration_0012_adds_platform_account_lifecycle_and_active_unique_index() -> None:
+    """Проверяет, что 0012 добавляет lifecycle-статусы и partial unique для active."""
+
+    migration_file = _PROJECT_ROOT / "migrations" / "sql" / "0012_platform_accounts_lifecycle.sql"
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "ADD COLUMN IF NOT EXISTS LIFECYCLE_STATUS" in upper
+    assert "PENDING_VERIFICATION" in upper
+    assert "HISTORICAL" in upper
+    assert "ALTER COLUMN LIFECYCLE_STATUS SET DEFAULT 'ACTIVE'" in upper
+    assert "ALTER COLUMN LIFECYCLE_STATUS SET NOT NULL" in upper
+    assert "CREATE INDEX IF NOT EXISTS IX_PLATFORM_ACCOUNTS_PERSON_ID_PLATFORM_LIFECYCLE" in upper
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS UX_PLATFORM_ACCOUNTS_ONE_ACTIVE_PER_PERSON_PLATFORM" in upper

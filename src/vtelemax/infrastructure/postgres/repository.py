@@ -91,7 +91,11 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
         """Возвращает аккаунты пользователей, отмеченных как модераторы."""
 
         statement = (
-            select(PlatformAccountRow.platform, PlatformAccountRow.external_id)
+            select(
+                PlatformAccountRow.platform,
+                PlatformAccountRow.external_id,
+                PlatformAccountRow.lifecycle_status,
+            )
             .join(PersonRow, PersonRow.person_id == PlatformAccountRow.person_id)
             .where(PersonRow.is_moderator.is_(True))
         )
@@ -100,6 +104,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             PlatformAccount(
                 platform=row.platform,  # type: ignore[arg-type]
                 external_id=row.external_id,
+                lifecycle_status=row.lifecycle_status,  # type: ignore[arg-type]
             )
             for row in rows
         ]
@@ -157,6 +162,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                     person_id=person.person_id,
                     platform=account.platform,
                     external_id=account.external_id,
+                    lifecycle_status=account.lifecycle_status,
                 )
             )
         for platform in SUPPORTED_PLATFORMS:
@@ -183,6 +189,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                 person_id=person_id,
                 platform=account.platform,
                 external_id=account.external_id,
+                lifecycle_status=account.lifecycle_status,
             )
         )
 
@@ -194,8 +201,8 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             return
 
         if patch.rules_accepted is not None:
-            person_row.rules_accepted = patch.rules_accepted
-        if patch.rules_accepted_at is not None:
+            person_row.rules_accepted = person_row.rules_accepted or patch.rules_accepted
+        if patch.rules_accepted_at is not None and person_row.rules_accepted_at is None:
             person_row.rules_accepted_at = patch.rules_accepted_at
         if patch.notifications_allowed is not None:
             person_row.notifications_allowed = patch.notifications_allowed
@@ -206,7 +213,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
         if patch.is_moderator is not None:
             person_row.is_moderator = patch.is_moderator
         if patch.is_registered is not None:
-            person_row.is_registered = patch.is_registered
+            person_row.is_registered = person_row.is_registered or patch.is_registered
         if patch.first_name_input is not None:
             person_row.first_name_input = patch.first_name_input
         if patch.last_name_input is not None:
@@ -254,17 +261,23 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                 )
                 self._session.add(platform_row)
             if patch.platform_rules_accepted is not None:
-                platform_row.rules_accepted = patch.platform_rules_accepted
+                platform_row.rules_accepted = (
+                    platform_row.rules_accepted or patch.platform_rules_accepted
+                )
             if patch.platform_rules_accepted_at is not None:
-                platform_row.rules_accepted_at = patch.platform_rules_accepted_at
+                if platform_row.rules_accepted_at is None:
+                    platform_row.rules_accepted_at = patch.platform_rules_accepted_at
             if patch.platform_notifications_allowed is not None:
                 platform_row.notifications_allowed = patch.platform_notifications_allowed
             if patch.platform_notifications_allowed_at is not None:
                 platform_row.notifications_allowed_at = patch.platform_notifications_allowed_at
             if patch.platform_is_registered is not None:
-                platform_row.is_registered = patch.platform_is_registered
+                platform_row.is_registered = (
+                    platform_row.is_registered or patch.platform_is_registered
+                )
             if patch.platform_registered_at is not None:
-                platform_row.registered_at = patch.platform_registered_at
+                if platform_row.registered_at is None:
+                    platform_row.registered_at = patch.platform_registered_at
 
             self._sync_legacy_platform_fields(person_row=person_row, platform_row=platform_row)
             self._sync_global_registration_flag(person_row=person_row, person_id=person_id)
@@ -390,6 +403,7 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
             PlatformAccount(
                 platform=account_row.platform,  # type: ignore[arg-type]
                 external_id=account_row.external_id,
+                lifecycle_status=account_row.lifecycle_status,  # type: ignore[arg-type]
             )
             for account_row in account_rows
         }
