@@ -358,12 +358,13 @@ def register_max_guest_handlers(
                     )
                     contact_phone = None
         event_logger.debug(
-            "Получено сообщение от пользователя. text={text}, contact={contact}.",
+            "Получено сообщение от пользователя. text={text}, contact={contact}, hash_present={hash_present}, hash_verified={hash_verified}, owner_match={owner_match}, strict_reject_reason={strict_reject_reason}.",
             text=text,
             contact=contact_phone,
             hash_present=contact_hash_present,
             hash_verified=contact_hash_verified,
             owner_match=contact_owner_matches_sender,
+            strict_reject_reason=strict_reject_reason,
         )
 
         if lowered in _START_COMMANDS:
