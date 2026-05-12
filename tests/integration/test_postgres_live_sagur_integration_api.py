@@ -66,7 +66,15 @@ def _add_person_with_channel(
 ) -> None:
     """Добавляет гостя с каналом платформы и (опционально) platform state."""
 
-    session.add(PersonRow(person_id=person_id))
+    # Важно: фиксируем profile_updated_at в контрольной временной шкале теста,
+    # чтобы effective_updated_at не "прыгал" на текущее время сервера.
+    session.add(
+        PersonRow(
+            person_id=person_id,
+            created_at=account_created_at,
+            updated_at=state_updated_at or account_created_at,
+        )
+    )
     session.add(
         PhoneRow(
             phone_id=uuid4(),
@@ -104,6 +112,9 @@ def _add_person_with_channel(
             updated_at=state_updated_at,
         )
     )
+    # Для сценариев, где сразу после вставки выполняется session.get(...)
+    # (без commit), нужен flush после добавления platform-state.
+    session.flush()
 
 
 def _add_channel_for_existing_person(
