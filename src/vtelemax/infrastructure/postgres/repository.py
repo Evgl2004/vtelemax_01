@@ -9,13 +9,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from vtelemax.core.models import (
     Person,
     PersonProfilePatch,
     PlatformAccount,
+    PlatformAccountLifecycleStatus,
     PlatformName,
     PlatformRegistrationState,
     SUPPORTED_PLATFORMS,
@@ -191,6 +192,38 @@ class SQLAlchemyIdentityRepository(IdentityRepository):
                 external_id=account.external_id,
                 lifecycle_status=account.lifecycle_status,
             )
+        )
+
+    def set_account_lifecycle_status(
+        self,
+        *,
+        person_id: UUID,
+        platform: PlatformName,
+        external_id: str,
+        lifecycle_status: PlatformAccountLifecycleStatus,
+    ) -> None:
+        """Обновляет lifecycle-статус аккаунта с соблюдением инварианта единственного active."""
+
+        if lifecycle_status == "active":
+            self._session.execute(
+                update(PlatformAccountRow)
+                .where(
+                    PlatformAccountRow.person_id == person_id,
+                    PlatformAccountRow.platform == platform,
+                    PlatformAccountRow.external_id != external_id,
+                    PlatformAccountRow.lifecycle_status == "active",
+                )
+                .values(lifecycle_status="historical")
+            )
+
+        self._session.execute(
+            update(PlatformAccountRow)
+            .where(
+                PlatformAccountRow.person_id == person_id,
+                PlatformAccountRow.platform == platform,
+                PlatformAccountRow.external_id == external_id,
+            )
+            .values(lifecycle_status=lifecycle_status)
         )
 
     def update_person_profile(self, person_id: UUID, patch: PersonProfilePatch) -> None:

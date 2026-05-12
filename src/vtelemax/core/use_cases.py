@@ -12,6 +12,7 @@ from .models import (
     Person,
     PersonProfilePatch,
     PlatformAccount,
+    PlatformAccountLifecycleStatus,
     PlatformName,
     PlatformRegistrationState,
     SUPPORTED_PLATFORMS,
@@ -143,16 +144,39 @@ class RegisterOrAttachAccountUseCase:
                 "Конфликт strict identity: аккаунт уже связан с другим телефоном."
             )
 
-        account = PlatformAccount(platform=command.platform, external_id=external_id_value)
-        if command.platform == "vk":
+        target_lifecycle_status = _resolve_registration_lifecycle_status(command.platform)
+        existing_account = next(
+            (
+                item
+                for item in person.accounts
+                if item.platform == command.platform and item.external_id == external_id_value
+            ),
+            None,
+        )
+
+        if existing_account is None:
             account = PlatformAccount(
                 platform=command.platform,
                 external_id=external_id_value,
-                lifecycle_status="pending_verification",
+                lifecycle_status=target_lifecycle_status,
             )
-        if account not in person.accounts:
             self._repository.attach_account(person.person_id, account)
             person.accounts.add(account)
+        elif existing_account.lifecycle_status != target_lifecycle_status:
+            self._repository.set_account_lifecycle_status(
+                person_id=person.person_id,
+                platform=command.platform,
+                external_id=external_id_value,
+                lifecycle_status=target_lifecycle_status,
+            )
+            person.accounts.remove(existing_account)
+            person.accounts.add(
+                PlatformAccount(
+                    platform=command.platform,
+                    external_id=external_id_value,
+                    lifecycle_status=target_lifecycle_status,
+                )
+            )
 
         if profile_patch.has_updates() and not is_new_person:
             self._repository.update_person_profile(person.person_id, profile_patch)
@@ -364,3 +388,11 @@ def _apply_profile_patch(person: Person, patch: PersonProfilePatch) -> None:
             ),
         )
         person.set_platform_state(updated_state)
+
+
+def _resolve_registration_lifecycle_status(platform: PlatformName) -> PlatformAccountLifecycleStatus:
+    """Возвращает целевой lifecycle-статус платформенного аккаунта при регистрации."""
+
+    if platform == "vk":
+        return "pending_verification"
+    return "active"

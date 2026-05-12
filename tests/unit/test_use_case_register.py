@@ -1,12 +1,15 @@
 """Тесты use-case регистрации/привязки аккаунта."""
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
 
 from vtelemax.core import (
     IdentityConflictError,
     InMemoryIdentityRepository,
+    Person,
+    PlatformAccount,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountUseCase,
 )
@@ -235,3 +238,77 @@ def test_use_case_sets_vk_account_pending_verification_by_default() -> None:
     vk_accounts = [account for account in person.accounts if account.platform == "vk"]
     assert len(vk_accounts) == 1
     assert vk_accounts[0].lifecycle_status == "pending_verification"
+
+
+def test_use_case_promotes_existing_telegram_account_to_active_for_same_external_id() -> None:
+    """Проверяет промоут historical TG-аккаунта в active при повторной регистрации тем же external_id."""
+
+    repository = InMemoryIdentityRepository()
+    person = Person(
+        person_id=uuid4(),
+        phone_e164="+79001234567",
+        accounts={
+            PlatformAccount(
+                platform="telegram",
+                external_id="tg-legacy-1",
+                lifecycle_status="historical",
+            )
+        },
+    )
+    repository.add_person(person)
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    updated_person = use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-legacy-1",
+            raw_phone="+79001234567",
+        )
+    )
+
+    tg_accounts = [
+        account for account in updated_person.accounts if account.platform == "telegram"
+    ]
+    assert len(tg_accounts) == 1
+    assert tg_accounts[0].external_id == "tg-legacy-1"
+    assert tg_accounts[0].lifecycle_status == "active"
+
+
+def test_use_case_switches_active_telegram_account_to_current_external_id() -> None:
+    """Проверяет ротацию active TG-аккаунта при входе через исторический external_id."""
+
+    repository = InMemoryIdentityRepository()
+    person = Person(
+        person_id=uuid4(),
+        phone_e164="+79001230000",
+        accounts={
+            PlatformAccount(
+                platform="telegram",
+                external_id="tg-current-active",
+                lifecycle_status="active",
+            ),
+            PlatformAccount(
+                platform="telegram",
+                external_id="tg-returned-legacy",
+                lifecycle_status="historical",
+            ),
+        },
+    )
+    repository.add_person(person)
+    use_case = RegisterOrAttachAccountUseCase(repository)
+
+    updated_person = use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="telegram",
+            external_id="tg-returned-legacy",
+            raw_phone="+79001230000",
+        )
+    )
+
+    tg_accounts = sorted(
+        (account for account in updated_person.accounts if account.platform == "telegram"),
+        key=lambda account: account.external_id,
+    )
+    assert len(tg_accounts) == 2
+    assert [account.lifecycle_status for account in tg_accounts] == ["historical", "active"]
+    assert tg_accounts[1].external_id == "tg-returned-legacy"

@@ -12,7 +12,13 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
-from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName
+from .models import (
+    Person,
+    PersonProfilePatch,
+    PlatformAccount,
+    PlatformAccountLifecycleStatus,
+    PlatformName,
+)
 from .profile_sync_models import ProfileSyncStatus, ProfileSyncTask
 
 
@@ -36,6 +42,16 @@ class IdentityRepository(Protocol):
 
     def attach_account(self, person_id: UUID, account: PlatformAccount) -> None:
         """Привязывает аккаунт к существующему человеку."""
+
+    def set_account_lifecycle_status(
+        self,
+        *,
+        person_id: UUID,
+        platform: PlatformName,
+        external_id: str,
+        lifecycle_status: PlatformAccountLifecycleStatus,
+    ) -> None:
+        """Обновляет lifecycle-статус уже существующего платформенного аккаунта."""
 
     def update_person_profile(self, person_id: UUID, patch: PersonProfilePatch) -> None:
         """Частично обновляет профиль пользователя."""

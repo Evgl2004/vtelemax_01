@@ -12,7 +12,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from .models import Person, PersonProfilePatch, PlatformAccount, PlatformName
+from .models import (
+    Person,
+    PersonProfilePatch,
+    PlatformAccount,
+    PlatformAccountLifecycleStatus,
+    PlatformName,
+)
 from .profile_sync_models import ProfileSyncStatus, ProfileSyncTask
 from .ports import IdentityRepository
 
@@ -91,6 +97,55 @@ class InMemoryIdentityRepository(IdentityRepository):
         person.accounts.add(account)
         self._person_id_by_account[(account.platform, account.external_id)] = person.person_id
         self._person_id_by_phone[person.phone_e164] = person.person_id
+
+    def set_account_lifecycle_status(
+        self,
+        *,
+        person_id: UUID,
+        platform: PlatformName,
+        external_id: str,
+        lifecycle_status: PlatformAccountLifecycleStatus,
+    ) -> None:
+        """Обновляет lifecycle-статус существующего аккаунта с сохранением инварианта active."""
+
+        person = self._persons_by_id[person_id]
+        target_account = next(
+            (
+                account
+                for account in person.accounts
+                if account.platform == platform and account.external_id == external_id
+            ),
+            None,
+        )
+        if target_account is None:
+            return
+
+        if lifecycle_status == "active":
+            demoted_accounts = [
+                account
+                for account in person.accounts
+                if account.platform == platform
+                and account.external_id != external_id
+                and account.lifecycle_status == "active"
+            ]
+            for active_account in demoted_accounts:
+                person.accounts.remove(active_account)
+                person.accounts.add(
+                    PlatformAccount(
+                        platform=active_account.platform,
+                        external_id=active_account.external_id,
+                        lifecycle_status="historical",
+                    )
+                )
+
+        person.accounts.remove(target_account)
+        person.accounts.add(
+            PlatformAccount(
+                platform=platform,
+                external_id=external_id,
+                lifecycle_status=lifecycle_status,
+            )
+        )
 
     def update_person_profile(self, person_id: UUID, patch: PersonProfilePatch) -> None:
         """Частично обновляет профиль человека в памяти."""
