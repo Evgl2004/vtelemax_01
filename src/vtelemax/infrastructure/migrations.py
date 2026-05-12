@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 
@@ -123,11 +124,13 @@ def apply_migrations(engine: Engine, migrations_dir: Path) -> int:
             for statement in statements:
                 connection.exec_driver_sql(statement)
 
-            connection.exec_driver_sql(
-                f"""
-                INSERT INTO {_MIGRATION_HISTORY_TABLE} (migration_name, checksum_sha256)
-                VALUES (:migration_name, :checksum_sha256)
-                """,
+            connection.execute(
+                text(
+                    f"""
+                    INSERT INTO {_MIGRATION_HISTORY_TABLE} (migration_name, checksum_sha256)
+                    VALUES (:migration_name, :checksum_sha256)
+                    """
+                ),
                 {
                     "migration_name": migration_name,
                     "checksum_sha256": checksum,
