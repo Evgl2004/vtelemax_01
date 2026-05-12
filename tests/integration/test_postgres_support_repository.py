@@ -74,7 +74,7 @@ def test_support_ticket_and_cross_platform_route_are_persisted(
         )
     )
 
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     route = route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -110,3 +110,4 @@ def test_support_ticket_creation_requires_registered_account(
                 question_text="Помогите",
             )
         )
+

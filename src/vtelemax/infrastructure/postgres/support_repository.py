@@ -35,6 +35,7 @@ class SQLAlchemySupportRepository(SupportRepository):
                 status=ticket.status.value,
                 source_platform=ticket.source_platform,
                 last_guest_platform=ticket.last_guest_platform,
+                last_guest_external_id=ticket.last_guest_external_id,
                 closed_at=ticket.closed_at,
             )
         )
@@ -103,11 +104,17 @@ class SQLAlchemySupportRepository(SupportRepository):
         tickets = [self._to_ticket(row) for row in rows]
         return tickets, total
 
-    def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
+    def update_ticket_last_guest_source(
+        self,
+        ticket_id: UUID,
+        platform: PlatformName,
+        external_id: str,
+    ) -> None:
         row = self._session.get(SupportTicketRow, ticket_id)
         if row is None:
             raise ValueError("Тикет не найден.")
         row.last_guest_platform = platform
+        row.last_guest_external_id = external_id
 
     def update_ticket_status(self, ticket_id: UUID, status: SupportTicketStatus) -> None:
         row = self._session.get(SupportTicketRow, ticket_id)
@@ -197,6 +204,7 @@ class SQLAlchemySupportRepository(SupportRepository):
             created_at=row.created_at,
             closed_at=row.closed_at,
             last_guest_platform=row.last_guest_platform,  # type: ignore[arg-type]
+            last_guest_external_id=row.last_guest_external_id,
         )
 
     @staticmethod

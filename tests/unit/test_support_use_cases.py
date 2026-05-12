@@ -176,7 +176,7 @@ def test_route_moderator_reply_prefers_last_guest_platform() -> None:
         )
     )
 
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     routing = route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -191,6 +191,89 @@ def test_route_moderator_reply_prefers_last_guest_platform() -> None:
     moderation_messages = support_repository.pull_pending_moderator_messages("vk")
     assert len(moderation_messages) == 1
     assert moderation_messages[0].delivery_status == SupportDeliveryStatus.CREATED
+
+
+def test_route_moderator_reply_uses_last_guest_external_id_for_vk_duplicates() -> None:
+    """Проверяет выбор точного VK external_id из тикета при дублях по платформе."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-1001",
+            raw_phone="+79123456789",
+        )
+    )
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-2002",
+            raw_phone="+79123456789",
+        )
+    )
+
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-2002",
+            question_text="Подскажите, почему не вижу бонусы?",
+        )
+    )
+
+    route_use_case = RouteModeratorReplyTransactionalUseCase(
+        unit_of_work_factory=uow_factory,
+        vk_pending_verification_delivery_enabled=True,
+    )
+    routing = route_use_case.execute(
+        ModeratorReplyCommand(
+            ticket_id=created.ticket_id,
+            moderator_platform="vk",
+            reply_text="Проверили данные, отправляем разъяснение.",
+        )
+    )
+
+    assert routing.target_platform == "vk"
+    assert routing.target_external_id == "vk-2002"
+
+
+def test_route_moderator_reply_rejects_vk_pending_when_flag_disabled() -> None:
+    """Проверяет запрет доставки в VK pending_verification при выключенном флаге."""
+
+    identity_repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    uow_factory = lambda: InMemorySupportUnitOfWork(identity_repository, support_repository)
+
+    register_use_case = RegisterOrAttachAccountTransactionalUseCase(unit_of_work_factory=uow_factory)
+    register_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="vk-1001",
+            raw_phone="+79123456789",
+        )
+    )
+    create_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=uow_factory)
+    created = create_use_case.execute(
+        CreateSupportTicketCommand(
+            platform="vk",
+            external_id="vk-1001",
+            question_text="Нужна консультация по начислению бонусов.",
+        )
+    )
+
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    with pytest.raises(ValueError, match="нет привязанных аккаунтов"):
+        route_use_case.execute(
+            ModeratorReplyCommand(
+                ticket_id=created.ticket_id,
+                moderator_platform="telegram",
+                reply_text="Ответ готов, отправляем в ваш канал.",
+            )
+        )
 
 
 def test_route_moderator_reply_allows_cross_platform_override() -> None:
@@ -225,7 +308,7 @@ def test_route_moderator_reply_allows_cross_platform_override() -> None:
         )
     )
 
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     routing = route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -289,7 +372,7 @@ def test_route_moderator_reply_closes_stale_system_pending_notifications() -> No
     assert system_messages_before
     assert all(message.delivery_status == SupportDeliveryStatus.CREATED for message in system_messages_before)
 
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -372,7 +455,7 @@ def test_get_support_ticket_conversation_returns_messages_in_order() -> None:
             question_text="Нужна помощь с начислением бонусов",
         )
     )
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -532,7 +615,7 @@ def test_pull_pending_moderator_messages_returns_target_platform_messages() -> N
         )
     )
 
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -594,7 +677,7 @@ def test_route_moderator_reply_moves_ticket_to_in_progress() -> None:
         )
     )
 
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -844,3 +927,4 @@ def test_set_support_ticket_status_allows_reopen_closed_ticket() -> None:
     stored_ticket = support_repository.get_ticket(created.ticket_id)
     assert stored_ticket is not None
     assert stored_ticket.status == SupportTicketStatus.OPEN
+

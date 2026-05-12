@@ -46,8 +46,13 @@ class SupportRepository(Protocol):
     ) -> tuple[list[SupportTicket], int]:
         """Возвращает страницу тикетов пользователя и общее количество тикетов."""
 
-    def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
-        """Обновляет канал последней активности гостя."""
+    def update_ticket_last_guest_source(
+        self,
+        ticket_id: UUID,
+        platform: PlatformName,
+        external_id: str,
+    ) -> None:
+        """Обновляет платформу и внешний идентификатор последней активности гостя."""
 
     def update_ticket_status(self, ticket_id: UUID, status: SupportTicketStatus) -> None:
         """Обновляет статус тикета."""

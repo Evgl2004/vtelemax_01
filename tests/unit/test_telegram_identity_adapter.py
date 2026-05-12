@@ -1038,7 +1038,7 @@ def test_telegram_mod_requires_moderator_flag_and_routes_reply_via_fsm() -> None
     )
     support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
-    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory, vk_pending_verification_delivery_enabled=True)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
@@ -1122,7 +1122,7 @@ def test_telegram_moderation_menu_fsm_supports_dirty_and_success_paths() -> None
     )
     support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
-    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory, vk_pending_verification_delivery_enabled=True)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
@@ -1200,7 +1200,7 @@ def test_telegram_moderation_callback_menu_supports_pagination_and_ticket_action
     )
     support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
-    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory, vk_pending_verification_delivery_enabled=True)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
     )
@@ -1312,3 +1312,4 @@ def test_telegram_ticket_details_screen_includes_ticket_history() -> None:
     assert "<blockquote>" in response.message
     assert "Гость" in response.message
     assert "недоступн" not in response.message.lower()
+

@@ -49,9 +49,15 @@ class InMemorySupportRepository(SupportRepository):
         tickets.sort(key=lambda item: item.created_at or datetime.fromtimestamp(0, tz=timezone.utc), reverse=True)
         return tickets[:limit]
 
-    def update_ticket_last_guest_platform(self, ticket_id: UUID, platform: PlatformName) -> None:
+    def update_ticket_last_guest_source(
+        self,
+        ticket_id: UUID,
+        platform: PlatformName,
+        external_id: str,
+    ) -> None:
         ticket = self._tickets_by_id[ticket_id]
         ticket.last_guest_platform = platform
+        ticket.last_guest_external_id = external_id
 
     def update_ticket_status(self, ticket_id: UUID, status: SupportTicketStatus) -> None:
         ticket = self._tickets_by_id[ticket_id]

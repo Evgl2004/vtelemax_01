@@ -52,6 +52,7 @@ class SupportTicket:
     created_at: datetime | None = None
     closed_at: datetime | None = None
     last_guest_platform: PlatformName | None = None
+    last_guest_external_id: str | None = None
 
 
 @dataclass(slots=True)

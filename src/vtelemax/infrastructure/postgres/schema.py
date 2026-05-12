@@ -233,6 +233,7 @@ class SupportTicketRow(Base):
         ),
         Index("ix_support_tickets_person_id", "person_id"),
         Index("ix_support_tickets_status", "status"),
+        Index("ix_support_tickets_last_guest_external_id", "last_guest_external_id"),
     )
 
     ticket_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
@@ -244,6 +245,7 @@ class SupportTicketRow(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="open")
     source_platform: Mapped[str] = mapped_column(String(16), nullable=False)
     last_guest_platform: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_guest_external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

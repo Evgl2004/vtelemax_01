@@ -91,13 +91,17 @@ def build_add_guest_message_to_ticket_use_case(
 
 def build_moderator_reply_use_case(
     session_factory: sessionmaker[Session],
+    settings: AppSettings,
 ) -> RouteModeratorReplyTransactionalUseCase:
     """Собирает транзакционный use-case маршрутизации ответа модератора."""
 
     uow_factory: Callable[[], SQLAlchemyIdentityUnitOfWork] = lambda: SQLAlchemyIdentityUnitOfWork(
         session_factory
     )
-    return RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    return RouteModeratorReplyTransactionalUseCase(
+        unit_of_work_factory=uow_factory,
+        vk_pending_verification_delivery_enabled=settings.vk_pending_verification_delivery_enabled,
+    )
 
 
 def build_ticket_details_use_case(
@@ -215,7 +219,7 @@ def build_dispatcher(settings: AppSettings) -> Any:
     lookup_use_case = build_person_lookup_use_case(session_factory)
     create_ticket_use_case = build_create_support_ticket_use_case(session_factory)
     add_guest_message_use_case = build_add_guest_message_to_ticket_use_case(session_factory)
-    moderator_reply_use_case = build_moderator_reply_use_case(session_factory)
+    moderator_reply_use_case = build_moderator_reply_use_case(session_factory, settings)
     ticket_details_use_case = build_ticket_details_use_case(session_factory)
     ticket_conversation_use_case = build_ticket_conversation_use_case(session_factory)
     list_open_tickets_use_case = build_list_open_tickets_use_case(session_factory)

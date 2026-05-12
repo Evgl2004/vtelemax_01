@@ -143,6 +143,10 @@ class AppSettings(BaseSettings):
         default=True,
         alias="MAX_CONTACT_HASH_SHADOW_MODE_ENABLED",
     )
+    vk_pending_verification_delivery_enabled: bool = Field(
+        default=False,
+        alias="VK_PENDING_VERIFICATION_DELIVERY_ENABLED",
+    )
     moderation_delivery_interval_seconds: float = Field(
         default=15.0,
         alias="MODERATION_DELIVERY_INTERVAL_SECONDS",

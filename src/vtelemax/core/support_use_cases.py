@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from .models import PlatformName, SUPPORTED_PLATFORMS
+from .models import PlatformAccount, PlatformName, SUPPORTED_PLATFORMS
 from .support_models import (
     SupportDeliveryStatus,
     SupportMessage,
@@ -100,6 +100,7 @@ class CreateSupportTicketTransactionalUseCase:
                     source_platform=command.platform,
                     status=SupportTicketStatus.OPEN,
                     last_guest_platform=command.platform,
+                    last_guest_external_id=external_id,
                 )
             )
             unit_of_work.support_repository.add_message(
@@ -295,6 +296,11 @@ class AddGuestMessageToTicketTransactionalUseCase:
                     source_platform=command.platform,
                 )
             )
+            unit_of_work.support_repository.update_ticket_last_guest_source(
+                ticket_id=ticket.ticket_id,
+                platform=command.platform,
+                external_id=external_id,
+            )
             if ticket.status == SupportTicketStatus.IN_PROGRESS:
                 unit_of_work.support_repository.update_ticket_status(
                     ticket_id=ticket.ticket_id,
@@ -437,8 +443,14 @@ class ModeratorReplyRoutingResult:
 class RouteModeratorReplyTransactionalUseCase:
     """Маршрутизирует ответ модератора в целевой канал гостя."""
 
-    def __init__(self, unit_of_work_factory: Callable[[], SupportUnitOfWork]) -> None:
+    def __init__(
+        self,
+        unit_of_work_factory: Callable[[], SupportUnitOfWork],
+        *,
+        vk_pending_verification_delivery_enabled: bool = False,
+    ) -> None:
         self._unit_of_work_factory = unit_of_work_factory
+        self._vk_pending_verification_delivery_enabled = vk_pending_verification_delivery_enabled
 
     def execute(self, command: ModeratorReplyCommand) -> ModeratorReplyRoutingResult:
         """Создает сообщение модератора и определяет канал доставки."""
@@ -465,16 +477,20 @@ class RouteModeratorReplyTransactionalUseCase:
             if person is None:
                 raise ValueError("Пользователь тикета не найден в strict identity.")
 
-            account_by_platform = {account.platform: account.external_id for account in person.accounts}
-            if not account_by_platform:
+            allowed_accounts_by_platform = self._build_allowed_accounts_by_platform(person.accounts)
+            if not allowed_accounts_by_platform:
                 raise ValueError("У пользователя нет привязанных аккаунтов для доставки ответа.")
 
             target_platform = self._resolve_target_platform(
                 preferred=command.preferred_target_platform,
                 last_guest=ticket.last_guest_platform,
-                available_platforms=set(account_by_platform.keys()),
+                available_platforms=set(allowed_accounts_by_platform.keys()),
             )
-            target_external_id = account_by_platform[target_platform]
+            target_external_id = self._resolve_target_external_id(
+                target_platform=target_platform,
+                last_guest_external_id=ticket.last_guest_external_id,
+                allowed_accounts_by_platform=allowed_accounts_by_platform,
+            )
 
             message_id = uuid4()
             unit_of_work.support_repository.add_message(
@@ -524,6 +540,55 @@ class RouteModeratorReplyTransactionalUseCase:
             return last_guest
         # Детерминированный fallback, чтобы маршрутизация не зависела от порядка set.
         return sorted(available_platforms)[0]
+
+    @staticmethod
+    def _resolve_target_external_id(
+        *,
+        target_platform: PlatformName,
+        last_guest_external_id: str | None,
+        allowed_accounts_by_platform: dict[PlatformName, list[str]],
+    ) -> str:
+        """Определяет внешний идентификатор доставки в рамках выбранной платформы."""
+
+        candidates = allowed_accounts_by_platform.get(target_platform, [])
+        if not candidates:
+            raise ValueError("У пользователя нет разрешенного аккаунта для целевой платформы.")
+
+        normalized_last_guest_external_id = str(last_guest_external_id or "").strip()
+        if normalized_last_guest_external_id and normalized_last_guest_external_id in candidates:
+            return normalized_last_guest_external_id
+
+        # Детерминированный fallback для дублей в рамках платформы.
+        return sorted(candidates)[0]
+
+    def _build_allowed_accounts_by_platform(
+        self,
+        accounts: set[PlatformAccount],
+    ) -> dict[PlatformName, list[str]]:
+        """Формирует список разрешенных для исходящей доставки аккаунтов по платформам."""
+
+        result: dict[PlatformName, list[str]] = {}
+        for account in accounts:
+            if not self._is_account_allowed_for_delivery(account):
+                continue
+            platform_accounts = result.setdefault(account.platform, [])
+            platform_accounts.append(account.external_id)
+        for platform, external_ids in result.items():
+            result[platform] = sorted(set(external_ids))
+        return result
+
+    def _is_account_allowed_for_delivery(self, account: PlatformAccount) -> bool:
+        """Проверяет, можно ли использовать аккаунт для исходящей доставки."""
+
+        if account.lifecycle_status == "active":
+            return True
+        if (
+            account.platform == "vk"
+            and account.lifecycle_status == "pending_verification"
+            and self._vk_pending_verification_delivery_enabled
+        ):
+            return True
+        return False
 
     @staticmethod
     def _mark_system_notifications_as_sent(

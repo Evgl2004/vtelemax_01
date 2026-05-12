@@ -98,7 +98,7 @@ def test_live_postgres_routes_moderator_reply_between_platforms(
         )
     )
 
-    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     route = route_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created.ticket_id,
@@ -110,4 +110,5 @@ def test_live_postgres_routes_moderator_reply_between_platforms(
 
     assert route.target_platform == "telegram"
     assert route.target_external_id == "tg-2002"
+
 

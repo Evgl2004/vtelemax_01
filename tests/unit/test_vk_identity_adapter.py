@@ -199,7 +199,7 @@ def _build_adapter(with_support: bool = False) -> VkIdentityAdapter:
 
     support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
-    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory, vk_pending_verification_delivery_enabled=True)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     ticket_conversation_use_case = GetSupportTicketConversationTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
@@ -237,7 +237,7 @@ def _build_adapter_with_support_context() -> tuple[
     )
     support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
-    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory)
+    moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory, vk_pending_verification_delivery_enabled=True)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     ticket_conversation_use_case = GetSupportTicketConversationTransactionalUseCase(
         unit_of_work_factory=support_uow_factory
@@ -1240,3 +1240,4 @@ def test_vk_ticket_details_screen_includes_ticket_history() -> None:
     assert "Гость" in response.text
     assert "» Нужна помощь с бонусами по карте" in response.text
     assert "недоступн" not in response.text.lower()
+

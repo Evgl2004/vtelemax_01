@@ -87,7 +87,7 @@ def _build_pending_delivery_processor(
         )
     )
 
-    route_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory)
+    route_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=uow_factory, vk_pending_verification_delivery_enabled=True)
     route_reply_use_case.execute(
         ModeratorReplyCommand(
             ticket_id=created_ticket.ticket_id,
@@ -231,3 +231,4 @@ def test_delivery_processor_sends_system_notification_without_moderator_prefix()
     assert "Нажмите «✍️ Ответить»" in sent_payloads[0][1]
     assert "откройте меню модератора командой /mod." in sent_payloads[0][1]
     assert "Ответ модератора" not in sent_payloads[0][1]
+
