@@ -561,11 +561,15 @@ def _fetch_snapshot_page(
     session_factory: sessionmaker[Session],
     limit: int,
     cursor: SnapshotCursor | None,
+    include_vk_pending_verification: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Вычитывает snapshot-страницу и возвращает next_cursor."""
 
     with session_factory() as db_session:
-        repository = SQLAlchemySagurRecipientsRepository(db_session)
+        repository = SQLAlchemySagurRecipientsRepository(
+            db_session,
+            include_vk_pending_verification=include_vk_pending_verification,
+        )
         rows = repository.fetch_snapshot_page(
             page_size=limit + 1,
             cursor_account_created_at=cursor.account_created_at if cursor is not None else None,
@@ -587,6 +591,7 @@ def _fetch_snapshot_page(
                 "rules_accepted": row.rules_accepted,
                 "notifications_allowed": row.notifications_allowed,
                 "is_registered": row.is_registered,
+                "registered_at": _to_rfc3339_utc(row.registered_at),
                 "state_updated_at": _to_rfc3339_utc(row.state_updated_at),
                 "account_created_at": _to_rfc3339_utc(row.account_created_at),
                 "effective_updated_at": _to_rfc3339_utc(row.effective_updated_at),
@@ -619,11 +624,15 @@ def _fetch_delta_page(
     since: datetime,
     limit: int,
     cursor: DeltaCursor | None,
+    include_vk_pending_verification: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None, datetime | None]:
     """Вычитывает delta-страницу и возвращает next_cursor и max_seen_updated_at."""
 
     with session_factory() as db_session:
-        repository = SQLAlchemySagurRecipientsRepository(db_session)
+        repository = SQLAlchemySagurRecipientsRepository(
+            db_session,
+            include_vk_pending_verification=include_vk_pending_verification,
+        )
         rows = repository.fetch_delta_page(
             since=since,
             page_size=limit + 1,
@@ -653,6 +662,7 @@ def _fetch_delta_page(
                 "rules_accepted": row.rules_accepted,
                 "notifications_allowed": row.notifications_allowed,
                 "is_registered": row.is_registered,
+                "registered_at": _to_rfc3339_utc(row.registered_at),
                 "state_updated_at": _to_rfc3339_utc(row.state_updated_at),
                 "account_created_at": _to_rfc3339_utc(row.account_created_at),
                 "effective_updated_at": _to_rfc3339_utc(
@@ -745,6 +755,7 @@ async def _snapshot_handler(request: web.Request) -> web.Response:
         session_factory=session_factory,
         limit=limit,
         cursor=cursor,
+        include_vk_pending_verification=settings.sagur_include_vk_pending_verification,
     )
     next_cursor: str | None = None
     if internal_next_cursor:
@@ -794,6 +805,7 @@ async def _delta_handler(request: web.Request) -> web.Response:
         since=since,
         limit=limit,
         cursor=cursor,
+        include_vk_pending_verification=settings.sagur_include_vk_pending_verification,
     )
     next_cursor: str | None = None
     if internal_next_cursor:

@@ -217,6 +217,28 @@ def test_delta_statement_uses_sqlalchemy_builder_without_raw_cast_syntax() -> No
     assert "WITH ranked_accounts AS" in compiled
 
 
+def test_delta_statement_uses_lifecycle_policy_for_external_id_resolution() -> None:
+    strict_statement = _build_delta_statement(
+        since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
+        page_size=10,
+        include_vk_pending_verification=False,
+    )
+    strict_compiled = str(strict_statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "lifecycle_status" in strict_compiled
+    assert "lifecycle_status IN ('active', 'pending_verification')" not in strict_compiled
+
+    transitional_statement = _build_delta_statement(
+        since=datetime(2026, 5, 5, 10, 0, 0, tzinfo=timezone.utc),
+        page_size=10,
+        include_vk_pending_verification=True,
+    )
+    transitional_compiled = str(
+        transitional_statement.compile(compile_kwargs={"literal_binds": True})
+    )
+    assert "lifecycle_status" in transitional_compiled
+    assert "lifecycle_status IN ('active', 'pending_verification')" in transitional_compiled
+
+
 @pytest.mark.asyncio
 async def test_delta_handler_returns_empty_payload_without_cursor_or_max_seen(
     monkeypatch: pytest.MonkeyPatch,

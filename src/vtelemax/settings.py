@@ -133,6 +133,10 @@ class AppSettings(BaseSettings):
         default="",
         alias="SAGUR_INTEGRATION_IP_ALLOWLIST",
     )
+    sagur_include_vk_pending_verification: bool = Field(
+        default=False,
+        alias="SAGUR_INCLUDE_VK_PENDING_VERIFICATION",
+    )
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
     max_contact_strict_hash_enabled: bool = Field(

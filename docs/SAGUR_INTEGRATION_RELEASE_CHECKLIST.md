@@ -20,6 +20,10 @@
   - `limit` в cursor, контроль совпадения с query.
 - Расширение ответа `delta`:
   - поле `effective_updated_at` в `items[]`.
+  - поле `registered_at` в `items[]`.
+- Выбор `external_id` в `snapshot/delta` по lifecycle-политике:
+  - `telegram/max`: только `active`;
+  - `vk`: `active`, опционально `pending_verification` по флагу `SAGUR_INCLUDE_VK_PENDING_VERIFICATION`.
 - Профиль гостя в `items[]`:
   - `profile.first_name`
   - `profile.last_name`

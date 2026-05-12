@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import and_, cast, false, func, select, tuple_
+from sqlalchemy import and_, case, cast, false, func, or_, select, tuple_
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
 from sqlalchemy.types import String
@@ -25,6 +25,7 @@ class SagurRecipientProjection:
     rules_accepted: bool
     notifications_allowed: bool
     is_registered: bool
+    registered_at: datetime | None
     state_updated_at: datetime | None
     account_created_at: datetime
     effective_updated_at: datetime
@@ -38,8 +39,9 @@ class SagurRecipientProjection:
 class SQLAlchemySagurRecipientsRepository:
     """Read-only репозиторий выборок получателей для интеграции с SAGUR."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, include_vk_pending_verification: bool = False) -> None:
         self._session = session
+        self._include_vk_pending_verification = include_vk_pending_verification
 
     def fetch_snapshot_page(
         self,
@@ -56,6 +58,7 @@ class SQLAlchemySagurRecipientsRepository:
             cursor_account_created_at=cursor_account_created_at,
             cursor_person_id=cursor_person_id,
             cursor_platform=cursor_platform,
+            include_vk_pending_verification=self._include_vk_pending_verification,
         )
         rows = self._session.execute(statement).mappings().all()
         return tuple(_to_projection(row) for row in rows)
@@ -77,6 +80,7 @@ class SQLAlchemySagurRecipientsRepository:
             cursor_effective_updated_at=cursor_effective_updated_at,
             cursor_person_id=cursor_person_id,
             cursor_platform=cursor_platform,
+            include_vk_pending_verification=self._include_vk_pending_verification,
         )
         rows = self._session.execute(statement).mappings().all()
         return tuple(_to_projection(row) for row in rows)
@@ -92,6 +96,7 @@ def _to_projection(row: Any) -> SagurRecipientProjection:
         rules_accepted=bool(row["rules_accepted"]),
         notifications_allowed=bool(row["notifications_allowed"]),
         is_registered=bool(row["is_registered"]),
+        registered_at=row["registered_at"],
         state_updated_at=row["state_updated_at"],
         account_created_at=row["account_created_at"],
         effective_updated_at=row["effective_updated_at"],
@@ -103,7 +108,30 @@ def _to_projection(row: Any) -> SagurRecipientProjection:
     )
 
 
-def _build_ranked_accounts_cte() -> Any:
+def _build_lifecycle_filter(*, include_vk_pending_verification: bool) -> Any:
+    vk_statuses: tuple[str, ...] = (
+        ("active", "pending_verification")
+        if include_vk_pending_verification
+        else ("active",)
+    )
+    return or_(
+        and_(
+            PlatformAccountRow.platform.in_(("telegram", "max")),
+            PlatformAccountRow.lifecycle_status == "active",
+        ),
+        and_(
+            PlatformAccountRow.platform == "vk",
+            PlatformAccountRow.lifecycle_status.in_(vk_statuses),
+        ),
+    )
+
+
+def _build_ranked_accounts_cte(*, include_vk_pending_verification: bool) -> Any:
+    lifecycle_priority = case(
+        (PlatformAccountRow.lifecycle_status == "active", 0),
+        (PlatformAccountRow.lifecycle_status == "pending_verification", 1),
+        else_=2,
+    )
     return (
         select(
             PlatformAccountRow.person_id.label("person_id"),
@@ -113,16 +141,27 @@ def _build_ranked_accounts_cte() -> Any:
             func.row_number()
             .over(
                 partition_by=(PlatformAccountRow.person_id, PlatformAccountRow.platform),
-                order_by=(PlatformAccountRow.created_at.desc(), PlatformAccountRow.account_id.desc()),
+                order_by=(
+                    lifecycle_priority.asc(),
+                    PlatformAccountRow.created_at.desc(),
+                    PlatformAccountRow.account_id.desc(),
+                ),
             )
             .label("row_rank"),
+        )
+        .where(
+            _build_lifecycle_filter(
+                include_vk_pending_verification=include_vk_pending_verification
+            )
         )
         .cte("ranked_accounts")
     )
 
 
-def _build_resolved_accounts_cte() -> Any:
-    ranked_accounts = _build_ranked_accounts_cte()
+def _build_resolved_accounts_cte(*, include_vk_pending_verification: bool) -> Any:
+    ranked_accounts = _build_ranked_accounts_cte(
+        include_vk_pending_verification=include_vk_pending_verification
+    )
     return (
         select(
             ranked_accounts.c.person_id,
@@ -135,8 +174,10 @@ def _build_resolved_accounts_cte() -> Any:
     )
 
 
-def _build_enriched_cte() -> Any:
-    resolved_accounts = _build_resolved_accounts_cte()
+def _build_enriched_cte(*, include_vk_pending_verification: bool) -> Any:
+    resolved_accounts = _build_resolved_accounts_cte(
+        include_vk_pending_verification=include_vk_pending_verification
+    )
     return (
         select(
             cast(resolved_accounts.c.person_id, String).label("person_id"),
@@ -148,6 +189,7 @@ def _build_enriched_cte() -> Any:
                 "notifications_allowed"
             ),
             func.coalesce(PersonPlatformStateRow.is_registered, false()).label("is_registered"),
+            PersonPlatformStateRow.registered_at.label("registered_at"),
             PersonPlatformStateRow.updated_at.label("state_updated_at"),
             resolved_accounts.c.account_created_at.label("account_created_at"),
             PersonRow.first_name_input.label("profile_first_name"),
@@ -186,6 +228,7 @@ def _select_projection_from_enriched(enriched: Any) -> Select[Any]:
         enriched.c.rules_accepted,
         enriched.c.notifications_allowed,
         enriched.c.is_registered,
+        enriched.c.registered_at,
         enriched.c.state_updated_at,
         enriched.c.account_created_at,
         enriched.c.effective_updated_at,
@@ -203,8 +246,11 @@ def _build_snapshot_statement(
     cursor_account_created_at: datetime | None = None,
     cursor_person_id: str | None = None,
     cursor_platform: str | None = None,
+    include_vk_pending_verification: bool = False,
 ) -> Select[Any]:
-    enriched = _build_enriched_cte()
+    enriched = _build_enriched_cte(
+        include_vk_pending_verification=include_vk_pending_verification
+    )
     statement = _select_projection_from_enriched(enriched)
 
     if (
@@ -231,8 +277,11 @@ def _build_delta_statement(
     cursor_effective_updated_at: datetime | None = None,
     cursor_person_id: str | None = None,
     cursor_platform: str | None = None,
+    include_vk_pending_verification: bool = False,
 ) -> Select[Any]:
-    enriched = _build_enriched_cte()
+    enriched = _build_enriched_cte(
+        include_vk_pending_verification=include_vk_pending_verification
+    )
     statement = _select_projection_from_enriched(enriched).where(enriched.c.effective_updated_at > since)
 
     if (

@@ -62,6 +62,7 @@ def _add_person_with_channel(
     rules_accepted: bool,
     notifications_allowed: bool,
     is_registered: bool,
+    lifecycle_status: str = "active",
 ) -> None:
     """Добавляет гостя с каналом платформы и (опционально) platform state."""
 
@@ -80,6 +81,7 @@ def _add_person_with_channel(
             person_id=person_id,
             platform=platform,
             external_id=external_id,
+            lifecycle_status=lifecycle_status,
             created_at=account_created_at,
         )
     )
@@ -111,6 +113,7 @@ def _add_channel_for_existing_person(
     platform: str,
     external_id: str,
     account_created_at: datetime,
+    lifecycle_status: str = "active",
 ) -> None:
     """Добавляет новый канал существующему гостю."""
 
@@ -120,6 +123,7 @@ def _add_channel_for_existing_person(
             person_id=person_id,
             platform=platform,
             external_id=external_id,
+            lifecycle_status=lifecycle_status,
             created_at=account_created_at,
         )
     )
@@ -242,6 +246,7 @@ def test_live_snapshot_fetches_all_rows_without_duplicates(
     assert len(all_items) == 3
     assert len(channel_keys) == 3
     assert all("effective_updated_at" in item for item in all_items)
+    assert all("registered_at" in item for item in all_items)
     assert all("profile" in item for item in all_items)
 
 
@@ -257,10 +262,10 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
         # Входит в delta по updated_at (> since).
         _add_person_with_channel(
             session,
-            person_id=UUID("00000000-0000-0000-0000-000000000011"),
-            phone_e164="+79990000011",
+            person_id=UUID("10000000-0000-0000-0000-000000000001"),
+            phone_e164="+79000001001",
             platform="telegram",
-            external_id="tg-11",
+            external_id="test_tg_user_1",
             account_created_at=_utc(2026, 5, 5, 9, 50, 0),
             state_updated_at=_utc(2026, 5, 5, 10, 1, 0),
             rules_accepted=True,
@@ -270,10 +275,10 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
         # Входит в delta по account_created_at (> since), state нет.
         _add_person_with_channel(
             session,
-            person_id=UUID("00000000-0000-0000-0000-000000000012"),
-            phone_e164="+79990000012",
+            person_id=UUID("20000000-0000-0000-0000-000000000002"),
+            phone_e164="+79000002002",
             platform="vk",
-            external_id="vk-12",
+            external_id="test_vk_user_2",
             account_created_at=_utc(2026, 5, 5, 10, 2, 0),
             state_updated_at=None,
             rules_accepted=False,
@@ -283,10 +288,10 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
         # Входит в delta по account_created_at (> since), тот же effective_updated_at что выше.
         _add_person_with_channel(
             session,
-            person_id=UUID("00000000-0000-0000-0000-000000000013"),
-            phone_e164="+79990000013",
+            person_id=UUID("30000000-0000-0000-0000-000000000003"),
+            phone_e164="+79000003003",
             platform="max",
-            external_id="max-13",
+            external_id="test_max_user_3",
             account_created_at=_utc(2026, 5, 5, 10, 2, 0),
             state_updated_at=None,
             rules_accepted=False,
@@ -296,10 +301,10 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
         # Не входит в delta (и account_created_at, и updated_at <= since).
         _add_person_with_channel(
             session,
-            person_id=UUID("00000000-0000-0000-0000-000000000014"),
-            phone_e164="+79990000014",
+            person_id=UUID("40000000-0000-0000-0000-000000000004"),
+            phone_e164="+79000004004",
             platform="telegram",
-            external_id="tg-14",
+            external_id="test_tg_user_4",
             account_created_at=_utc(2026, 5, 5, 9, 40, 0),
             state_updated_at=_utc(2026, 5, 5, 9, 59, 0),
             rules_accepted=True,
@@ -331,12 +336,13 @@ def test_live_delta_filters_by_since_and_preserves_stable_pagination(
     all_items = first_items + second_items
     assert len(all_items) == 3
     assert all(item["effective_updated_at"] is not None for item in all_items)
+    assert all("registered_at" in item for item in all_items)
     assert all("profile" in item for item in all_items)
     keys = {(item["person_id"], item["platform"]) for item in all_items}
     assert keys == {
-        ("00000000-0000-0000-0000-000000000011", "telegram"),
-        ("00000000-0000-0000-0000-000000000012", "vk"),
-        ("00000000-0000-0000-0000-000000000013", "max"),
+        ("10000000-0000-0000-0000-000000000001", "telegram"),
+        ("20000000-0000-0000-0000-000000000002", "vk"),
+        ("30000000-0000-0000-0000-000000000003", "max"),
     }
 
     max_seen_combined = max(first_max_seen, second_max_seen)
@@ -374,6 +380,7 @@ def test_live_delta_includes_new_guest_channel(
     assert next_cursor is None
     assert max_seen_updated_at == _utc(2026, 5, 5, 10, 5, 0)
     assert all(item["effective_updated_at"] is not None for item in items)
+    assert all("registered_at" in item for item in items)
     assert all("profile" in item for item in items)
     assert ("00000000-0000-0000-0000-000000000021", "telegram") in {
         (item["person_id"], item["platform"]) for item in items
@@ -522,3 +529,104 @@ def test_live_delta_includes_profile_changes(
     assert target_items[0]["profile"]["last_name"] == "Иванов"
     assert target_items[0]["effective_updated_at"] == "2026-05-05T10:08:00Z"
     assert max_seen_updated_at == profile_updated_at
+
+
+@pytest.mark.postgres_live
+def test_live_snapshot_prefers_active_account_over_historical(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет, что snapshot выбирает active аккаунт, а historical игнорирует."""
+
+    person_id = UUID("00000000-0000-0000-0000-000000000031")
+    with postgres_session_factory() as session:
+        _add_person_with_channel(
+            session,
+            person_id=person_id,
+            phone_e164="+79990000031",
+            platform="telegram",
+            external_id="tg-active-31",
+            account_created_at=_utc(2026, 5, 5, 10, 1, 0),
+            state_updated_at=_utc(2026, 5, 5, 10, 6, 0),
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_registered=True,
+            lifecycle_status="active",
+        )
+        _add_channel_for_existing_person(
+            session,
+            person_id=person_id,
+            platform="telegram",
+            external_id="tg-historical-31",
+            account_created_at=_utc(2026, 5, 5, 10, 9, 0),
+            lifecycle_status="historical",
+        )
+        session.commit()
+
+    items, _ = _fetch_snapshot_page(
+        session_factory=postgres_session_factory,
+        limit=10,
+        cursor=None,
+    )
+    target = next(
+        item
+        for item in items
+        if item["person_id"] == "00000000-0000-0000-0000-000000000031"
+        and item["platform"] == "telegram"
+    )
+    assert target["external_id"] == "tg-active-31"
+    assert target["registered_at"] == "2026-05-05T10:06:00Z"
+
+
+@pytest.mark.postgres_live
+def test_live_delta_vk_pending_verification_is_controlled_by_flag(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """Проверяет, что VK pending_verification в delta попадает только при включённом флаге."""
+
+    since = _utc(2026, 5, 5, 10, 0, 0)
+    with postgres_session_factory() as session:
+        _add_person_with_channel(
+            session,
+            person_id=UUID("00000000-0000-0000-0000-000000000032"),
+            phone_e164="+79990000032",
+            platform="vk",
+            external_id="vk-pending-32",
+            account_created_at=_utc(2026, 5, 5, 10, 7, 0),
+            state_updated_at=_utc(2026, 5, 5, 10, 8, 0),
+            rules_accepted=True,
+            notifications_allowed=False,
+            is_registered=True,
+            lifecycle_status="pending_verification",
+        )
+        session.commit()
+
+    disabled_items, _, _ = _fetch_delta_page(
+        session_factory=postgres_session_factory,
+        since=since,
+        limit=10,
+        cursor=None,
+        include_vk_pending_verification=False,
+    )
+    assert all(
+        not (
+            item["person_id"] == "00000000-0000-0000-0000-000000000032"
+            and item["platform"] == "vk"
+        )
+        for item in disabled_items
+    )
+
+    enabled_items, _, _ = _fetch_delta_page(
+        session_factory=postgres_session_factory,
+        since=since,
+        limit=10,
+        cursor=None,
+        include_vk_pending_verification=True,
+    )
+    target = next(
+        item
+        for item in enabled_items
+        if item["person_id"] == "00000000-0000-0000-0000-000000000032"
+        and item["platform"] == "vk"
+    )
+    assert target["external_id"] == "vk-pending-32"
+    assert target["registered_at"] == "2026-05-05T10:08:00Z"

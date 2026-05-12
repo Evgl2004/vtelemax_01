@@ -131,6 +131,7 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
       "rules_accepted": false,
       "notifications_allowed": false,
       "is_registered": false,
+      "registered_at": null,
       "state_updated_at": "2026-04-13T02:10:52.642922Z",
       "account_created_at": "2026-04-13T02:10:52.642922Z"
     }
@@ -191,6 +192,7 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
       "rules_accepted": true,
       "notifications_allowed": true,
       "is_registered": true,
+      "registered_at": "2026-05-01T06:03:52.325334Z",
       "state_updated_at": "2026-05-01T06:03:52.325334Z",
       "account_created_at": "2026-05-01T06:03:39.899978Z",
       "effective_updated_at": "2026-05-01T06:03:52.325334Z",
@@ -222,6 +224,7 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 | `rules_accepted` | bool | Согласие с правилами по платформе |
 | `notifications_allowed` | bool | Согласие на рассылку по платформе |
 | `is_registered` | bool | Признак завершенной регистрации по платформе |
+| `registered_at` | RFC3339 UTC \| null | Первая зафиксированная дата завершения регистрации по платформе (`person_platform_states.registered_at`) |
 | `state_updated_at` | RFC3339 UTC \| null | Время обновления платформенного state |
 | `account_created_at` | RFC3339 UTC \| null | Время создания платформенного аккаунта |
 | `effective_updated_at` | RFC3339 UTC \| null | Используется в `delta`: `greatest(coalesce(state_updated_at, account_created_at), account_created_at, profile_updated_at)` |
@@ -234,6 +237,13 @@ curl -sS -i "${SAGUR_HOST}${PATH_QS}" \
 ---
 
 ## 8. Логика пагинации и сортировки
+
+## 8.0 Выбор `external_id` по lifecycle-политике
+
+- `telegram` / `max`: выбирается только аккаунт с `lifecycle_status = active`;
+- `vk`: по умолчанию только `active`;
+- `vk`: при `SAGUR_INCLUDE_VK_PENDING_VERIFICATION=true` допускается fallback в `pending_verification`;
+- `historical` никогда не участвует в выгрузке.
 
 ## 8.1 Snapshot
 
