@@ -42,6 +42,7 @@ class _MaxContactAttachmentData:
     vcf_info: str | None
     contact_hash: str | None
     max_user_id: int | None
+    phone_source: str | None = None
 
 
 def _is_message_not_modified_error(error: Exception) -> bool:
@@ -314,6 +315,9 @@ def register_max_guest_handlers(
         contact_hash_present = bool(
             contact_data is not None and contact_data.contact_hash and contact_data.vcf_info
         )
+        contact_vcf_present = bool(contact_data is not None and contact_data.vcf_info)
+        contact_hash_value_present = bool(contact_data is not None and contact_data.contact_hash)
+        contact_owner_id_present = bool(contact_data is not None and contact_data.max_user_id is not None)
         contact_hash_verified: bool | None = None
         contact_owner_matches_sender: bool | None = None
         strict_reject_reason: str | None = None
@@ -365,6 +369,23 @@ def register_max_guest_handlers(
             hash_verified=contact_hash_verified,
             owner_match=contact_owner_matches_sender,
             strict_reject_reason=strict_reject_reason,
+        )
+        event_logger.debug(
+            "MAX contact payload debug. phone_source={phone_source}, vcf_present={vcf_present}, hash_value_present={hash_value_present}, owner_id_present={owner_id_present}, vcf_length={vcf_length}, hash_length={hash_length}.",
+            phone_source=(contact_data.phone_source if contact_data is not None else None),
+            vcf_present=contact_vcf_present,
+            hash_value_present=contact_hash_value_present,
+            owner_id_present=contact_owner_id_present,
+            vcf_length=(
+                len(contact_data.vcf_info or "")
+                if contact_data is not None and contact_data.vcf_info is not None
+                else 0
+            ),
+            hash_length=(
+                len(contact_data.contact_hash or "")
+                if contact_data is not None and contact_data.contact_hash is not None
+                else 0
+            ),
         )
 
         if lowered in _START_COMMANDS:
@@ -685,6 +706,7 @@ def _extract_max_info_user_id(max_info: Any) -> int | None:
 def _extract_contact_attachment_details(event: Any) -> _MaxContactAttachmentData | None:
     """Извлекает расширенные поля contact-вложения MAX (телефон/hash/max_info.user_id)."""
 
+    body_phone: str | None = None
     if (
         hasattr(event, "message")
         and hasattr(event.message, "body")
@@ -694,12 +716,7 @@ def _extract_contact_attachment_details(event: Any) -> _MaxContactAttachmentData
         contact = event.message.body.contact
         phone = _read_object_field(contact, "phone_number")
         if phone is not None:
-            return _MaxContactAttachmentData(
-                phone_number=str(phone),
-                vcf_info=None,
-                contact_hash=None,
-                max_user_id=None,
-            )
+            body_phone = str(phone)
 
     if (
         hasattr(event, "message")
@@ -725,6 +742,10 @@ def _extract_contact_attachment_details(event: Any) -> _MaxContactAttachmentData
                 phone = str(payload_phone)
             elif payload_vcf_info is not None:
                 phone = _extract_phone_from_vcf(str(payload_vcf_info))
+            elif body_phone is not None:
+                # В части событий MAX телефон доступен только в body.contact,
+                # а hash/max_info приходят в attachments.payload.
+                phone = body_phone
 
             if phone is None:
                 continue
@@ -734,7 +755,23 @@ def _extract_contact_attachment_details(event: Any) -> _MaxContactAttachmentData
                 vcf_info=str(payload_vcf_info) if payload_vcf_info is not None else None,
                 contact_hash=str(payload_hash) if payload_hash is not None else None,
                 max_user_id=payload_max_user_id,
+                phone_source=(
+                    "payload.phone_number"
+                    if payload_phone is not None
+                    else "payload.vcf_info"
+                    if payload_vcf_info is not None
+                    else "body.contact+payload.meta"
+                ),
             )
+
+    if body_phone is not None:
+        return _MaxContactAttachmentData(
+            phone_number=body_phone,
+            vcf_info=None,
+            contact_hash=None,
+            max_user_id=None,
+            phone_source="body.contact",
+        )
 
     return None
 

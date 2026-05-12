@@ -89,6 +89,66 @@ def test_extract_contact_attachment_data_reads_hash_and_owner() -> None:
     assert result.max_user_id == 555001
 
 
+def test_extract_contact_attachment_data_prefers_attachment_meta_when_body_contact_exists() -> None:
+    """Проверяет, что при body.contact + attachment берутся hash/max_info из attachment."""
+
+    event = SimpleNamespace(
+        message=SimpleNamespace(
+            body=SimpleNamespace(
+                contact=SimpleNamespace(phone_number="+79123456789"),
+                attachments=[
+                    SimpleNamespace(
+                        type="contact",
+                        payload=SimpleNamespace(
+                            vcf_info="BEGIN:VCARD\r\nVERSION:3.0\r\nTEL;TYPE=CELL:+7 (912) 345-67-89\r\nEND:VCARD\r\n",
+                            hash="hash-from-attachment",
+                            max_info=SimpleNamespace(user_id=777001),
+                        ),
+                    )
+                ],
+            )
+        )
+    )
+
+    result = _extract_contact_attachment_details(event)
+
+    assert result is not None
+    assert result.phone_number == "+79123456789"
+    assert result.contact_hash == "hash-from-attachment"
+    assert result.max_user_id == 777001
+    assert result.phone_source == "payload.vcf_info"
+
+
+def test_extract_contact_attachment_data_uses_body_phone_with_attachment_meta_without_vcf() -> None:
+    """Проверяет fallback: phone из body.contact, а hash/max_info из payload без vcf_info."""
+
+    event = SimpleNamespace(
+        message=SimpleNamespace(
+            body=SimpleNamespace(
+                contact=SimpleNamespace(phone_number="+79001234567"),
+                attachments=[
+                    SimpleNamespace(
+                        type="contact",
+                        payload=SimpleNamespace(
+                            hash="hash-without-vcf",
+                            max_info=SimpleNamespace(user_id=900100),
+                        ),
+                    )
+                ],
+            )
+        )
+    )
+
+    result = _extract_contact_attachment_details(event)
+
+    assert result is not None
+    assert result.phone_number == "+79001234567"
+    assert result.contact_hash == "hash-without-vcf"
+    assert result.vcf_info is None
+    assert result.max_user_id == 900100
+    assert result.phone_source == "body.contact+payload.meta"
+
+
 def test_verify_max_contact_hash_accepts_crlf_and_lf_variants() -> None:
     """Проверяет устойчивую верификацию hash при отличиях переносов строк в vcf_info."""
 
