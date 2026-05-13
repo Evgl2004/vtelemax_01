@@ -241,11 +241,29 @@ class VkGuestMenuAdapter:
         """Экран выбора поля для редактирования профиля."""
 
         screen = build_profile_edit_screen(can_edit_birth_date=can_edit_birth_date)
-        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
+        buttons_by_action = {button.action: button for button in screen.buttons}
+        rows: list[tuple[VkButton, ...]] = [
+            (
+                _to_vk_button(buttons_by_action[GuestMenuAction.PROFILE_EDIT_FIRST_NAME]),
+                _to_vk_button(buttons_by_action[GuestMenuAction.PROFILE_EDIT_LAST_NAME]),
+            ),
+            (_to_vk_button(buttons_by_action[GuestMenuAction.PROFILE_EDIT_GENDER]),),
+        ]
+        if can_edit_birth_date and GuestMenuAction.PROFILE_EDIT_BIRTH_DATE in buttons_by_action:
+            rows.append(
+                (_to_vk_button(buttons_by_action[GuestMenuAction.PROFILE_EDIT_BIRTH_DATE]),)
+            )
+        rows.extend(
+            [
+                (_to_vk_button(buttons_by_action[GuestMenuAction.PROFILE_EDIT_EMAIL]),),
+                (_to_vk_button(buttons_by_action[GuestMenuAction.PROFILE_EDIT_NOTIFICATIONS]),),
+                (_to_vk_button(buttons_by_action[GuestMenuAction.PROFILE_EDIT_CANCEL]),),
+            ]
+        )
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,
-            rows=rows,
+            rows=tuple(rows),
             parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
         )
 
