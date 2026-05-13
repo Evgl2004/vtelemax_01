@@ -116,6 +116,47 @@ def test_vk_start_contact_screen_uses_miniapp_buttons_when_feature_enabled() -> 
     assert check_status_button.payload.get("cmd") == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK.value
 
 
+def test_vk_profile_screen_hides_miniapp_buttons_when_feature_disabled() -> None:
+    """Проверяет, что в профиле VK нет Mini App-кнопок при выключенном флаге."""
+
+    adapter = VkGuestMenuAdapter()
+    screen = adapter.build_profile_screen(
+        phone_e164="+79120000001",
+        accounts_count=1,
+        notifications_allowed=True,
+    )
+
+    labels = [button.label for row in screen.rows for button in row]
+    assert BUTTON_VK_MINIAPP_VERIFY_PHONE not in labels
+    assert BUTTON_VK_MINIAPP_VERIFY_CHECK not in labels
+
+
+def test_vk_profile_screen_shows_miniapp_buttons_when_feature_enabled() -> None:
+    """Проверяет, что в профиле VK появляются Mini App-кнопки при включенном флаге."""
+
+    adapter = VkGuestMenuAdapter(
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+    )
+    screen = adapter.build_profile_screen(
+        phone_e164="+79120000002",
+        accounts_count=1,
+        notifications_allowed=True,
+        miniapp_url_override="https://example.org/vk-miniapp?uid=1001&ts=1&sig=abc",
+    )
+
+    open_miniapp_button = screen.rows[-2][0]
+    check_status_button = screen.rows[-1][0]
+
+    assert open_miniapp_button.label == BUTTON_VK_MINIAPP_VERIFY_PHONE
+    assert open_miniapp_button.url == "https://example.org/vk-miniapp?uid=1001&ts=1&sig=abc"
+    assert open_miniapp_button.payload.get("cmd") == GuestMenuAction.OPEN_DOCS.value
+
+    assert check_status_button.label == BUTTON_VK_MINIAPP_VERIFY_CHECK
+    assert check_status_button.url is None
+    assert check_status_button.payload.get("cmd") == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK.value
+
+
 def test_vk_support_feedback_screen_contains_link_and_back_button() -> None:
     """Проверяет, что в VK-экране отзыва есть 4 кнопки-ссылки на заведения и кнопка возврата в меню."""
 

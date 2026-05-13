@@ -1183,6 +1183,7 @@ class VkIdentityAdapter:
             rules_accepted_at=person.get_rules_accepted_at_for_platform("vk"),
             notifications_allowed=person.get_notifications_allowed_for_platform("vk"),
             notifications_allowed_at=person.get_notifications_allowed_at_for_platform("vk"),
+            miniapp_url_override=self._build_signed_vk_miniapp_url(vk_user_id=vk_user_id),
         )
         return VkAdapterResponse(text=screen.text, screen=screen, parse_mode=screen.parse_mode)
 
@@ -2510,6 +2511,12 @@ class VkIdentityAdapter:
 
         if action == GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE:
             return self._toggle_profile_notifications(vk_user_id=vk_user_id, new_value=None)
+
+        if action == GuestMenuAction.VK_PHONE_VERIFICATION_CHECK:
+            return self._handle_vk_phone_verification_check(
+                vk_user_id=vk_user_id,
+                is_legacy=bool(person.is_legacy),
+            )
 
         if action == GuestMenuAction.PROFILE_EDIT_CANCEL:
             self._state_by_user_id.pop(vk_user_id, None)

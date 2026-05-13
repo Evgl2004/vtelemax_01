@@ -363,6 +363,52 @@ def test_vk_phone_check_shows_pending_state_when_not_verified() -> None:
     assert "еще не завершено" in response.text.lower()
 
 
+def test_vk_profile_phone_check_button_uses_miniapp_status_flow() -> None:
+    """Проверяет, что кнопка проверки номера из профиля VK идет в Mini App status-flow."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = VkIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        vk_phone_verification_miniapp_enabled=True,
+        vk_phone_verification_miniapp_url="https://example.org/vk-miniapp",
+        vk_phone_verification_gateway=StubVkPhoneVerificationGateway(
+            VkPhoneVerificationStatus(state="pending")
+        ),
+        vk_phone_verification_link_secret="secret",
+    )
+    registration_use_case.execute(
+        RegisterOrAttachAccountCommand(
+            platform="vk",
+            external_id="5301",
+            raw_phone="+79123450001",
+            rules_accepted=True,
+            notifications_allowed=True,
+            is_registered=True,
+        )
+    )
+
+    profile_response = adapter.handle_incoming(vk_user_id=5301, text="", payload={"cmd": "profile"})
+    assert profile_response.screen is not None
+    assert profile_response.screen.screen_id == "profile"
+
+    check_response = adapter.handle_incoming(
+        vk_user_id=5301,
+        text="",
+        payload={"cmd": "vk_phone_verification_check"},
+    )
+
+    assert check_response.screen is not None
+    assert check_response.screen.screen_id == "start_contact"
+    assert "vk mini app" in check_response.text.lower()
+
+
 def test_vk_phone_check_handles_gateway_error_with_manual_fallback() -> None:
     """Проверяет Mini App путь: при ошибке gateway пользователь получает безопасный fallback."""
 

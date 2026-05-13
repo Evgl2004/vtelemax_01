@@ -212,6 +212,7 @@ class VkGuestMenuAdapter:
         rules_accepted_at: datetime | None = None,
         notifications_allowed: bool | None = None,
         notifications_allowed_at: datetime | None = None,
+        miniapp_url_override: str | None = None,
     ) -> VkScreen:
         """Экран профиля зарегистрированного пользователя."""
 
@@ -229,11 +230,30 @@ class VkGuestMenuAdapter:
             notifications_allowed=notifications_allowed,
             notifications_allowed_at=notifications_allowed_at,
         )
-        rows = tuple((_to_vk_button(button),) for button in screen.buttons)
+        rows: list[tuple[VkButton, ...]] = [(_to_vk_button(button),) for button in screen.buttons]
+        effective_miniapp_url = (miniapp_url_override or self._vk_phone_verification_miniapp_url).strip()
+        if self._is_vk_miniapp_phone_verification_enabled(effective_miniapp_url):
+            rows.append(
+                (
+                    VkButton(
+                        label=BUTTON_VK_MINIAPP_VERIFY_PHONE,
+                        payload=build_vk_payload(GuestMenuAction.OPEN_DOCS),
+                        url=effective_miniapp_url,
+                    ),
+                )
+            )
+            rows.append(
+                (
+                    VkButton(
+                        label=BUTTON_VK_MINIAPP_VERIFY_CHECK,
+                        payload=build_vk_payload(GuestMenuAction.VK_PHONE_VERIFICATION_CHECK),
+                    ),
+                )
+            )
         return VkScreen(
             screen_id=screen.screen_id,
             text=screen.text,
-            rows=rows,
+            rows=tuple(rows),
             parse_mode="Markdown" if screen.parse_mode == "markdown" else None,
         )
 
