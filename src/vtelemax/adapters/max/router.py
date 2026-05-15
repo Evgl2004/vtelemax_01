@@ -24,7 +24,13 @@ from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
-from .menu_adapter import MOD_PHONE_SHOW_PREFIX, MOD_REPLY_PREFIX, MaxGuestMenuAdapter
+from .menu_adapter import (
+    COUPON_SCOPE_PREFIX,
+    COUPON_SHOW_PREFIX,
+    MOD_PHONE_SHOW_PREFIX,
+    MOD_REPLY_PREFIX,
+    MaxGuestMenuAdapter,
+)
 
 _START_COMMANDS = {"/start", "начать"}
 _GUEST_MESSAGE_CLOSE_PAYLOAD = "guest_msg_close"
@@ -213,6 +219,76 @@ async def _send_virtual_card_qr_messages(*, bot: Any, chat_id: int, card_numbers
         except Exception:  # noqa: BLE001
             qr_logger.exception("Ошибка отправки QR в MAX для карты #{index}.", index=index)
             continue
+
+
+async def _send_coupon_qr_message(*, bot: Any, chat_id: int, response: MaxAdapterResponse) -> None:
+    """Отправляет QR купона в MAX отдельным сообщением перед текстовой карточкой."""
+
+    coupon_payload = str(response.coupon_qr_payload or "").strip()
+    if not coupon_payload:
+        return
+
+    qr_logger = logger.bind(platform="max", component="router", stage="coupon_qr", user_id=str(chat_id))
+    upload_type = _resolve_max_upload_type_image()
+    if upload_type is None:
+        qr_logger.warning("MAX UploadType недоступен для купона / MAX UploadType is unavailable for coupon.")
+        return
+
+    try:
+        qr_png = generate_qr_png_bytes(coupon_payload)
+    except (QrGenerationError, ValueError):
+        qr_logger.warning("Не удалось сгенерировать QR купона / Failed to generate coupon QR.")
+        return
+
+    try:
+        upload_data = await bot.get_upload_url(upload_type)
+        upload_url = getattr(upload_data, "url", None)
+        if not upload_url:
+            qr_logger.warning("MAX не вернул upload_url для купона / MAX did not return coupon upload_url.")
+            return
+
+        normalized_url = str(upload_url)
+        if normalized_url.startswith("/"):
+            normalized_url = f"https://botapi.max.ru{normalized_url}"
+
+        form_data = aiohttp.FormData()
+        form_data.add_field(
+            "data",
+            qr_png,
+            filename="coupon_qr.png",
+            content_type="image/png",
+        )
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                normalized_url,
+                data=form_data,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as upload_response:
+                if upload_response.status != 200:
+                    qr_logger.warning(
+                        "Ошибка upload QR купона в MAX / Coupon QR upload failed: status={status}.",
+                        status=upload_response.status,
+                    )
+                    return
+                upload_json = await upload_response.json(content_type=None)
+
+        token = _extract_max_upload_token(upload_json)
+        if token is None:
+            qr_logger.warning("MAX upload не вернул token купона / MAX coupon upload did not return token.")
+            return
+
+        attachment = _build_max_upload_attachment(token=token, upload_type=upload_type)
+        if attachment is None:
+            qr_logger.warning("Не удалось собрать attachment купона / Failed to build coupon attachment.")
+            return
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=response.coupon_qr_caption or "🎟️ Купон",
+            attachments=[attachment],
+        )
+    except Exception:  # noqa: BLE001
+        qr_logger.exception("Ошибка отправки QR купона в MAX / Failed to send coupon QR in MAX.")
 
 
 def register_max_guest_handlers(
@@ -546,6 +622,17 @@ async def _send_response(event: Any, response: MaxAdapterResponse) -> None:
             chat_id=chat_id,
             card_numbers=response.virtual_card_numbers,
         )
+        await bot.send_message(chat_id=chat_id, text=response.text, **kwargs)
+        return
+
+    if response.coupon_qr_payload:
+        if callback_mid is not None:
+            try:
+                await bot.delete_message(message_id=callback_mid)
+            except Exception:  # noqa: BLE001
+                # Не блокируем сценарий, если исходное callback-сообщение удалить не удалось.
+                pass
+        await _send_coupon_qr_message(bot=bot, chat_id=chat_id, response=response)
         await bot.send_message(chat_id=chat_id, text=response.text, **kwargs)
         return
 

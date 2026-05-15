@@ -8,6 +8,22 @@
 """
 
 from .errors import IdentityConflictError
+from .coupon_content import (
+    COUPON_ACTIVE_STATUSES,
+    COUPON_INACTIVE_STATUSES,
+    GLOBAL_COUPON_SCOPE_KEY,
+    GLOBAL_COUPON_VENUE_CODE,
+    CouponCardView,
+    CouponListItemView,
+    CouponScopeView,
+    CouponsListView,
+    CouponsRootView,
+    build_coupon_card_view,
+    build_coupons_list_view,
+    build_coupons_root_view,
+    coupon_tail4,
+    is_coupon_visible_for_guest,
+)
 from .guest_content import (
     BUTTON_ACCEPT_RULES,
     BUTTON_ABOUT,
@@ -41,6 +57,7 @@ from .guest_content import (
     BUTTON_PROFILE_NOTIFICATIONS_ENABLE,
     BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF,
     BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON,
+    BUTTON_COUPONS,
     BUTTON_SEND_PHONE,
     BUTTON_VK_MINIAPP_VERIFY_CHECK,
     BUTTON_VK_MINIAPP_VERIFY_PHONE,
@@ -183,6 +200,20 @@ from .use_cases import (
 
 __all__ = [
     "IdentityConflictError",
+    "COUPON_ACTIVE_STATUSES",
+    "COUPON_INACTIVE_STATUSES",
+    "GLOBAL_COUPON_SCOPE_KEY",
+    "GLOBAL_COUPON_VENUE_CODE",
+    "CouponCardView",
+    "CouponListItemView",
+    "CouponScopeView",
+    "CouponsListView",
+    "CouponsRootView",
+    "build_coupon_card_view",
+    "build_coupons_list_view",
+    "build_coupons_root_view",
+    "coupon_tail4",
+    "is_coupon_visible_for_guest",
     "IdentityRepository",
     "IdentityUnitOfWork",
     "SupportRepository",
@@ -242,6 +273,7 @@ __all__ = [
     "BUTTON_PROFILE_NOTIFICATIONS_ENABLE",
     "BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF",
     "BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON",
+    "BUTTON_COUPONS",
     "BUTTON_NOTIFICATIONS_DOCS",
     "BUTTON_NOTIFICATIONS_YES",
     "BUTTON_NOTIFICATIONS_NO",

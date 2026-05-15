@@ -43,6 +43,7 @@ BUTTON_PROFILE_EDIT_CANCEL = "🔙 Назад в профиль"
 BUTTON_PROFILE_NOTIFICATIONS_ENABLE = "✅ Получать уведомления!"
 BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON = "✅ Включить уведомления"
 BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF = "❌ Выключить уведомления"
+BUTTON_COUPONS = "🎟️ Купоны"
 BUTTON_HELP = "Помощь"
 BUTTON_ABOUT = "О проекте"
 BUTTON_SEND_PHONE = "📱 Поделиться контактом"
@@ -160,6 +161,7 @@ def resolve_guest_menu_action(raw_text: str) -> GuestMenuAction | None:
         BUTTON_PROFILE_NOTIFICATIONS_ENABLE.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE,
         BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
         BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF.lower(): GuestMenuAction.PROFILE_NOTIFICATIONS_TOGGLE,
+        BUTTON_COUPONS.lower(): GuestMenuAction.COUPONS,
         BUTTON_VK_MINIAPP_VERIFY_CHECK.lower(): GuestMenuAction.VK_PHONE_VERIFICATION_CHECK,
         BUTTON_HELP.lower(): GuestMenuAction.HELP,
         "/help": GuestMenuAction.HELP,
@@ -737,6 +739,7 @@ def build_profile_screen(
     buttons.extend(
         [
             MenuButtonContract(action=GuestMenuAction.PROFILE_EDIT, label=BUTTON_PROFILE_EDIT),
+            MenuButtonContract(action=GuestMenuAction.COUPONS, label=BUTTON_COUPONS),
             MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
         ]
     )

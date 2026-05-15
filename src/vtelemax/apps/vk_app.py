@@ -261,6 +261,7 @@ def build_bot(settings: AppSettings) -> Bot:
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
         enqueue_profile_sync_use_case=enqueue_profile_sync_use_case,
+        coupon_session_factory=session_factory,
     )
 
     bot = Bot(settings.vk_bot_token)

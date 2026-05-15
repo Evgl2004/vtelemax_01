@@ -29,7 +29,7 @@ from .identity_adapter import (
     VkAdapterResponse,
     VkIdentityAdapter,
 )
-from .menu_adapter import MOD_PHONE_SHOW_PREFIX, MOD_REPLY_PREFIX
+from .menu_adapter import COUPON_SCOPE_PREFIX, COUPON_SHOW_PREFIX, MOD_PHONE_SHOW_PREFIX, MOD_REPLY_PREFIX
 from .keyboard_renderer import render_vk_keyboard
 from .payloads import resolve_action_from_vk_payload
 
@@ -270,6 +270,40 @@ async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_num
             )
 
 
+async def _send_coupon_qr_message(*, ctx_api: Any, peer_id: int, response: VkAdapterResponse) -> None:
+    """Отправляет QR купона в VK отдельным сообщением перед текстовой карточкой."""
+
+    coupon_payload = str(response.coupon_qr_payload or "").strip()
+    if not coupon_payload:
+        return
+
+    qr_logger = logger.bind(platform="vk", component="router", stage="coupon_qr", user_id=str(peer_id))
+    try:
+        qr_png = generate_qr_png_bytes(coupon_payload)
+        attachment = await _upload_vk_png_for_messages(
+            ctx_api=ctx_api,
+            peer_id=peer_id,
+            image_bytes=qr_png,
+        )
+    except (QrGenerationError, ValueError):
+        qr_logger.warning("Не удалось сгенерировать QR купона / Failed to generate coupon QR.")
+        return
+    except Exception:  # noqa: BLE001
+        qr_logger.exception("Ошибка отправки QR купона в VK / Failed to send coupon QR in VK.")
+        return
+
+    if attachment is None:
+        qr_logger.warning("Не удалось загрузить QR купона в VK / Failed to upload coupon QR to VK.")
+        return
+
+    await ctx_api.messages.send(
+        peer_id=peer_id,
+        random_id=0,
+        message=response.coupon_qr_caption or "🎟️ Купон",
+        attachment=attachment,
+    )
+
+
 def _extract_vk_peer_id(event: MessageEvent) -> int | None:
     """Извлекает peer_id из callback-события VK."""
 
@@ -482,6 +516,8 @@ def register_vk_guest_handlers(
             or cmd.startswith(USER_TICKETS_PREV_PAGE_PREFIX)
             or cmd.startswith(USER_TICKETS_NEXT_PAGE_PREFIX)
             or cmd.startswith("mod_")
+            or cmd.startswith(COUPON_SCOPE_PREFIX)
+            or cmd.startswith(COUPON_SHOW_PREFIX)
         ):
             # Обрабатываем через адаптер
             response = adapter.handle_incoming(
@@ -584,6 +620,11 @@ async def _send_response(message: Any, response: VkAdapterResponse) -> None:
                 peer_id=int(peer_id),
                 card_numbers=response.virtual_card_numbers,
             )
+    if response.coupon_qr_payload:
+        ctx_api = getattr(message, "ctx_api", None)
+        peer_id = getattr(message, "peer_id", None)
+        if ctx_api is not None and peer_id is not None:
+            await _send_coupon_qr_message(ctx_api=ctx_api, peer_id=int(peer_id), response=response)
 
     keyboard_json = render_vk_keyboard(response.screen)
     parse_mode = response.parse_mode
@@ -610,6 +651,22 @@ async def _send_event_response(event: MessageEvent, response: VkAdapterResponse)
                 peer_id=int(peer_id),
                 card_numbers=response.virtual_card_numbers,
             )
+        keyboard_json = render_vk_keyboard(response.screen)
+        parse_mode = response.parse_mode
+        if parse_mode is None and response.screen is not None:
+            parse_mode = response.screen.parse_mode
+        message_text, parse_mode = _normalize_vk_message(response.text, parse_mode)
+        kwargs: dict[str, Any] = {}
+        kwargs["keyboard"] = keyboard_json if keyboard_json is not None else _VK_REMOVE_KEYBOARD_JSON
+        if parse_mode is not None:
+            kwargs["parse_mode"] = parse_mode
+        await event.send_message(message=message_text, **kwargs)
+        return
+
+    if response.coupon_qr_payload:
+        await _try_delete_callback_message(event)
+        if ctx_api is not None and peer_id is not None:
+            await _send_coupon_qr_message(ctx_api=ctx_api, peer_id=int(peer_id), response=response)
         keyboard_json = render_vk_keyboard(response.screen)
         parse_mode = response.parse_mode
         if parse_mode is None and response.screen is not None:

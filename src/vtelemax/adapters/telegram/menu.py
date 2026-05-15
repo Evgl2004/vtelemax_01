@@ -43,6 +43,7 @@ from vtelemax.core import (
     BUTTON_PROFILE_NOTIFICATIONS_ENABLE,
     BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_OFF,
     BUTTON_PROFILE_NOTIFICATIONS_TOGGLE_ON,
+    BUTTON_COUPONS,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
     BUTTON_SUPPORT,
@@ -89,6 +90,10 @@ MOD_CLOSE_PREFIX = "mod_close_"
 MOD_PHONE_SHOW_PREFIX = "mod_phone_show_"
 MOD_PHONE_HIDE_PREFIX = "mod_phone_hide_"
 GUEST_MESSAGE_CLOSE_CALLBACK = "guest_msg_close"
+COUPON_SCOPE_PREFIX = "coupon_scope:"
+COUPON_SHOW_PREFIX = "coupon_show:"
+COUPON_SCOPE_GLOBAL_TOKEN = "global"
+BUTTON_BACK_TO_COUPONS = "🔙 Назад к купонам"
 DOCS_URL = PERSONAL_DATA_CONSENT_URLS["telegram"]
 NOTIFICATIONS_DOCS_URL = MAILING_CONSENT_URLS["telegram"]
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
@@ -385,11 +390,60 @@ def build_profile_inline_keyboard(*, notifications_allowed: bool) -> InlineKeybo
     rows.extend(
         [
             [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT, callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT))],
+            [InlineKeyboardButton(text=BUTTON_COUPONS, callback_data=_action_callback(GuestMenuAction.COUPONS))],
             [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))],
         ]
     )
     return InlineKeyboardMarkup(
         inline_keyboard=rows
+    )
+
+
+def build_coupon_scope_callback(scope_token: str) -> str:
+    """Строит callback-data открытия раздела купонов (общие/заведение)."""
+
+    return f"{COUPON_SCOPE_PREFIX}{scope_token}"
+
+
+def build_coupon_show_callback(coupon_id_hex: str) -> str:
+    """Строит callback-data открытия карточки конкретного купона."""
+
+    return f"{COUPON_SHOW_PREFIX}{coupon_id_hex}"
+
+
+def build_coupons_root_inline_keyboard(*, scope_buttons: tuple[tuple[str, str], ...]) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру корневого экрана купонов."""
+
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=label, callback_data=callback_data)]
+        for callback_data, label in scope_buttons
+    ]
+    rows.append(
+        [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_CANCEL, callback_data=_action_callback(GuestMenuAction.PROFILE))]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_coupons_list_inline_keyboard(*, coupon_buttons: tuple[tuple[str, str], ...]) -> InlineKeyboardMarkup:
+    """Создает inline-клавиатуру списка купонов выбранного раздела."""
+
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=label, callback_data=callback_data)]
+        for callback_data, label in coupon_buttons
+    ]
+    rows.append(
+        [InlineKeyboardButton(text=BUTTON_BACK_TO_COUPONS, callback_data=_action_callback(GuestMenuAction.COUPONS))]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_coupon_card_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает навигацию карточки купона без кнопок на самом QR-сообщении."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTON_BACK_TO_COUPONS, callback_data=_action_callback(GuestMenuAction.COUPONS))]
+        ]
     )
 
 

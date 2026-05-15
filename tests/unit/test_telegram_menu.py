@@ -16,6 +16,11 @@ from vtelemax.adapters.telegram.menu import (
     USER_TICKETS_PREV_PAGE_PREFIX,
     USER_TICKETS_NEXT_PAGE_PREFIX,
     USER_TICKET_DETAILS_PREFIX,
+    build_coupon_card_inline_keyboard,
+    build_coupon_scope_callback,
+    build_coupon_show_callback,
+    build_coupons_list_inline_keyboard,
+    build_coupons_root_inline_keyboard,
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
@@ -224,6 +229,13 @@ def test_all_telegram_callback_data_fit_telegram_limits() -> None:
         build_support_feedback_inline_keyboard(),
         build_profile_inline_keyboard(notifications_allowed=True),
         build_profile_inline_keyboard(notifications_allowed=False),
+        build_coupons_root_inline_keyboard(
+            scope_buttons=((build_coupon_scope_callback("global"), "🎟️ Общие (1)"),)
+        ),
+        build_coupons_list_inline_keyboard(
+            coupon_buttons=((build_coupon_show_callback(sample_ticket_id.hex), "🎟️ Купон • ABCD"),)
+        ),
+        build_coupon_card_inline_keyboard(),
         build_profile_edit_inline_keyboard(can_edit_birth_date=True),
         build_profile_edit_inline_keyboard(can_edit_birth_date=False),
         build_profile_gender_inline_keyboard(),
@@ -266,6 +278,35 @@ def test_build_profile_inline_keyboard_depends_on_notifications_status() -> None
 
     assert "✅ Получать уведомления!" not in active_texts
     assert "✅ Получать уведомления!" in declined_texts
+
+
+def test_build_coupon_keyboards_use_expected_callbacks() -> None:
+    """Проверяет клавиатуры корня, списка и карточки купонов."""
+
+    root_keyboard = build_coupons_root_inline_keyboard(
+        scope_buttons=(
+            (build_coupon_scope_callback("global"), "🎟️ Общие (1)"),
+            (build_coupon_scope_callback("bnYW5p"), "🏠 Грузинка Нани (2)"),
+        )
+    )
+    list_keyboard = build_coupons_list_inline_keyboard(
+        coupon_buttons=((build_coupon_show_callback("22222222222242228222222222222222"), "🎟️ Купон • 1234"),)
+    )
+    card_keyboard = build_coupon_card_inline_keyboard()
+
+    assert root_keyboard.inline_keyboard[0][0].callback_data == "coupon_scope:global"
+    assert root_keyboard.inline_keyboard[1][0].callback_data == "coupon_scope:bnYW5p"
+    assert root_keyboard.inline_keyboard[-1][0].text == "🔙 Назад в профиль"
+    assert root_keyboard.inline_keyboard[-1][0].callback_data == GuestMenuAction.PROFILE.value
+
+    assert list_keyboard.inline_keyboard[0][0].callback_data == "coupon_show:22222222222242228222222222222222"
+    assert list_keyboard.inline_keyboard[-1][0].text == "🔙 Назад к купонам"
+    assert list_keyboard.inline_keyboard[-1][0].callback_data == GuestMenuAction.COUPONS.value
+
+    assert len(card_keyboard.inline_keyboard) == 1
+    assert len(card_keyboard.inline_keyboard[0]) == 1
+    assert card_keyboard.inline_keyboard[0][0].text == "🔙 Назад к купонам"
+    assert card_keyboard.inline_keyboard[0][0].callback_data == GuestMenuAction.COUPONS.value
 
 
 def test_build_profile_notifications_toggle_keyboard_has_single_toggle_button() -> None:

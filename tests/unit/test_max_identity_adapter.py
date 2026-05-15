@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from types import TracebackType
+from uuid import UUID
 
 from vtelemax.adapters.max import MaxIdentityAdapter
+from vtelemax.adapters.max import identity_adapter as max_identity_module
 from vtelemax.core import (
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
@@ -32,6 +35,50 @@ from vtelemax.core import (
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _CouponVenue:
+    venue_code: str
+    venue_name: str
+    coupons_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CouponItem:
+    coupon_id: UUID
+    person_id: UUID
+    coupon_series: str
+    coupon_code: str
+    campaign_id: str | None
+    venue_code: str
+    venue_name: str | None
+    promo_text: str | None
+    status: str
+    is_visible: bool
+    updated_at: datetime
+
+
+class _FakeCouponSession:
+    """Минимальная context manager-сессия для проверки session_factory."""
+
+    def __enter__(self) -> "_FakeCouponSession":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return
+
+
+class _FakeCouponSessionFactory:
+    """Тестовая фабрика сессий, совместимая с MAX-адаптером."""
+
+    def __call__(self) -> _FakeCouponSession:
+        return _FakeCouponSession()
 
 
 class InMemoryIdentityUnitOfWork(IdentityUnitOfWork):
@@ -511,6 +558,116 @@ def test_max_profile_available_after_registration() -> None:
 
     assert "Профиль пользователя" in response.text
     assert "+79123456789" in response.text
+
+
+def test_max_adapter_builds_coupon_root_scope_and_card(monkeypatch) -> None:
+    """Проверяет MAX-flow купонов: корень, список и карточка с QR payload."""
+
+    coupon_id = UUID("22222222-2222-4222-8222-222222222222")
+    coupon = _CouponItem(
+        coupon_id=coupon_id,
+        person_id=UUID("33333333-3333-4333-8333-333333333333"),
+        coupon_series="SER-A",
+        coupon_code="PROMO-2026-7777",
+        campaign_id="CMP-1",
+        venue_code="nani",
+        venue_name="Грузинка Нани",
+        promo_text="Подарочный десерт",
+        status="sent",
+        is_visible=True,
+        updated_at=datetime(2026, 5, 15, 8, 30, tzinfo=timezone.utc),
+    )
+
+    class _FakeCouponsRepository:
+        def __init__(self, session: object) -> None:
+            self._session = session
+
+        def count_visible_global_coupons(self, *, person_id: UUID) -> int:
+            return 1
+
+        def list_visible_venues(self, *, person_id: UUID) -> tuple[_CouponVenue, ...]:
+            return (_CouponVenue(venue_code="nani", venue_name="Грузинка Нани", coupons_count=1),)
+
+        def list_visible_coupons(self, *, person_id: UUID, venue_code: str) -> tuple[_CouponItem, ...]:
+            assert venue_code == "nani"
+            return (coupon,)
+
+        def get_coupon(self, *, person_id: UUID, coupon_id: UUID) -> _CouponItem | None:
+            return coupon
+
+    monkeypatch.setattr(max_identity_module, "SQLAlchemySagurCouponsRepository", _FakeCouponsRepository)
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = MaxIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        coupon_session_factory=_FakeCouponSessionFactory(),
+    )
+    _complete_max_registration(adapter)
+
+    root = adapter.handle_incoming(max_user_id=1001, text="", payload="coupons")
+    assert root.screen is not None
+    assert root.screen.screen_id == "coupons_root"
+    assert root.screen.rows[0][0].label == "🎟️ Общие (1)"
+    assert root.screen.rows[1][0].label == "🏠 Грузинка Нани (1)"
+
+    venue_payload = root.screen.rows[1][0].payload
+    coupon_list = adapter.handle_incoming(max_user_id=1001, text="", payload=venue_payload)
+    assert coupon_list.screen is not None
+    assert coupon_list.screen.screen_id == "coupon_list"
+    assert coupon_list.screen.rows[0][0].label == "🎟️ Купон • 7777"
+
+    card_payload = coupon_list.screen.rows[0][0].payload
+    card = adapter.handle_incoming(max_user_id=1001, text="", payload=card_payload)
+    assert card.screen is not None
+    assert card.screen.screen_id == "coupon_card"
+    assert card.coupon_qr_payload == "PROMO-2026-7777"
+    assert card.coupon_qr_caption == "🎟️ Купон • 7777"
+    assert "Подарочный десерт" in card.text
+
+
+def test_max_adapter_returns_empty_coupon_screen(monkeypatch) -> None:
+    """Проверяет пустой экран купонов в MAX."""
+
+    class _FakeCouponsRepository:
+        def __init__(self, session: object) -> None:
+            self._session = session
+
+        def count_visible_global_coupons(self, *, person_id: UUID) -> int:
+            return 0
+
+        def list_visible_venues(self, *, person_id: UUID) -> tuple[_CouponVenue, ...]:
+            return ()
+
+    monkeypatch.setattr(max_identity_module, "SQLAlchemySagurCouponsRepository", _FakeCouponsRepository)
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = MaxIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        coupon_session_factory=_FakeCouponSessionFactory(),
+    )
+    _complete_max_registration(adapter)
+
+    response = adapter.handle_incoming(max_user_id=1001, text="", payload="coupons")
+
+    assert response.screen is not None
+    assert response.screen.screen_id == "coupons_root"
+    assert len(response.screen.rows) == 1
+    assert response.screen.rows[0][0].label == "🔙 Назад в профиль"
+    assert "активных купонов нет" in response.text
 
 
 def test_max_start_for_registered_user_uses_first_name_in_menu() -> None:

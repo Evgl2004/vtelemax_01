@@ -199,6 +199,7 @@ class SQLAlchemySagurCouponsRepository:
             select(PersonCouponRow.coupon_id).where(
                 PersonCouponRow.person_id == person_id,
                 PersonCouponRow.is_visible.is_(True),
+                PersonCouponRow.status.in_(_COUPON_ACTIVE_STATUSES),
                 PersonCouponRow.venue_code == _GLOBAL_VENUE_CODE,
             )
         ).all()
@@ -215,6 +216,7 @@ class SQLAlchemySagurCouponsRepository:
             .where(
                 PersonCouponRow.person_id == person_id,
                 PersonCouponRow.is_visible.is_(True),
+                PersonCouponRow.status.in_(_COUPON_ACTIVE_STATUSES),
                 PersonCouponRow.venue_code != _GLOBAL_VENUE_CODE,
             )
             .order_by(
@@ -250,6 +252,7 @@ class SQLAlchemySagurCouponsRepository:
             select(PersonCouponRow).where(
                 PersonCouponRow.person_id == person_id,
                 PersonCouponRow.is_visible.is_(True),
+                PersonCouponRow.status.in_(_COUPON_ACTIVE_STATUSES),
                 PersonCouponRow.venue_code == normalized_venue_code,
             )
             .order_by(PersonCouponRow.updated_at.desc(), PersonCouponRow.created_at.desc())

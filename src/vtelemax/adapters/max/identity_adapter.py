@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import html
 import re
 from dataclasses import dataclass
@@ -10,6 +12,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from loguru import logger
+from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.core import (
     AddGuestMessageToTicketCommand,
@@ -20,6 +23,7 @@ from vtelemax.core import (
     BUTTON_SUPPORT_QUESTION,
     BUTTON_MY_TICKETS,
     BUTTON_BACK_TO_SUPPORT,
+    GLOBAL_COUPON_VENUE_CODE,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     EnqueueProfileSyncCommand,
@@ -52,6 +56,9 @@ from vtelemax.core import (
     SetSupportTicketStatusTransactionalUseCase,
     SUPPORTED_PLATFORMS,
     SupportTicketStatus,
+    build_coupon_card_view,
+    build_coupons_list_view,
+    build_coupons_root_view,
     normalize_email,
     normalize_menu_text,
     normalize_person_name,
@@ -69,11 +76,17 @@ from .menu_adapter import (
     MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
     MOD_TICKET_PREFIX,
+    COUPON_SCOPE_GLOBAL_TOKEN,
+    COUPON_SCOPE_PREFIX,
+    COUPON_SHOW_PREFIX,
     MaxButton,
     MaxGuestMenuAdapter,
     MaxScreen,
+    build_coupon_scope_payload,
+    build_coupon_show_payload,
 )
 from .payloads import resolve_action_from_max_payload, build_max_payload
+from vtelemax.infrastructure.postgres.sagur_coupons_repository import SQLAlchemySagurCouponsRepository
 
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
@@ -140,6 +153,8 @@ class MaxAdapterResponse:
     screen: MaxScreen | None = None
     parse_mode: str | None = None
     virtual_card_numbers: tuple[str, ...] = ()
+    coupon_qr_payload: str | None = None
+    coupon_qr_caption: str | None = None
 
 
 @dataclass(slots=True)
@@ -175,6 +190,7 @@ class MaxIdentityAdapter:
         virtual_card_use_case: GetVirtualCardUseCase | None = None,
         loyalty_gateway: LoyaltyGateway | None = None,
         enqueue_profile_sync_use_case: EnqueueProfileSyncTransactionalUseCase | None = None,
+        coupon_session_factory: sessionmaker[Session] | None = None,
     ) -> None:
         self._logger = logger.bind(platform="max", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -199,6 +215,8 @@ class MaxIdentityAdapter:
         self._virtual_card_use_case = virtual_card_use_case
         self._loyalty_gateway = loyalty_gateway
         self._enqueue_profile_sync_use_case = enqueue_profile_sync_use_case
+        self._coupon_session_factory = coupon_session_factory
+        self._coupon_scope_context_by_user_id: dict[int, dict[str, tuple[str, str]]] = {}
 
     def handle_start(self, max_user_id: int) -> MaxAdapterResponse:
         """Обрабатывает стартовый вход пользователя в MAX-бот."""
@@ -514,6 +532,16 @@ class MaxIdentityAdapter:
                         text="Неверный идентификатор тикета.",
                     )
                 return self._handle_view_ticket_details(max_user_id=max_user_id, ticket_id=ticket_id)
+            if cmd.startswith(COUPON_SCOPE_PREFIX):
+                return self._handle_coupon_scope_payload(
+                    max_user_id=max_user_id,
+                    scope_token=cmd[len(COUPON_SCOPE_PREFIX):],
+                )
+            if cmd.startswith(COUPON_SHOW_PREFIX):
+                return self._handle_coupon_show_payload(
+                    max_user_id=max_user_id,
+                    coupon_id_raw=cmd[len(COUPON_SHOW_PREFIX):],
+                )
 
         action = resolve_action_from_max_payload(payload)
         if action is None:
@@ -1036,6 +1064,223 @@ class MaxIdentityAdapter:
             ),
             screen=self._menu_adapter.build_support_question_confirmation_screen(),
         )
+
+    def _render_coupons_root_screen(self, *, max_user_id: int) -> MaxAdapterResponse:
+        """Возвращает корневой экран купонов MAX по данным `session_factory`."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
+        )
+        if person is None:
+            screen = self._menu_adapter.build_profile_not_found_screen()
+            return MaxAdapterResponse(text=screen.text, screen=screen)
+
+        db_session = self._open_coupons_session(max_user_id=max_user_id, stage="coupons_root")
+        if db_session is None:
+            return self._build_coupons_unavailable_response()
+
+        try:
+            with db_session as session:
+                repository = SQLAlchemySagurCouponsRepository(session)
+                global_count = repository.count_visible_global_coupons(person_id=person.person_id)
+                venues = repository.list_visible_venues(person_id=person.person_id)
+        except Exception:  # noqa: BLE001
+            self._logger.bind(stage="coupons_root", user_id=str(max_user_id)).exception(
+                "Не удалось загрузить список купонов / Failed to load coupons root."
+            )
+            return self._build_coupons_unavailable_response()
+
+        view = build_coupons_root_view(global_count=global_count, venues=venues)
+        self._coupon_scope_context_by_user_id[max_user_id] = {}
+        scope_buttons = tuple(
+            (
+                build_coupon_scope_payload(
+                    self._build_coupon_scope_token(
+                        max_user_id=max_user_id,
+                        venue_code=scope.venue_code,
+                        title=scope.title,
+                    )
+                ),
+                scope.label,
+            )
+            for scope in view.scopes
+        )
+        screen = self._menu_adapter.build_coupons_root_screen(text=view.text, scope_buttons=scope_buttons)
+        return MaxAdapterResponse(text=screen.text, screen=screen)
+
+    def _handle_coupon_scope_payload(self, *, max_user_id: int, scope_token: str) -> MaxAdapterResponse:
+        """Открывает список купонов выбранного раздела MAX."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
+        )
+        if person is None:
+            screen = self._menu_adapter.build_profile_not_found_screen()
+            return MaxAdapterResponse(text=screen.text, screen=screen)
+
+        resolved_scope = self._resolve_coupon_scope_token(max_user_id=max_user_id, scope_token=scope_token)
+        if resolved_scope is None:
+            screen = self._menu_adapter.build_coupon_card_screen(
+                text=(
+                    "🎟️ Купоны\n\n"
+                    "Раздел купонов устарел. Вернитесь к списку купонов и выберите раздел заново."
+                )
+            )
+            return MaxAdapterResponse(text=screen.text, screen=screen)
+        venue_code, scope_title = resolved_scope
+
+        db_session = self._open_coupons_session(max_user_id=max_user_id, stage="coupon_scope")
+        if db_session is None:
+            return self._build_coupons_unavailable_response()
+
+        try:
+            with db_session as session:
+                repository = SQLAlchemySagurCouponsRepository(session)
+                coupons = repository.list_visible_coupons(person_id=person.person_id, venue_code=venue_code)
+        except Exception:  # noqa: BLE001
+            self._logger.bind(stage="coupon_scope", user_id=str(max_user_id)).exception(
+                "Не удалось загрузить купоны раздела / Failed to load coupon scope. venue_code={venue_code}",
+                venue_code=venue_code,
+            )
+            return self._build_coupons_unavailable_response()
+
+        if venue_code != GLOBAL_COUPON_VENUE_CODE and coupons:
+            scope_title = str(coupons[0].venue_name or scope_title).strip() or scope_title
+        view = build_coupons_list_view(scope_title=scope_title, coupons=coupons)
+        coupon_buttons = tuple((build_coupon_show_payload(item.coupon_id_hex), item.label) for item in view.items)
+        screen = self._menu_adapter.build_coupons_list_screen(text=view.text, coupon_buttons=coupon_buttons)
+        return MaxAdapterResponse(text=screen.text, screen=screen)
+
+    def _handle_coupon_show_payload(self, *, max_user_id: int, coupon_id_raw: str) -> MaxAdapterResponse:
+        """Открывает карточку купона MAX и готовит QR payload для router."""
+
+        coupon_id = self._parse_coupon_id(coupon_id_raw)
+        if coupon_id is None:
+            return self._build_coupon_not_found_response()
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="max", external_id=str(max_user_id))
+        )
+        if person is None:
+            screen = self._menu_adapter.build_profile_not_found_screen()
+            return MaxAdapterResponse(text=screen.text, screen=screen)
+
+        db_session = self._open_coupons_session(max_user_id=max_user_id, stage="coupon_show")
+        if db_session is None:
+            return self._build_coupons_unavailable_response()
+
+        try:
+            with db_session as session:
+                repository = SQLAlchemySagurCouponsRepository(session)
+                coupon = repository.get_coupon(person_id=person.person_id, coupon_id=coupon_id)
+        except Exception:  # noqa: BLE001
+            self._logger.bind(stage="coupon_show", user_id=str(max_user_id)).exception(
+                "Не удалось загрузить карточку купона / Failed to load coupon card. coupon_id={coupon_id}",
+                coupon_id=str(coupon_id),
+            )
+            return self._build_coupons_unavailable_response()
+
+        if coupon is None:
+            return self._build_coupon_not_found_response()
+
+        card = build_coupon_card_view(coupon)
+        if card is None:
+            return self._build_coupon_not_found_response()
+
+        screen = self._menu_adapter.build_coupon_card_screen(text=card.text)
+        return MaxAdapterResponse(
+            text=screen.text,
+            screen=screen,
+            coupon_qr_payload=card.qr_payload,
+            coupon_qr_caption=f"🎟️ Купон • {card.coupon_tail4}",
+        )
+
+    def _open_coupons_session(self, *, max_user_id: int, stage: str) -> Session | None:
+        """Открывает read-only сессию купонов через `session_factory`."""
+
+        if self._coupon_session_factory is None:
+            self._logger.bind(stage=stage, user_id=str(max_user_id)).warning(
+                "Фабрика сессий купонов не подключена / Coupon session factory is not configured."
+            )
+            return None
+        return self._coupon_session_factory()
+
+    def _build_coupons_unavailable_response(self) -> MaxAdapterResponse:
+        """Возвращает безопасный MAX-ответ при недоступности хранилища купонов."""
+
+        screen = self._menu_adapter.build_coupon_card_screen(
+            text=(
+                "🎟️ Купоны временно недоступны.\n\n"
+                "Мы уже знаем, где искать проблему. Попробуйте открыть раздел чуть позже."
+            )
+        )
+        return MaxAdapterResponse(text=screen.text, screen=screen)
+
+    def _build_coupon_not_found_response(self) -> MaxAdapterResponse:
+        """Возвращает MAX-ответ, если купон уже неактивен или не найден."""
+
+        screen = self._menu_adapter.build_coupon_card_screen(
+            text=(
+                "🎟️ Купон недоступен.\n\n"
+                "Он мог быть уже использован, отменен или срок действия закончился. "
+                "Вернитесь к списку купонов и выберите актуальный купон."
+            )
+        )
+        return MaxAdapterResponse(text=screen.text, screen=screen)
+
+    def _build_coupon_scope_token(self, *, max_user_id: int, venue_code: str, title: str) -> str:
+        """Строит компактный token раздела купонов для MAX payload."""
+
+        normalized_venue_code = str(venue_code or "").strip() or GLOBAL_COUPON_VENUE_CODE
+        normalized_title = str(title or "").strip() or normalized_venue_code
+        if normalized_venue_code == GLOBAL_COUPON_VENUE_CODE:
+            token = COUPON_SCOPE_GLOBAL_TOKEN
+        else:
+            encoded = base64.urlsafe_b64encode(normalized_venue_code.encode("utf-8")).decode("ascii").rstrip("=")
+            token = f"b{encoded}"
+        self._coupon_scope_context_by_user_id.setdefault(max_user_id, {})[token] = (
+            normalized_venue_code,
+            normalized_title,
+        )
+        return token
+
+    def _resolve_coupon_scope_token(self, *, max_user_id: int, scope_token: str) -> tuple[str, str] | None:
+        """Восстанавливает `venue_code` и заголовок раздела из MAX payload token."""
+
+        token = str(scope_token or "").strip()
+        if not token:
+            return None
+        context = self._coupon_scope_context_by_user_id.get(max_user_id, {})
+        if token in context:
+            return context[token]
+        if token == COUPON_SCOPE_GLOBAL_TOKEN:
+            return GLOBAL_COUPON_VENUE_CODE, "Общие купоны"
+        if token.startswith("b"):
+            payload = token[1:]
+            padding = "=" * (-len(payload) % 4)
+            try:
+                venue_code = base64.urlsafe_b64decode(f"{payload}{padding}".encode("ascii")).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError):
+                return None
+            venue_code = venue_code.strip()
+            if not venue_code:
+                return None
+            return venue_code, venue_code
+        return token, token
+
+    @staticmethod
+    def _parse_coupon_id(raw_coupon_id: str) -> UUID | None:
+        """Разбирает UUID купона из короткого hex или полного строкового формата."""
+
+        normalized = str(raw_coupon_id or "").strip()
+        if not normalized:
+            return None
+        try:
+            if len(normalized) == 32 and "-" not in normalized:
+                return UUID(hex=normalized)
+            return UUID(normalized)
+        except ValueError:
+            return None
 
     def _render_profile_screen(self, *, max_user_id: int) -> MaxAdapterResponse:
         """Возвращает экран профиля с кнопками редактирования."""
@@ -2386,6 +2631,10 @@ class MaxIdentityAdapter:
         if action == GuestMenuAction.PROFILE:
             self._state_by_user_id.pop(max_user_id, None)
             return self._render_profile_screen(max_user_id=max_user_id)
+
+        if action == GuestMenuAction.COUPONS:
+            self._state_by_user_id.pop(max_user_id, None)
+            return self._render_coupons_root_screen(max_user_id=max_user_id)
 
         if action == GuestMenuAction.PROFILE_EDIT:
             return self._open_profile_edit_choice(max_user_id=max_user_id)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from vtelemax.adapters.vk import VkGuestMenuAdapter, build_vk_payload, resolve_action_from_vk_payload
+from vtelemax.adapters.vk.menu_adapter import build_coupon_scope_payload, build_coupon_show_payload
 from vtelemax.core import (
     BUTTON_VK_MINIAPP_VERIFY_CHECK,
     BUTTON_VK_MINIAPP_VERIFY_PHONE,
@@ -192,3 +193,37 @@ def test_vk_support_question_screen_has_back_to_main_button() -> None:
     assert len(screen.rows[0]) == 1
     assert screen.rows[0][0].label == "🔙 Назад в меню"
     assert screen.rows[0][0].payload.get("cmd") == GuestMenuAction.BACK_TO_MAIN.value
+
+
+def test_vk_coupon_screens_use_dynamic_payloads_and_back_buttons() -> None:
+    """Проверяет VK-экраны купонов и корректную навигацию назад."""
+
+    adapter = VkGuestMenuAdapter()
+
+    root = adapter.build_coupons_root_screen(
+        text="root",
+        scope_buttons=(
+            (build_coupon_scope_payload("global"), "🎟️ Общие (1)"),
+            (build_coupon_scope_payload("bnYW5p"), "🏠 Грузинка Нани (2)"),
+        ),
+    )
+    coupon_list = adapter.build_coupons_list_screen(
+        text="list",
+        coupon_buttons=((build_coupon_show_payload("22222222222242228222222222222222"), "🎟️ Купон • 1234"),),
+    )
+    card = adapter.build_coupon_card_screen(text="card")
+
+    assert root.screen_id == "coupons_root"
+    assert root.rows[0][0].payload == {"cmd": "coupon_scope:global"}
+    assert root.rows[1][0].payload == {"cmd": "coupon_scope:bnYW5p"}
+    assert root.rows[-1][0].label == "🔙 Назад в профиль"
+    assert root.rows[-1][0].payload == {"cmd": GuestMenuAction.PROFILE.value}
+
+    assert coupon_list.screen_id == "coupon_list"
+    assert coupon_list.rows[0][0].payload == {"cmd": "coupon_show:22222222222242228222222222222222"}
+    assert coupon_list.rows[-1][0].label == "🔙 Назад к купонам"
+    assert coupon_list.rows[-1][0].payload == {"cmd": GuestMenuAction.COUPONS.value}
+
+    assert card.screen_id == "coupon_card"
+    assert card.rows[0][0].label == "🔙 Назад к купонам"
+    assert card.rows[0][0].payload == {"cmd": GuestMenuAction.COUPONS.value}

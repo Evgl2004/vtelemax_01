@@ -31,6 +31,7 @@ class GuestMenuAction(StrEnum):
     PROFILE_NOTIFICATIONS_ENABLE = "profile_notifications_enable"
     PROFILE_NOTIFICATIONS_TOGGLE = "profile_notifications_toggle"
     PROFILE_EDIT_CANCEL = "profile_edit_cancel"
+    COUPONS = "coupons"
     HELP = "help"
     ABOUT = "about"
     SHARE_CONTACT = "share_contact"

@@ -239,6 +239,7 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
         enqueue_profile_sync_use_case=enqueue_profile_sync_use_case,
+        coupon_session_factory=session_factory,
     )
 
     dispatcher = Dispatcher()

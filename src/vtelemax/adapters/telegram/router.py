@@ -40,6 +40,8 @@ from .menu import (
     MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
     MOD_TICKET_PREFIX,
+    COUPON_SCOPE_PREFIX,
+    COUPON_SHOW_PREFIX,
     NOTIFY_NO_CALLBACK,
     NOTIFY_YES_CALLBACK,
     GUEST_MESSAGE_CLOSE_CALLBACK,
@@ -53,6 +55,7 @@ from .menu import (
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_BALANCE,
     BUTTON_BUSINESS_LUNCH,
+    BUTTON_COUPONS,
     BUTTON_DELIVERY,
     BUTTON_PROFILE,
     BUTTON_PROFILE_EDIT,
@@ -82,6 +85,9 @@ from .menu import (
     build_contact_request_keyboard,
     build_delivery_inline_keyboard,
     build_business_lunch_inline_keyboard,
+    build_coupon_card_inline_keyboard,
+    build_coupons_list_inline_keyboard,
+    build_coupons_root_inline_keyboard,
     build_table_booking_inline_keyboard,
     build_iiko_sync_retry_inline_keyboard,
     build_main_menu_inline_keyboard,
@@ -209,6 +215,34 @@ def build_telegram_identity_router(
                 caption=f"💳 Карта: {card_number}",
             )
 
+    async def _send_coupon_qr(
+        *,
+        bot: Bot,
+        chat_id: int,
+        result: Any,
+    ) -> None:
+        """Отправляет QR-код купона отдельным сообщением без inline-кнопок."""
+
+        coupon_payload = str(getattr(result, "coupon_qr_payload", "") or "").strip()
+        if not coupon_payload:
+            return
+
+        qr_logger = router_logger.bind(stage="coupon_qr", user_id=str(chat_id))
+        try:
+            qr_png = generate_qr_png_bytes(coupon_payload)
+        except (ValueError, QrGenerationError) as error:
+            qr_logger.warning(
+                "Не удалось сгенерировать QR-код купона / Failed to generate coupon QR. Причина: {error}.",
+                error=error,
+            )
+            return
+
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=BufferedInputFile(qr_png, filename="coupon_qr.png"),
+            caption=getattr(result, "coupon_qr_caption", None) or "🎟️ Купон",
+        )
+
     def _remember_support_prompt_message(*, user_id: int | None, message_id: int | None) -> None:
         """Запоминает id последнего технического экрана ввода вопроса в Telegram."""
 
@@ -268,6 +302,7 @@ def build_telegram_identity_router(
         """Отправляет результат адаптера для message-handler, включая QR при необходимости."""
 
         await _send_virtual_card_qr(bot=message.bot, chat_id=message.chat.id, result=result)
+        await _send_coupon_qr(bot=message.bot, chat_id=message.chat.id, result=result)
         if isinstance(reply_markup, InlineKeyboardMarkup):
             # Telegram не умеет одновременно поставить inline-клавиатуру и снять reply-клавиатуру.
             # Поэтому сначала принудительно убираем reply-кнопки, затем добавляем inline на то же сообщение.
@@ -340,6 +375,7 @@ def build_telegram_identity_router(
         """Отправляет результат адаптера напрямую в чат, включая QR при необходимости."""
 
         await _send_virtual_card_qr(bot=bot, chat_id=chat_id, result=result)
+        await _send_coupon_qr(bot=bot, chat_id=chat_id, result=result)
         if isinstance(reply_markup, InlineKeyboardMarkup):
             # Аналогично _answer_with_result: снимаем reply-клавиатуру отдельным сообщением,
             # после чего добавляем inline-кнопки на отправленный текст.
@@ -498,6 +534,12 @@ def build_telegram_identity_router(
             return build_business_lunch_inline_keyboard()
         if result.status == "table_booking":
             return build_table_booking_inline_keyboard()
+        if result.status == "coupons_root":
+            return build_coupons_root_inline_keyboard(scope_buttons=result.coupon_scope_buttons)
+        if result.status == "coupon_list":
+            return build_coupons_list_inline_keyboard(coupon_buttons=result.coupon_buttons)
+        if result.status in {"coupon_card", "coupon_not_found", "coupon_scope_expired", "coupons_unavailable"}:
+            return build_coupon_card_inline_keyboard()
         if result.status in {
             "balance",
             "balance_unavailable",
@@ -883,7 +925,9 @@ def build_telegram_identity_router(
         F.data.startswith(MOD_CLOSE_PREFIX) |
         F.data.startswith(MOD_OPEN_PREFIX) |
         F.data.startswith(MOD_PHONE_SHOW_PREFIX) |
-        F.data.startswith(MOD_PHONE_HIDE_PREFIX)
+        F.data.startswith(MOD_PHONE_HIDE_PREFIX) |
+        F.data.startswith(COUPON_SCOPE_PREFIX) |
+        F.data.startswith(COUPON_SHOW_PREFIX)
     )
     async def ticket_pagination_callback_handler(callback: CallbackQuery) -> None:
         """Обработчик inline-кнопок деталей тикета и пагинации списка обращений."""
@@ -934,6 +978,25 @@ def build_telegram_identity_router(
         reply_markup = _choose_reply_markup(result)
 
         await callback.answer()
+        if result.status == "coupon_card" and result.coupon_qr_payload:
+            if callback.message is not None:
+                try:
+                    await callback.message.delete()
+                except Exception:  # noqa: BLE001
+                    try:
+                        await callback.message.edit_reply_markup(reply_markup=None)
+                    except Exception:  # noqa: BLE001
+                        event_logger.debug(
+                            "Не удалось убрать старое сообщение перед отправкой QR купона."
+                        )
+            await _send_to_chat_with_result(
+                bot=callback.bot,
+                chat_id=callback.from_user.id,
+                result=result,
+                reply_markup=reply_markup,
+            )
+            return
+
         if callback.message is not None:
             if not isinstance(reply_markup, InlineKeyboardMarkup):
                 try:
@@ -980,6 +1043,7 @@ def build_telegram_identity_router(
                 GuestMenuAction.SUPPORT.value,
                 GuestMenuAction.VACANCIES.value,
                 GuestMenuAction.PROFILE.value,
+                GuestMenuAction.COUPONS.value,
                 GuestMenuAction.SUPPORT_FEEDBACK.value,
                 GuestMenuAction.SUPPORT_QUESTION.value,
                 GuestMenuAction.SUPPORT_QUESTION_FROM_LIST.value,
@@ -1009,6 +1073,7 @@ def build_telegram_identity_router(
                 BUTTON_SUPPORT,
                 BUTTON_VACANCIES,
                 BUTTON_PROFILE,
+                BUTTON_COUPONS,
                 BUTTON_SUPPORT_FEEDBACK,
                 BUTTON_SUPPORT_QUESTION,
                 BUTTON_SUPPORT_CONTACTS,

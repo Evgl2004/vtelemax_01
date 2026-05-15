@@ -1,0 +1,175 @@
+"""Тесты общего контента пользовательского контура купонов."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from uuid import UUID
+
+from vtelemax.core import (
+    GLOBAL_COUPON_SCOPE_KEY,
+    GLOBAL_COUPON_VENUE_CODE,
+    build_coupon_card_view,
+    build_coupons_list_view,
+    build_coupons_root_view,
+    coupon_tail4,
+    is_coupon_visible_for_guest,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _Venue:
+    venue_code: str
+    venue_name: str
+    coupons_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _Coupon:
+    coupon_id: UUID
+    coupon_series: str
+    coupon_code: str
+    campaign_id: str | None
+    venue_code: str
+    venue_name: str | None
+    promo_text: str | None
+    status: str
+    is_visible: bool
+    updated_at: datetime
+
+
+def _coupon(
+    code: str,
+    *,
+    status: str = "sent",
+    is_visible: bool = True,
+    venue_code: str = "nani",
+    venue_name: str | None = "Грузинка Нани",
+) -> _Coupon:
+    return _Coupon(
+        coupon_id=UUID("11111111-1111-4111-8111-111111111111"),
+        coupon_series="SERIES-A",
+        coupon_code=code,
+        campaign_id="CMP-2026",
+        venue_code=venue_code,
+        venue_name=venue_name,
+        promo_text="Подарочный десерт",
+        status=status,
+        is_visible=is_visible,
+        updated_at=datetime(2026, 5, 15, 8, 30, tzinfo=timezone.utc),
+    )
+
+
+def test_coupons_root_view_shows_global_only_when_global_coupons_exist() -> None:
+    """Проверяет корневой экран: «Общие» появляется только при глобальных купонах."""
+
+    view = build_coupons_root_view(
+        global_count=2,
+        venues=(
+            _Venue(venue_code="nani", venue_name="Грузинка Нани", coupons_count=3),
+            _Venue(venue_code="empty", venue_name="Пустое заведение", coupons_count=0),
+            _Venue(venue_code=GLOBAL_COUPON_VENUE_CODE, venue_name="Системный глобальный код", coupons_count=9),
+        ),
+    )
+
+    assert view.is_empty is False
+    assert [scope.scope_key for scope in view.scopes] == [GLOBAL_COUPON_SCOPE_KEY, "nani"]
+    assert view.scopes[0].label == "🎟️ Общие (2)"
+    assert view.scopes[1].label == "🏠 Грузинка Нани (3)"
+
+
+def test_coupons_root_view_hides_global_when_only_venues_have_coupons() -> None:
+    """Проверяет, что кнопка «Общие» не показывается без `__global__` купонов."""
+
+    view = build_coupons_root_view(
+        global_count=0,
+        venues=(_Venue(venue_code="susami", venue_name="Сами Сусами", coupons_count=1),),
+    )
+
+    assert view.is_empty is False
+    assert len(view.scopes) == 1
+    assert view.scopes[0].scope_key == "susami"
+    assert "Общие" not in view.scopes[0].label
+
+
+def test_coupons_root_view_returns_clear_empty_screen() -> None:
+    """Проверяет понятный пустой экран, когда купонов нет вообще."""
+
+    view = build_coupons_root_view(global_count=0, venues=())
+
+    assert view.is_empty is True
+    assert view.scopes == ()
+    assert "активных купонов нет" in view.text
+
+
+def test_coupons_list_view_uses_coupon_tail4_and_filters_inactive_statuses() -> None:
+    """Проверяет подписи по последним 4 символам и скрытие неактивных купонов."""
+
+    active_sent = _coupon("LONG-CODE-1234", status="sent")
+    active_reserved = _coupon("R-55", status="reserved")
+    used = _coupon("USED-0001", status="used")
+    expired = _coupon("EXP-0002", status="expired")
+    canceled = _coupon("CAN-0003", status="canceled")
+    error = _coupon("ERR-0004", status="error")
+    hidden = _coupon("HIDDEN-0005", status="sent", is_visible=False)
+
+    view = build_coupons_list_view(
+        scope_title="Грузинка Нани",
+        coupons=(active_sent, active_reserved, used, expired, canceled, error, hidden),
+    )
+
+    assert view.is_empty is False
+    assert [item.label for item in view.items] == ["🎟️ Купон • 1234", "🎟️ Купон • R-55"]
+    assert [item.coupon_tail4 for item in view.items] == ["1234", "R-55"]
+
+
+def test_coupons_list_view_returns_empty_when_all_coupons_inactive() -> None:
+    """Проверяет пустой экран раздела, если видимых активных купонов уже нет."""
+
+    view = build_coupons_list_view(
+        scope_title="Общие купоны",
+        coupons=(
+            _coupon("USED-0001", status="used", venue_code=GLOBAL_COUPON_VENUE_CODE, venue_name=None),
+            _coupon("HIDDEN-0002", status="sent", is_visible=False),
+        ),
+    )
+
+    assert view.is_empty is True
+    assert view.items == ()
+    assert "нет активных купонов" in view.text
+
+
+def test_coupon_card_view_contains_qr_payload_and_coupon_attributes() -> None:
+    """Проверяет карточку конкретного купона перед отправкой QR."""
+
+    coupon = _coupon("PROMO-2026-7777")
+
+    view = build_coupon_card_view(coupon)
+
+    assert view is not None
+    assert view.qr_payload == "PROMO-2026-7777"
+    assert view.coupon_tail4 == "7777"
+    assert "Подарочный десерт" in view.text
+    assert "Грузинка Нани" in view.text
+    assert "PROMO-2026-7777" in view.text
+    assert "SERIES-A" in view.text
+    assert "CMP-2026" in view.text
+
+
+def test_coupon_card_view_rejects_inactive_coupon() -> None:
+    """Проверяет, что карточка не строится для неактивного купона."""
+
+    assert build_coupon_card_view(_coupon("USED-0001", status="used")) is None
+    assert build_coupon_card_view(_coupon("HIDDEN-0002", is_visible=False)) is None
+
+
+def test_coupon_visibility_predicate_and_tail4_are_stable() -> None:
+    """Проверяет маленькие, но важные правила отображения купона."""
+
+    assert is_coupon_visible_for_guest(status="sent", is_visible=True) is True
+    assert is_coupon_visible_for_guest(status="reserved", is_visible=True) is True
+    assert is_coupon_visible_for_guest(status="expired", is_visible=True) is False
+    assert is_coupon_visible_for_guest(status="sent", is_visible=False) is False
+
+    assert coupon_tail4("ABCDEF") == "CDEF"
+    assert coupon_tail4("123") == "123"

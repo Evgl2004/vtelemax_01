@@ -47,6 +47,10 @@ from .payloads import build_vk_payload
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+COUPON_SCOPE_PREFIX = "coupon_scope:"
+COUPON_SHOW_PREFIX = "coupon_show:"
+COUPON_SCOPE_GLOBAL_TOKEN = "global"
+BUTTON_BACK_TO_COUPONS = "🔙 Назад к купонам"
 MOD_MAIN_CALLBACK = "mod_main"
 MOD_LIST_PREFIX = "mod_list_"
 MOD_PAGE_PREFIX = "mod_page_"
@@ -94,6 +98,18 @@ def _to_vk_button(button: MenuButtonContract) -> VkButton:
         payload=build_vk_payload(button.action),
         url=button.url,
     )
+
+
+def build_coupon_scope_payload(scope_token: str) -> dict[str, str]:
+    """Строит payload открытия раздела купонов."""
+
+    return {"cmd": f"{COUPON_SCOPE_PREFIX}{scope_token}"}
+
+
+def build_coupon_show_payload(coupon_id_hex: str) -> dict[str, str]:
+    """Строит payload открытия конкретного купона."""
+
+    return {"cmd": f"{COUPON_SHOW_PREFIX}{coupon_id_hex}"}
 
 
 class VkGuestMenuAdapter:
@@ -457,6 +473,39 @@ class VkGuestMenuAdapter:
         screen = build_virtual_card_result_screen()
         rows = tuple((_to_vk_button(button),) for button in screen.buttons)
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
+    def build_coupons_root_screen(self, *, text: str, scope_buttons: tuple[tuple[dict[str, str], str], ...]) -> VkScreen:
+        """Экран корня купонов с динамическими разделами."""
+
+        rows: list[tuple[VkButton, ...]] = [
+            (VkButton(label=label, payload=payload),)
+            for payload, label in scope_buttons
+        ]
+        rows.append(
+            (
+                VkButton(
+                    label=BUTTON_PROFILE_EDIT_CANCEL,
+                    payload=build_vk_payload(GuestMenuAction.PROFILE),
+                ),
+            )
+        )
+        return VkScreen(screen_id="coupons_root", text=text, rows=tuple(rows))
+
+    def build_coupons_list_screen(self, *, text: str, coupon_buttons: tuple[tuple[dict[str, str], str], ...]) -> VkScreen:
+        """Экран списка купонов выбранного раздела."""
+
+        rows: list[tuple[VkButton, ...]] = [
+            (VkButton(label=label, payload=payload),)
+            for payload, label in coupon_buttons
+        ]
+        rows.append((VkButton(label=BUTTON_BACK_TO_COUPONS, payload=build_vk_payload(GuestMenuAction.COUPONS)),))
+        return VkScreen(screen_id="coupon_list", text=text, rows=tuple(rows))
+
+    def build_coupon_card_screen(self, *, text: str) -> VkScreen:
+        """Экран текстовой карточки купона после отправки QR."""
+
+        rows = ((VkButton(label=BUTTON_BACK_TO_COUPONS, payload=build_vk_payload(GuestMenuAction.COUPONS)),),)
+        return VkScreen(screen_id="coupon_card", text=text, rows=rows)
 
     def build_iiko_sync_retry_screen(self) -> VkScreen:
         """Экран повторной синхронизации с iiko."""

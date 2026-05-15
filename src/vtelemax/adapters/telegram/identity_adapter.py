@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import html
 import re
 from dataclasses import dataclass
@@ -10,6 +12,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from loguru import logger
+from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.core import (
     AddGuestMessageToTicketCommand,
@@ -20,6 +23,7 @@ from vtelemax.core import (
     BUTTON_DELIVERY,
     BUTTON_HELP,
     BUTTON_MAIN_MENU,
+    BUTTON_COUPONS,
     BUTTON_PROFILE,
     BUTTON_PROFILE_EDIT,
     BUTTON_PROFILE_EDIT_BIRTH_DATE,
@@ -36,6 +40,7 @@ from vtelemax.core import (
     BUTTON_SUPPORT,
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
+    GLOBAL_COUPON_VENUE_CODE,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     EnqueueProfileSyncCommand,
@@ -70,6 +75,9 @@ from vtelemax.core import (
     SupportTicketStatus,
     build_about_screen,
     build_business_lunch_screen,
+    build_coupon_card_view,
+    build_coupons_list_view,
+    build_coupons_root_view,
     build_delivery_screen,
     build_first_name_input_screen,
     build_help_screen,
@@ -94,8 +102,12 @@ from vtelemax.core import (
     parse_birth_date,
     resolve_guest_menu_action,
 )
+from vtelemax.infrastructure.postgres.sagur_coupons_repository import SQLAlchemySagurCouponsRepository
 
 from .menu import (
+    COUPON_SCOPE_GLOBAL_TOKEN,
+    COUPON_SCOPE_PREFIX,
+    COUPON_SHOW_PREFIX,
     MOD_CLOSE_PREFIX,
     MOD_LIST_PREFIX,
     MOD_MAIN_CALLBACK,
@@ -110,6 +122,8 @@ from .menu import (
     USER_TICKETS_NEXT_PAGE_PREFIX,
     USER_TICKET_DETAILS_PREFIX,
     USER_TICKET_REPLY_PREFIX,
+    build_coupon_scope_callback,
+    build_coupon_show_callback,
     build_user_tickets_pagination_keyboard,
 )
 
@@ -137,6 +151,10 @@ class TelegramMenuActionResult:
     has_support_tickets: bool = False
     can_edit_birth_date: bool | None = None
     virtual_card_numbers: tuple[str, ...] = ()
+    coupon_scope_buttons: tuple[tuple[str, str], ...] = ()
+    coupon_buttons: tuple[tuple[str, str], ...] = ()
+    coupon_qr_payload: str | None = None
+    coupon_qr_caption: str | None = None
     current_page: int | None = None
     total_pages: int | None = None
     tickets: tuple[PersonSupportTicketSummary, ...] = ()
@@ -229,6 +247,7 @@ class TelegramIdentityAdapter:
         virtual_card_use_case: GetVirtualCardUseCase | None = None,
         loyalty_gateway: LoyaltyGateway | None = None,
         enqueue_profile_sync_use_case: EnqueueProfileSyncTransactionalUseCase | None = None,
+        coupon_session_factory: sessionmaker[Session] | None = None,
     ) -> None:
         self._logger = logger.bind(platform="telegram", component="identity_adapter")
         self._registration_use_case = registration_use_case
@@ -253,6 +272,8 @@ class TelegramIdentityAdapter:
         self._virtual_card_use_case = virtual_card_use_case
         self._loyalty_gateway = loyalty_gateway
         self._enqueue_profile_sync_use_case = enqueue_profile_sync_use_case
+        self._coupon_session_factory = coupon_session_factory
+        self._coupon_scope_context_by_user_id: dict[int, dict[str, tuple[str, str]]] = {}
 
     def start_interaction(
         self,
@@ -962,6 +983,18 @@ class TelegramIdentityAdapter:
                 ticket_id=ticket_id,
             )
 
+        if action_text.startswith(COUPON_SCOPE_PREFIX):
+            return self._handle_coupon_scope_callback(
+                telegram_user_id=telegram_user_id,
+                scope_token=action_text[len(COUPON_SCOPE_PREFIX):],
+            )
+
+        if action_text.startswith(COUPON_SHOW_PREFIX):
+            return self._handle_coupon_show_callback(
+                telegram_user_id=telegram_user_id,
+                coupon_id_raw=action_text[len(COUPON_SHOW_PREFIX):],
+            )
+
         action = resolve_guest_menu_action(action_text)
         if action is None:
             method_logger.debug("Не удалось распознать действие меню.")
@@ -1011,6 +1044,10 @@ class TelegramIdentityAdapter:
         if action == GuestMenuAction.PROFILE:
             self._dialog_state_by_user_id.pop(telegram_user_id, None)
             return self._render_profile_screen(telegram_user_id=telegram_user_id)
+
+        if action == GuestMenuAction.COUPONS:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            return self._render_coupons_root_screen(telegram_user_id=telegram_user_id)
 
         if action == GuestMenuAction.PROFILE_EDIT:
             return self._open_profile_edit_choice(telegram_user_id=telegram_user_id)
@@ -1365,6 +1402,288 @@ class TelegramIdentityAdapter:
                 "Мы уведомим вас, когда поступит новый ответ."
             ),
         )
+
+    def _render_coupons_root_screen(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
+        """Возвращает корневой экран купонов Telegram по актуальным данным БД."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            screen = build_profile_not_found_screen()
+            return TelegramMenuActionResult(
+                status="not_registered",
+                message=screen.text,
+                requires_contact_keyboard=True,
+            )
+
+        db_session = self._open_coupons_session(telegram_user_id=telegram_user_id, stage="coupons_root")
+        if db_session is None:
+            return self._build_coupons_unavailable_result()
+
+        try:
+            with db_session as session:
+                repository = SQLAlchemySagurCouponsRepository(session)
+                global_count = repository.count_visible_global_coupons(person_id=person.person_id)
+                venues = repository.list_visible_venues(person_id=person.person_id)
+        except Exception:  # noqa: BLE001
+            self._logger.bind(stage="coupons_root", user_id=str(telegram_user_id)).exception(
+                "Не удалось загрузить список купонов / Failed to load coupons root."
+            )
+            return self._build_coupons_unavailable_result()
+
+        view = build_coupons_root_view(global_count=global_count, venues=venues)
+        self._coupon_scope_context_by_user_id[telegram_user_id] = {}
+        scope_buttons = tuple(
+            (
+                build_coupon_scope_callback(
+                    self._build_coupon_scope_token(
+                        telegram_user_id=telegram_user_id,
+                        venue_code=scope.venue_code,
+                        title=scope.title,
+                    )
+                ),
+                scope.label,
+            )
+            for scope in view.scopes
+        )
+        return TelegramMenuActionResult(
+            status="coupons_root",
+            message=view.text,
+            coupon_scope_buttons=scope_buttons,
+        )
+
+    def _handle_coupon_scope_callback(
+        self,
+        *,
+        telegram_user_id: int,
+        scope_token: str,
+    ) -> TelegramMenuActionResult:
+        """Открывает список купонов выбранного раздела."""
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            screen = build_profile_not_found_screen()
+            return TelegramMenuActionResult(
+                status="not_registered",
+                message=screen.text,
+                requires_contact_keyboard=True,
+            )
+
+        resolved_scope = self._resolve_coupon_scope_token(
+            telegram_user_id=telegram_user_id,
+            scope_token=scope_token,
+        )
+        if resolved_scope is None:
+            self._logger.bind(stage="coupon_scope", user_id=str(telegram_user_id)).warning(
+                "Не удалось восстановить раздел купонов / Failed to resolve coupon scope. token={token}",
+                token=scope_token,
+            )
+            return TelegramMenuActionResult(
+                status="coupon_scope_expired",
+                message=(
+                    "🎟️ Купоны\n\n"
+                    "Раздел купонов устарел. Вернитесь к списку купонов и выберите раздел заново."
+                ),
+            )
+        venue_code, scope_title = resolved_scope
+
+        db_session = self._open_coupons_session(telegram_user_id=telegram_user_id, stage="coupon_scope")
+        if db_session is None:
+            return self._build_coupons_unavailable_result()
+
+        try:
+            with db_session as session:
+                repository = SQLAlchemySagurCouponsRepository(session)
+                coupons = repository.list_visible_coupons(person_id=person.person_id, venue_code=venue_code)
+        except Exception:  # noqa: BLE001
+            self._logger.bind(stage="coupon_scope", user_id=str(telegram_user_id)).exception(
+                "Не удалось загрузить купоны раздела / Failed to load coupon scope. venue_code={venue_code}",
+                venue_code=venue_code,
+            )
+            return self._build_coupons_unavailable_result()
+
+        if venue_code != GLOBAL_COUPON_VENUE_CODE and coupons:
+            scope_title = str(coupons[0].venue_name or scope_title).strip() or scope_title
+        view = build_coupons_list_view(scope_title=scope_title, coupons=coupons)
+        coupon_buttons = tuple(
+            (build_coupon_show_callback(item.coupon_id_hex), item.label)
+            for item in view.items
+        )
+        return TelegramMenuActionResult(
+            status="coupon_list",
+            message=view.text,
+            coupon_buttons=coupon_buttons,
+        )
+
+    def _handle_coupon_show_callback(
+        self,
+        *,
+        telegram_user_id: int,
+        coupon_id_raw: str,
+    ) -> TelegramMenuActionResult:
+        """Открывает карточку купона и готовит payload для отправки QR-кода."""
+
+        coupon_id = self._parse_coupon_id(coupon_id_raw)
+        if coupon_id is None:
+            return self._build_coupon_not_found_result()
+
+        person = self._person_lookup_use_case.execute(
+            GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+        )
+        if person is None:
+            screen = build_profile_not_found_screen()
+            return TelegramMenuActionResult(
+                status="not_registered",
+                message=screen.text,
+                requires_contact_keyboard=True,
+            )
+
+        db_session = self._open_coupons_session(telegram_user_id=telegram_user_id, stage="coupon_show")
+        if db_session is None:
+            return self._build_coupons_unavailable_result()
+
+        try:
+            with db_session as session:
+                repository = SQLAlchemySagurCouponsRepository(session)
+                coupon = repository.get_coupon(person_id=person.person_id, coupon_id=coupon_id)
+        except Exception:  # noqa: BLE001
+            self._logger.bind(stage="coupon_show", user_id=str(telegram_user_id)).exception(
+                "Не удалось загрузить карточку купона / Failed to load coupon card. coupon_id={coupon_id}",
+                coupon_id=str(coupon_id),
+            )
+            return self._build_coupons_unavailable_result()
+
+        if coupon is None:
+            return self._build_coupon_not_found_result()
+
+        card = build_coupon_card_view(coupon)
+        if card is None:
+            return self._build_coupon_not_found_result()
+
+        return TelegramMenuActionResult(
+            status="coupon_card",
+            message=card.text,
+            coupon_qr_payload=card.qr_payload,
+            coupon_qr_caption=f"🎟️ Купон • {card.coupon_tail4}",
+        )
+
+    def _open_coupons_session(
+        self,
+        *,
+        telegram_user_id: int,
+        stage: str,
+    ) -> Session | None:
+        """Открывает read-only сессию купонов через `session_factory`.
+
+        Метод возвращает `None`, если фабрика не подключена. Закрытие сессии
+        выполняют вызывающие методы через контекстный менеджер `with`.
+        """
+
+        if self._coupon_session_factory is None:
+            self._logger.bind(stage=stage, user_id=str(telegram_user_id)).warning(
+                "Фабрика сессий купонов не подключена / Coupon session factory is not configured."
+            )
+            return None
+
+        return self._coupon_session_factory()
+
+    @staticmethod
+    def _build_coupons_unavailable_result() -> TelegramMenuActionResult:
+        """Возвращает безопасный ответ при недоступности хранилища купонов."""
+
+        return TelegramMenuActionResult(
+            status="coupons_unavailable",
+            message=(
+                "🎟️ Купоны временно недоступны.\n\n"
+                "Мы уже знаем, где искать проблему. Попробуйте открыть раздел чуть позже."
+            ),
+        )
+
+    @staticmethod
+    def _build_coupon_not_found_result() -> TelegramMenuActionResult:
+        """Возвращает ответ, если купон удален, погашен или уже неактивен."""
+
+        return TelegramMenuActionResult(
+            status="coupon_not_found",
+            message=(
+                "🎟️ Купон недоступен.\n\n"
+                "Он мог быть уже использован, отменен или срок действия закончился. "
+                "Вернитесь к списку купонов и выберите актуальный купон."
+            ),
+        )
+
+    def _build_coupon_scope_token(
+        self,
+        *,
+        telegram_user_id: int,
+        venue_code: str,
+        title: str,
+    ) -> str:
+        """Строит компактный token раздела купонов для Telegram callback_data."""
+
+        normalized_venue_code = str(venue_code or "").strip() or GLOBAL_COUPON_VENUE_CODE
+        normalized_title = str(title or "").strip() or normalized_venue_code
+        if normalized_venue_code == GLOBAL_COUPON_VENUE_CODE:
+            token = COUPON_SCOPE_GLOBAL_TOKEN
+        else:
+            encoded = base64.urlsafe_b64encode(normalized_venue_code.encode("utf-8")).decode("ascii").rstrip("=")
+            token = f"b{encoded}"
+            if len(build_coupon_scope_callback(token).encode("utf-8")) > 64:
+                context = self._coupon_scope_context_by_user_id.setdefault(telegram_user_id, {})
+                token = f"m{len(context) + 1}"
+
+        self._coupon_scope_context_by_user_id.setdefault(telegram_user_id, {})[token] = (
+            normalized_venue_code,
+            normalized_title,
+        )
+        return token
+
+    def _resolve_coupon_scope_token(
+        self,
+        *,
+        telegram_user_id: int,
+        scope_token: str,
+    ) -> tuple[str, str] | None:
+        """Восстанавливает `venue_code` и заголовок раздела из callback token."""
+
+        token = str(scope_token or "").strip()
+        if not token:
+            return None
+        context = self._coupon_scope_context_by_user_id.get(telegram_user_id, {})
+        if token in context:
+            return context[token]
+        if token == COUPON_SCOPE_GLOBAL_TOKEN:
+            return GLOBAL_COUPON_VENUE_CODE, "Общие купоны"
+        if token.startswith("b"):
+            payload = token[1:]
+            padding = "=" * (-len(payload) % 4)
+            try:
+                venue_code = base64.urlsafe_b64decode(f"{payload}{padding}".encode("ascii")).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError):
+                return None
+            venue_code = venue_code.strip()
+            if not venue_code:
+                return None
+            return venue_code, venue_code
+        # Поддерживаем старые callback_data, если они были отправлены до сжатия token.
+        return token, token
+
+    @staticmethod
+    def _parse_coupon_id(raw_coupon_id: str) -> UUID | None:
+        """Разбирает UUID купона из короткого hex или полного строкового формата."""
+
+        normalized = str(raw_coupon_id or "").strip()
+        if not normalized:
+            return None
+        try:
+            if len(normalized) == 32 and "-" not in normalized:
+                return UUID(hex=normalized)
+            return UUID(normalized)
+        except ValueError:
+            return None
 
     def _render_profile_screen(self, *, telegram_user_id: int) -> TelegramMenuActionResult:
         """Возвращает экран профиля с кнопкой перехода в режим редактирования."""

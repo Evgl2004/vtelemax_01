@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from types import TracebackType
+from uuid import UUID
 
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
+from vtelemax.adapters.telegram import identity_adapter as telegram_identity_module
 from vtelemax.adapters.telegram.identity_adapter import TelegramRegistrationResult
 from vtelemax.core import (
     CreateSupportTicketCommand,
@@ -36,6 +39,50 @@ from vtelemax.core import (
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _CouponVenue:
+    venue_code: str
+    venue_name: str
+    coupons_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CouponItem:
+    coupon_id: UUID
+    person_id: UUID
+    coupon_series: str
+    coupon_code: str
+    campaign_id: str | None
+    venue_code: str
+    venue_name: str | None
+    promo_text: str | None
+    status: str
+    is_visible: bool
+    updated_at: datetime
+
+
+class _FakeCouponSession:
+    """Минимальная context manager-сессия для проверки вызова session_factory."""
+
+    def __enter__(self) -> "_FakeCouponSession":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return
+
+
+class _FakeCouponSessionFactory:
+    """Тестовая фабрика сессий, совместимая с ожиданиями адаптера."""
+
+    def __call__(self) -> _FakeCouponSession:
+        return _FakeCouponSession()
 
 
 class InMemoryIdentityUnitOfWork(IdentityUnitOfWork):
@@ -274,6 +321,170 @@ def test_telegram_adapter_returns_profile_for_registered_user() -> None:
 
     assert result.status == "profile"
     assert "+79123456789" in result.message
+
+
+def test_telegram_adapter_builds_coupon_root_and_scope(monkeypatch) -> None:
+    """Проверяет корень купонов и список выбранного раздела Telegram."""
+
+    coupon_id = UUID("22222222-2222-4222-8222-222222222222")
+    coupon = _CouponItem(
+        coupon_id=coupon_id,
+        person_id=UUID("33333333-3333-4333-8333-333333333333"),
+        coupon_series="SER-A",
+        coupon_code="PROMO-2026-1234",
+        campaign_id="CMP-1",
+        venue_code="nani",
+        venue_name="Грузинка Нани",
+        promo_text="Подарочный десерт",
+        status="sent",
+        is_visible=True,
+        updated_at=datetime(2026, 5, 15, 8, 30, tzinfo=timezone.utc),
+    )
+
+    class _FakeCouponsRepository:
+        def __init__(self, session: object) -> None:
+            self._session = session
+
+        def count_visible_global_coupons(self, *, person_id: UUID) -> int:
+            return 1
+
+        def list_visible_venues(self, *, person_id: UUID) -> tuple[_CouponVenue, ...]:
+            return (_CouponVenue(venue_code="nani", venue_name="Грузинка Нани", coupons_count=1),)
+
+        def list_visible_coupons(self, *, person_id: UUID, venue_code: str) -> tuple[_CouponItem, ...]:
+            assert venue_code == "nani"
+            return (coupon,)
+
+    monkeypatch.setattr(
+        telegram_identity_module,
+        "SQLAlchemySagurCouponsRepository",
+        _FakeCouponsRepository,
+    )
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        coupon_session_factory=_FakeCouponSessionFactory(),
+    )
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+
+    root = adapter.handle_menu_action(telegram_user_id=1001, action_text="🎟️ Купоны")
+
+    assert root.status == "coupons_root"
+    assert len(root.coupon_scope_buttons) == 2
+    assert root.coupon_scope_buttons[0][1] == "🎟️ Общие (1)"
+    assert root.coupon_scope_buttons[1][1] == "🏠 Грузинка Нани (1)"
+
+    venue_callback = root.coupon_scope_buttons[1][0]
+    coupon_list = adapter.handle_menu_action(telegram_user_id=1001, action_text=venue_callback)
+
+    assert coupon_list.status == "coupon_list"
+    assert coupon_list.coupon_buttons == ((f"coupon_show:{coupon_id.hex}", "🎟️ Купон • 1234"),)
+    assert "полный QR отправим после открытия" in coupon_list.message
+
+
+def test_telegram_adapter_opens_coupon_card_with_qr_payload(monkeypatch) -> None:
+    """Проверяет открытие конкретного купона и подготовку QR payload."""
+
+    coupon_id = UUID("22222222-2222-4222-8222-222222222222")
+    coupon = _CouponItem(
+        coupon_id=coupon_id,
+        person_id=UUID("33333333-3333-4333-8333-333333333333"),
+        coupon_series="SER-A",
+        coupon_code="PROMO-2026-7777",
+        campaign_id="CMP-1",
+        venue_code="nani",
+        venue_name="Грузинка Нани",
+        promo_text="Подарочный десерт",
+        status="sent",
+        is_visible=True,
+        updated_at=datetime(2026, 5, 15, 8, 30, tzinfo=timezone.utc),
+    )
+
+    class _FakeCouponsRepository:
+        def __init__(self, session: object) -> None:
+            self._session = session
+
+        def get_coupon(self, *, person_id: UUID, coupon_id: UUID) -> _CouponItem | None:
+            return coupon
+
+    monkeypatch.setattr(
+        telegram_identity_module,
+        "SQLAlchemySagurCouponsRepository",
+        _FakeCouponsRepository,
+    )
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        coupon_session_factory=_FakeCouponSessionFactory(),
+    )
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+
+    result = adapter.handle_menu_action(
+        telegram_user_id=1001,
+        action_text=f"coupon_show:{coupon_id.hex}",
+    )
+
+    assert result.status == "coupon_card"
+    assert result.coupon_qr_payload == "PROMO-2026-7777"
+    assert result.coupon_qr_caption == "🎟️ Купон • 7777"
+    assert "Подарочный десерт" in result.message
+    assert "Грузинка Нани" in result.message
+
+
+def test_telegram_adapter_returns_coupon_empty_screen(monkeypatch) -> None:
+    """Проверяет пустой экран купонов без лишних кнопок разделов."""
+
+    class _FakeCouponsRepository:
+        def __init__(self, session: object) -> None:
+            self._session = session
+
+        def count_visible_global_coupons(self, *, person_id: UUID) -> int:
+            return 0
+
+        def list_visible_venues(self, *, person_id: UUID) -> tuple[_CouponVenue, ...]:
+            return ()
+
+    monkeypatch.setattr(
+        telegram_identity_module,
+        "SQLAlchemySagurCouponsRepository",
+        _FakeCouponsRepository,
+    )
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        coupon_session_factory=_FakeCouponSessionFactory(),
+    )
+    adapter.register_contact(telegram_user_id=1001, raw_phone="+79123456789")
+
+    result = adapter.handle_menu_action(telegram_user_id=1001, action_text="🎟️ Купоны")
+
+    assert result.status == "coupons_root"
+    assert result.coupon_scope_buttons == ()
+    assert "активных купонов нет" in result.message
 
 
 def test_telegram_adapter_returns_not_registered_for_missing_profile() -> None:

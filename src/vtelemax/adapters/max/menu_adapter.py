@@ -44,6 +44,10 @@ from .payloads import build_max_payload
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
 USER_TICKETS_NEXT_PAGE_PREFIX = "user_tickets_next_"
 USER_TICKET_DETAILS_PREFIX = "user_ticket_"
+COUPON_SCOPE_PREFIX = "coupon_scope:"
+COUPON_SHOW_PREFIX = "coupon_show:"
+COUPON_SCOPE_GLOBAL_TOKEN = "global"
+BUTTON_BACK_TO_COUPONS = "🔙 Назад к купонам"
 MOD_MAIN_CALLBACK = "mod_main"
 MOD_LIST_PREFIX = "mod_list_"
 MOD_PAGE_PREFIX = "mod_page_"
@@ -93,6 +97,18 @@ def _to_max_button(button: MenuButtonContract) -> MaxButton:
         url=button.url,
         request_contact=(button.action == GuestMenuAction.SHARE_CONTACT),
     )
+
+
+def build_coupon_scope_payload(scope_token: str) -> str:
+    """Строит payload открытия раздела купонов."""
+
+    return f"{COUPON_SCOPE_PREFIX}{scope_token}"
+
+
+def build_coupon_show_payload(coupon_id_hex: str) -> str:
+    """Строит payload открытия конкретного купона."""
+
+    return f"{COUPON_SHOW_PREFIX}{coupon_id_hex}"
 
 
 class MaxGuestMenuAdapter:
@@ -365,6 +381,39 @@ class MaxGuestMenuAdapter:
         screen = build_virtual_card_result_screen()
         rows = tuple((_to_max_button(button),) for button in screen.buttons)
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=rows)
+
+    def build_coupons_root_screen(self, *, text: str, scope_buttons: tuple[tuple[str, str], ...]) -> MaxScreen:
+        """Экран корня купонов с динамическими разделами."""
+
+        rows: list[tuple[MaxButton, ...]] = [
+            (MaxButton(label=label, payload=payload),)
+            for payload, label in scope_buttons
+        ]
+        rows.append(
+            (
+                MaxButton(
+                    label=BUTTON_PROFILE_EDIT_CANCEL,
+                    payload=build_max_payload(GuestMenuAction.PROFILE),
+                ),
+            )
+        )
+        return MaxScreen(screen_id="coupons_root", text=text, rows=tuple(rows))
+
+    def build_coupons_list_screen(self, *, text: str, coupon_buttons: tuple[tuple[str, str], ...]) -> MaxScreen:
+        """Экран списка купонов выбранного раздела."""
+
+        rows: list[tuple[MaxButton, ...]] = [
+            (MaxButton(label=label, payload=payload),)
+            for payload, label in coupon_buttons
+        ]
+        rows.append((MaxButton(label=BUTTON_BACK_TO_COUPONS, payload=build_max_payload(GuestMenuAction.COUPONS)),))
+        return MaxScreen(screen_id="coupon_list", text=text, rows=tuple(rows))
+
+    def build_coupon_card_screen(self, *, text: str) -> MaxScreen:
+        """Экран текстовой карточки купона после отправки QR."""
+
+        rows = ((MaxButton(label=BUTTON_BACK_TO_COUPONS, payload=build_max_payload(GuestMenuAction.COUPONS)),),)
+        return MaxScreen(screen_id="coupon_card", text=text, rows=rows)
 
     def build_iiko_sync_retry_screen(self) -> MaxScreen:
         """Экран повторной синхронизации с iiko."""
