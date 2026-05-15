@@ -10,6 +10,7 @@ from sqlalchemy import CheckConstraint, UniqueConstraint
 
 from vtelemax.infrastructure.postgres.schema import (
     Base,
+    PersonCouponRow,
     PersonPlatformStateRow,
     PersonRow,
     PhoneRow,
@@ -73,6 +74,17 @@ def test_person_platform_states_constraints_are_strict() -> None:
         if isinstance(constraint, CheckConstraint)
     }
     assert "ck_person_platform_states_platform_allowed" in check_constraints
+
+
+def test_person_coupons_allow_used_after_campaign_status() -> None:
+    check_constraints = {
+        constraint.name: str(constraint.sqltext)
+        for constraint in PersonCouponRow.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+
+    assert "ck_person_coupons_status_allowed" in check_constraints
+    assert "used_after_campaign" in check_constraints["ck_person_coupons_status_allowed"]
 
 
 def test_foreign_keys_point_to_persons_table() -> None:

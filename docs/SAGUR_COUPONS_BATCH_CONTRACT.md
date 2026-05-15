@@ -119,6 +119,13 @@ SAGUR endpoint.
 - убирает купон из активного UI;
 - не освобождает купон для повторного назначения.
 
+`status_update: used_after_campaign`:
+
+- принимает поздний факт использования после завершения кампании;
+- убирает купон из активного UI;
+- хранится отдельным статусом, не склеивается с обычным `used`;
+- не освобождает купон для повторного назначения.
+
 `status_update: expired`:
 
 - убирает купон из активного UI;
@@ -139,6 +146,7 @@ SAGUR endpoint.
 - batch `assignments` из двух успешных items;
 - batch `assignments` с partial success и `recipient_not_found`;
 - защита от повторного `assignments` для купона в статусе `used`;
+- batch `status_update` со статусом `used_after_campaign`;
 - retry batch item с тем же `event_id`;
 - `canceled -> release -> reassign`;
 - HMAC batch-подпись с `SHA256(BODY)`.

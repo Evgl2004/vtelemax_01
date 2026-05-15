@@ -430,7 +430,7 @@ class PersonCouponRow(Base):
             name="uq_person_coupons_person_series_code",
         ),
         CheckConstraint(
-            "status IN ('reserved', 'sent', 'used', 'expired', 'canceled', 'error')",
+            "status IN ('reserved', 'sent', 'used', 'used_after_campaign', 'expired', 'canceled', 'error')",
             name="ck_person_coupons_status_allowed",
         ),
         Index("ix_person_coupons_person_visible", "person_id", "is_visible"),

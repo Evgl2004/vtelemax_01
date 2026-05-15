@@ -13,8 +13,18 @@ from .schema import PersonCouponRow, SagurCouponEventRow
 
 _GLOBAL_VENUE_CODE = "__global__"
 _COUPON_ACTIVE_STATUSES = {"reserved", "sent"}
-_COUPON_ALLOWED_STATUSES = _COUPON_ACTIVE_STATUSES | {"used", "expired", "canceled", "error"}
-_COUPON_NON_REASSIGNABLE_STATUSES = _COUPON_ACTIVE_STATUSES | {"used", "expired"}
+_COUPON_ALLOWED_STATUSES = _COUPON_ACTIVE_STATUSES | {
+    "used",
+    "used_after_campaign",
+    "expired",
+    "canceled",
+    "error",
+}
+_COUPON_NON_REASSIGNABLE_STATUSES = _COUPON_ACTIVE_STATUSES | {
+    "used",
+    "used_after_campaign",
+    "expired",
+}
 
 
 class CouponAlreadyAssignedError(ValueError):
@@ -176,10 +186,10 @@ class SQLAlchemySagurCouponsRepository:
                     PersonCouponRow.coupon_code == payload.coupon_code,
                     PersonCouponRow.status.in_(_COUPON_NON_REASSIGNABLE_STATUSES),
                 )
-            ).scalar_one_or_none()
+            ).scalars().first()
             if conflicting_coupon is not None and (
                 conflicting_coupon.person_id != payload.person_id
-                or conflicting_coupon.status in {"used", "expired"}
+                or conflicting_coupon.status in {"used", "used_after_campaign", "expired"}
             ):
                 raise CouponAlreadyAssignedError(
                     "coupon is already assigned and was not released"

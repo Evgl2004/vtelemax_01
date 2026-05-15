@@ -108,6 +108,7 @@ def test_coupons_list_view_uses_coupon_tail4_and_filters_inactive_statuses() -> 
     active_sent = _coupon("LONG-CODE-1234", status="sent")
     active_reserved = _coupon("R-55", status="reserved")
     used = _coupon("USED-0001", status="used")
+    used_after_campaign = _coupon("USED-LATE-0006", status="used_after_campaign")
     expired = _coupon("EXP-0002", status="expired")
     canceled = _coupon("CAN-0003", status="canceled")
     error = _coupon("ERR-0004", status="error")
@@ -115,7 +116,16 @@ def test_coupons_list_view_uses_coupon_tail4_and_filters_inactive_statuses() -> 
 
     view = build_coupons_list_view(
         scope_title="Грузинка Нани",
-        coupons=(active_sent, active_reserved, used, expired, canceled, error, hidden),
+        coupons=(
+            active_sent,
+            active_reserved,
+            used,
+            used_after_campaign,
+            expired,
+            canceled,
+            error,
+            hidden,
+        ),
     )
 
     assert view.is_empty is False
@@ -130,6 +140,12 @@ def test_coupons_list_view_returns_empty_when_all_coupons_inactive() -> None:
         scope_title="Общие купоны",
         coupons=(
             _coupon("USED-0001", status="used", venue_code=GLOBAL_COUPON_VENUE_CODE, venue_name=None),
+            _coupon(
+                "USED-LATE-0002",
+                status="used_after_campaign",
+                venue_code=GLOBAL_COUPON_VENUE_CODE,
+                venue_name=None,
+            ),
             _coupon("HIDDEN-0002", status="sent", is_visible=False),
         ),
     )
@@ -160,6 +176,7 @@ def test_coupon_card_view_rejects_inactive_coupon() -> None:
     """Проверяет, что карточка не строится для неактивного купона."""
 
     assert build_coupon_card_view(_coupon("USED-0001", status="used")) is None
+    assert build_coupon_card_view(_coupon("USED-LATE-0002", status="used_after_campaign")) is None
     assert build_coupon_card_view(_coupon("HIDDEN-0002", is_visible=False)) is None
 
 
@@ -168,6 +185,7 @@ def test_coupon_visibility_predicate_and_tail4_are_stable() -> None:
 
     assert is_coupon_visible_for_guest(status="sent", is_visible=True) is True
     assert is_coupon_visible_for_guest(status="reserved", is_visible=True) is True
+    assert is_coupon_visible_for_guest(status="used_after_campaign", is_visible=True) is False
     assert is_coupon_visible_for_guest(status="expired", is_visible=True) is False
     assert is_coupon_visible_for_guest(status="sent", is_visible=False) is False
 

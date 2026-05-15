@@ -15,7 +15,9 @@ from uuid import UUID
 GLOBAL_COUPON_VENUE_CODE = "__global__"
 GLOBAL_COUPON_SCOPE_KEY = "global"
 COUPON_ACTIVE_STATUSES = frozenset({"reserved", "sent"})
-COUPON_INACTIVE_STATUSES = frozenset({"used", "expired", "canceled", "error"})
+COUPON_INACTIVE_STATUSES = frozenset(
+    {"used", "used_after_campaign", "expired", "canceled", "error"}
+)
 
 
 class CouponVenueLike(Protocol):

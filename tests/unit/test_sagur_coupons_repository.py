@@ -69,6 +69,15 @@ def test_coupon_ui_reads_hide_inactive_statuses_even_when_visible_flag_is_true()
                     now=now,
                 ),
                 _coupon_row(
+                    coupon_id=UUID("99999999-9999-4999-8999-999999999999"),
+                    person_id=person_id,
+                    coupon_code="NANI-USED-LATE",
+                    venue_code="nani",
+                    venue_name="Р“СЂСѓР·РёРЅРєР° РќР°РЅРё",
+                    status="used_after_campaign",
+                    now=now,
+                ),
+                _coupon_row(
                     coupon_id=UUID("ffffffff-ffff-4fff-8fff-ffffffffffff"),
                     person_id=person_id,
                     coupon_code="SUSAMI-CANCELED",
@@ -277,6 +286,94 @@ def test_assignments_rejects_reuse_of_used_coupon_without_release() -> None:
             },
         )
         session.commit()
+
+        with pytest.raises(CouponAlreadyAssignedError):
+            repository.apply_event(
+                event_id=uuid4(),
+                direction="assignments",
+                sent_at=now,
+                payload_raw={
+                    "person_id": str(second_person_id),
+                    "coupon_series": coupon_series,
+                    "coupon_code": coupon_code,
+                    "venue_code": "susami",
+                    "status": "reserved",
+                },
+            )
+
+
+def test_used_after_campaign_is_terminal_and_not_reassignable() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    session_factory = build_session_factory(engine)
+    first_person_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    second_person_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    coupon_series = "SER-LATE"
+    coupon_code = "LATE-2026-0001"
+    now = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+
+    with session_factory() as session:
+        session.add_all(
+            [
+                PersonRow(person_id=first_person_id),
+                PersonRow(person_id=second_person_id),
+            ]
+        )
+        session.commit()
+
+        repository = SQLAlchemySagurCouponsRepository(session)
+        assigned = repository.apply_event(
+            event_id=uuid4(),
+            direction="assignments",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(first_person_id),
+                "coupon_series": coupon_series,
+                "coupon_code": coupon_code,
+                "venue_code": "nani",
+                "status": "reserved",
+            },
+        )
+        session.commit()
+
+        expired = repository.apply_event(
+            event_id=uuid4(),
+            direction="status_update",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(first_person_id),
+                "coupon_series": coupon_series,
+                "coupon_code": coupon_code,
+                "status": "expired",
+            },
+        )
+        session.commit()
+
+        used_after_campaign = repository.apply_event(
+            event_id=uuid4(),
+            direction="status_update",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(first_person_id),
+                "coupon_series": coupon_series,
+                "coupon_code": coupon_code,
+                "status": "used_after_campaign",
+                "meta": {
+                    "remove_from_guest": True,
+                    "release_to_pool": False,
+                    "used_after_campaign": True,
+                },
+            },
+        )
+        session.commit()
+
+        assert expired.coupon_id == assigned.coupon_id
+        assert used_after_campaign.coupon_id == assigned.coupon_id
+        assert repository.list_visible_coupons(person_id=first_person_id, venue_code="nani") == ()
+        rows = _person_coupon_rows(session, coupon_code=coupon_code)
+        assert len(rows) == 1
+        assert rows[0].status == "used_after_campaign"
+        assert rows[0].is_visible is False
 
         with pytest.raises(CouponAlreadyAssignedError):
             repository.apply_event(

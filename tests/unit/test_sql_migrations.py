@@ -120,6 +120,16 @@ def test_migration_0012_adds_platform_account_lifecycle_and_active_unique_index(
     assert "CREATE UNIQUE INDEX IF NOT EXISTS UX_PLATFORM_ACCOUNTS_ONE_ACTIVE_PER_PERSON_PLATFORM" in upper
 
 
+def test_migration_0015_allows_used_after_campaign_coupon_status() -> None:
+    migration_file = _PROJECT_ROOT / "migrations" / "sql" / "0015_sagur_coupons_used_after_campaign.sql"
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "DROP CONSTRAINT IF EXISTS CK_PERSON_COUPONS_STATUS_ALLOWED" in upper
+    assert "ADD CONSTRAINT CK_PERSON_COUPONS_STATUS_ALLOWED" in upper
+    assert "USED_AFTER_CAMPAIGN" in upper
+
+
 def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
     """Проверяет, что миграция применяется один раз и не выполняется повторно."""
 

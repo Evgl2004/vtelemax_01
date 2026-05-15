@@ -833,6 +833,105 @@ async def test_coupons_events_handler_rejects_reassign_of_used_coupon(
 
 
 @pytest.mark.asyncio
+async def test_coupons_events_handler_accepts_used_after_campaign_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_person_id = uuid4()
+    second_person_id = uuid4()
+    app, session_factory = _build_coupon_batch_test_app(first_person_id, second_person_id)
+    coupon_code = "BATCH-LATE-USED"
+    late_event_id = str(uuid4())
+
+    await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:00:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=first_person_id,
+                    coupon_code=coupon_code,
+                )
+            ],
+        },
+    )
+    await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "status_update",
+            "sent_at": "2026-05-15T10:05:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=first_person_id,
+                    coupon_code=coupon_code,
+                    status="expired",
+                    venue_code=None,
+                )
+            ],
+        },
+    )
+    late_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "status_update",
+            "sent_at": "2026-05-15T10:10:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=late_event_id,
+                    person_id=first_person_id,
+                    coupon_code=coupon_code,
+                    status="used_after_campaign",
+                    venue_code=None,
+                    meta={
+                        "remove_from_guest": True,
+                        "release_to_pool": False,
+                        "used_after_campaign": True,
+                    },
+                )
+            ],
+        },
+    )
+    reassign_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:11:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=second_person_id,
+                    coupon_code=coupon_code,
+                )
+            ],
+        },
+    )
+    late_body = json.loads(late_response.text)
+    reassign_body = json.loads(reassign_response.text)
+
+    assert late_response.status == 200
+    assert late_body["status"] == "acked"
+    assert late_body["results"] == [{"event_id": late_event_id, "status": "acked"}]
+    assert reassign_body["status"] == "partial"
+    assert reassign_body["results"][0]["code"] == "coupon_already_assigned"
+
+    with session_factory() as session:
+        repository = SQLAlchemySagurCouponsRepository(session)
+        first_coupons = repository.list_visible_coupons(person_id=first_person_id, venue_code="nani")
+
+    assert first_coupons == ()
+
+
+@pytest.mark.asyncio
 async def test_coupons_events_handler_supports_canceled_release_reassign_batch_flow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
