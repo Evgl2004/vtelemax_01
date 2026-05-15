@@ -164,6 +164,16 @@ class SQLAlchemySagurCouponsRepository:
             )
         ).scalar_one_or_none()
 
+        # SAGUR treats canceled as a release: remove the guest binding instead of
+        # keeping a hidden terminal coupon, so the code can be assigned again.
+        if direction == "status_update" and payload.status == "canceled":
+            if existing_coupon is None:
+                return ApplyCouponEventResult(deduplicated=False, coupon_id=None)
+
+            released_coupon_id = existing_coupon.coupon_id
+            self._session.delete(existing_coupon)
+            return ApplyCouponEventResult(deduplicated=False, coupon_id=released_coupon_id)
+
         if existing_coupon is None:
             coupon_id = uuid4()
             self._session.add(
