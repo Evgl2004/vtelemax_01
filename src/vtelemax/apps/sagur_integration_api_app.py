@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.infrastructure import configure_logging
 from vtelemax.infrastructure.postgres import (
+    SQLAlchemySagurCouponsRepository,
     SQLAlchemySagurRecipientsRepository,
     build_engine,
     build_session_factory,
@@ -40,7 +41,9 @@ _SAGUR_PATH_PREFIX = "/internal/integration/v1/sagur/"
 _H_TIMESTAMP = "X-Sagur-Timestamp"
 _H_SIGNATURE = "X-Sagur-Signature"
 _H_REQUEST_ID = "X-Request-Id"
+_H_EVENT_ID = "X-Sagur-Event-Id"
 _CURSOR_SIG_PREFIX = "cursor\n"
+_COUPON_DIRECTIONS = {"assignments", "status_update"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +129,12 @@ def _build_metrics_state() -> dict[str, float]:
         "request_latency_seconds_count": 0.0,
         "rows_returned_total": 0.0,
         "auth_failures_total": 0.0,
+        "coupon_events_total": 0.0,
+        "coupon_events_success_total": 0.0,
+        "coupon_events_error_total": 0.0,
+        "coupon_events_dedup_total": 0.0,
+        "coupon_event_latency_seconds_sum": 0.0,
+        "coupon_event_latency_seconds_count": 0.0,
     }
 
 
@@ -137,6 +146,27 @@ def _metrics_record_request(*, app: web.Application, latency_seconds: float, row
     metrics["request_latency_seconds_sum"] += max(latency_seconds, 0.0)
     metrics["request_latency_seconds_count"] += 1
     metrics["rows_returned_total"] += max(rows, 0)
+
+
+def _metrics_record_coupon_event(
+    *,
+    app: web.Application,
+    latency_seconds: float,
+    success: bool,
+    deduplicated: bool,
+) -> None:
+    """Обновляет счетчики обработки входящих coupon-событий."""
+
+    metrics = app[_METRICS_KEY]
+    metrics["coupon_events_total"] += 1
+    metrics["coupon_event_latency_seconds_sum"] += max(latency_seconds, 0.0)
+    metrics["coupon_event_latency_seconds_count"] += 1
+    if success:
+        metrics["coupon_events_success_total"] += 1
+    else:
+        metrics["coupon_events_error_total"] += 1
+    if deduplicated:
+        metrics["coupon_events_dedup_total"] += 1
 
 
 def _resolve_request_id(request: web.Request) -> str:
@@ -325,6 +355,35 @@ def _parse_rfc3339_utc(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("timestamp must contain timezone")
     return parsed.astimezone(timezone.utc)
+
+
+def _parse_uuid(value: str, *, field_name: str) -> uuid.UUID:
+    """Парсит UUID и выбрасывает ValueError с унифицированным текстом."""
+
+    raw_value = value.strip()
+    if not raw_value:
+        raise ValueError(f"{field_name} is required")
+    try:
+        return uuid.UUID(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be valid UUID") from exc
+
+
+async def _read_json_object_body(request: web.Request) -> dict[str, Any]:
+    """Читает JSON-тело запроса и возвращает объект верхнего уровня."""
+
+    raw_body = await request.read()
+    if not raw_body:
+        raise ValueError("Пустое тело запроса.")
+    if len(raw_body) > _MAX_JSON_BODY_BYTES:
+        raise ValueError("Тело запроса слишком большое.")
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Некорректный JSON в теле запроса.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("JSON должен быть объектом.")
+    return payload
 
 
 def _encode_snapshot_cursor(cursor: SnapshotCursor) -> str:
@@ -694,22 +753,52 @@ def _fetch_delta_page(
 def _build_metrics_payload(metrics: dict[str, float]) -> str:
     """Формирует ответ /metrics в формате Prometheus text exposition."""
 
+    requests_total = int(metrics.get("requests_total", 0.0))
+    request_latency_sum = float(metrics.get("request_latency_seconds_sum", 0.0))
+    request_latency_count = int(metrics.get("request_latency_seconds_count", 0.0))
+    rows_returned_total = int(metrics.get("rows_returned_total", 0.0))
+    auth_failures_total = int(metrics.get("auth_failures_total", 0.0))
+    coupon_events_total = int(metrics.get("coupon_events_total", 0.0))
+    coupon_events_success_total = int(metrics.get("coupon_events_success_total", 0.0))
+    coupon_events_error_total = int(metrics.get("coupon_events_error_total", 0.0))
+    coupon_events_dedup_total = int(metrics.get("coupon_events_dedup_total", 0.0))
+    coupon_event_latency_sum = float(metrics.get("coupon_event_latency_seconds_sum", 0.0))
+    coupon_event_latency_count = int(metrics.get("coupon_event_latency_seconds_count", 0.0))
+
     lines = [
         "# HELP sagur_integration_requests_total Total integration API requests.",
         "# TYPE sagur_integration_requests_total counter",
-        f"sagur_integration_requests_total {int(metrics['requests_total'])}",
+        f"sagur_integration_requests_total {requests_total}",
         "# HELP sagur_integration_request_latency_seconds_sum Accumulated request latency in seconds.",
         "# TYPE sagur_integration_request_latency_seconds_sum counter",
-        f"sagur_integration_request_latency_seconds_sum {metrics['request_latency_seconds_sum']:.6f}",
+        f"sagur_integration_request_latency_seconds_sum {request_latency_sum:.6f}",
         "# HELP sagur_integration_request_latency_seconds_count Count of latency observations.",
         "# TYPE sagur_integration_request_latency_seconds_count counter",
-        f"sagur_integration_request_latency_seconds_count {int(metrics['request_latency_seconds_count'])}",
+        f"sagur_integration_request_latency_seconds_count {request_latency_count}",
         "# HELP sagur_integration_rows_returned_total Total rows returned by snapshot/delta endpoints.",
         "# TYPE sagur_integration_rows_returned_total counter",
-        f"sagur_integration_rows_returned_total {int(metrics['rows_returned_total'])}",
+        f"sagur_integration_rows_returned_total {rows_returned_total}",
         "# HELP sagur_integration_auth_failures_total Total failed auth checks.",
         "# TYPE sagur_integration_auth_failures_total counter",
-        f"sagur_integration_auth_failures_total {int(metrics['auth_failures_total'])}",
+        f"sagur_integration_auth_failures_total {auth_failures_total}",
+        "# HELP sagur_coupon_events_total Total incoming coupon events.",
+        "# TYPE sagur_coupon_events_total counter",
+        f"sagur_coupon_events_total {coupon_events_total}",
+        "# HELP sagur_coupon_events_success_total Total successfully processed coupon events.",
+        "# TYPE sagur_coupon_events_success_total counter",
+        f"sagur_coupon_events_success_total {coupon_events_success_total}",
+        "# HELP sagur_coupon_events_error_total Total failed coupon event processing attempts.",
+        "# TYPE sagur_coupon_events_error_total counter",
+        f"sagur_coupon_events_error_total {coupon_events_error_total}",
+        "# HELP sagur_coupon_events_dedup_total Total deduplicated coupon events.",
+        "# TYPE sagur_coupon_events_dedup_total counter",
+        f"sagur_coupon_events_dedup_total {coupon_events_dedup_total}",
+        "# HELP sagur_coupon_event_latency_seconds_sum Accumulated coupon event processing latency in seconds.",
+        "# TYPE sagur_coupon_event_latency_seconds_sum counter",
+        f"sagur_coupon_event_latency_seconds_sum {coupon_event_latency_sum:.6f}",
+        "# HELP sagur_coupon_event_latency_seconds_count Count of coupon event latency observations.",
+        "# TYPE sagur_coupon_event_latency_seconds_count counter",
+        f"sagur_coupon_event_latency_seconds_count {coupon_event_latency_count}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -824,6 +913,181 @@ async def _delta_handler(request: web.Request) -> web.Response:
     )
 
 
+async def _coupons_events_handler(request: web.Request) -> web.Response:
+    """Endpoint приема событий купонов от SAGUR."""
+
+    started_at = time.perf_counter()
+    request_id = request.get(_REQUEST_ID_KEY, "-")
+    session_factory = request.app[_SESSION_FACTORY_KEY]
+
+    event_id_header = str(request.headers.get(_H_EVENT_ID) or "").strip()
+    if not event_id_header:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message="Отсутствует заголовок X-Sagur-Event-Id.")
+
+    try:
+        header_event_id = _parse_uuid(event_id_header, field_name="X-Sagur-Event-Id")
+    except ValueError as exc:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message=str(exc))
+
+    try:
+        body = await _read_json_object_body(request)
+    except ValueError as exc:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message=str(exc))
+
+    body_event_id_raw = str(body.get("event_id") or "").strip()
+    if not body_event_id_raw:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message="event_id is required.")
+
+    try:
+        body_event_id = _parse_uuid(body_event_id_raw, field_name="event_id")
+    except ValueError as exc:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message=str(exc))
+
+    if body_event_id != header_event_id:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(
+            status=400,
+            message="event_id в body должен совпадать с X-Sagur-Event-Id.",
+        )
+
+    direction = str(body.get("direction") or "").strip().lower()
+    if direction not in _COUPON_DIRECTIONS:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(
+            status=400,
+            message="direction должен быть assignments или status_update.",
+        )
+
+    payload_raw = body.get("payload")
+    if not isinstance(payload_raw, dict):
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message="payload должен быть JSON-объектом.")
+
+    raw_sent_at = str(body.get("sent_at") or "").strip()
+    sent_at: datetime | None = None
+    if raw_sent_at:
+        try:
+            sent_at = _parse_rfc3339_utc(raw_sent_at)
+        except ValueError:
+            _metrics_record_coupon_event(
+                app=request.app,
+                latency_seconds=time.perf_counter() - started_at,
+                success=False,
+                deduplicated=False,
+            )
+            return _json_response_error(status=400, message="sent_at должен быть в формате RFC3339 UTC.")
+
+    person_id_for_log = str(payload_raw.get("person_id") or "-").strip() or "-"
+    coupon_code_for_log = str(payload_raw.get("coupon_code") or "-").strip() or "-"
+
+    try:
+        with session_factory() as db_session:
+            repository = SQLAlchemySagurCouponsRepository(db_session)
+            result = repository.apply_event(
+                event_id=header_event_id,
+                direction=direction,
+                sent_at=sent_at,
+                payload_raw=payload_raw,
+            )
+            db_session.commit()
+    except ValueError as exc:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        logger.bind(component=_COMPONENT, stage="coupon_events").warning(
+            "Coupon event rejected. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}, reason={reason}.",
+            request_id=request_id,
+            event_id=str(header_event_id),
+            person_id=person_id_for_log,
+            coupon_code=coupon_code_for_log,
+            direction=direction,
+            reason=str(exc),
+        )
+        return _json_response_error(status=400, message=str(exc))
+    except Exception:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        logger.bind(component=_COMPONENT, stage="coupon_events").exception(
+            "Coupon event failed. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}.",
+            request_id=request_id,
+            event_id=str(header_event_id),
+            person_id=person_id_for_log,
+            coupon_code=coupon_code_for_log,
+            direction=direction,
+        )
+        return _json_response_error(status=500, message="Внутренняя ошибка обработки события купона.")
+
+    _metrics_record_coupon_event(
+        app=request.app,
+        latency_seconds=time.perf_counter() - started_at,
+        success=True,
+        deduplicated=result.deduplicated,
+    )
+    request[_AUDIT_ROWS_KEY] = 1
+    logger.bind(component=_COMPONENT, stage="coupon_events").info(
+        "Coupon event processed. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}, deduplicated={deduplicated}.",
+        request_id=request_id,
+        event_id=str(header_event_id),
+        person_id=person_id_for_log,
+        coupon_code=coupon_code_for_log,
+        direction=direction,
+        deduplicated=result.deduplicated,
+    )
+    return _json_response_ok({"ok": True})
+
+
 def build_web_app(
     *,
     settings: AppSettings,
@@ -842,6 +1106,7 @@ def build_web_app(
     app.router.add_get("/metrics", _metrics_handler)
     app.router.add_get("/internal/integration/v1/sagur/recipients/snapshot", _snapshot_handler)
     app.router.add_get("/internal/integration/v1/sagur/recipients/delta", _delta_handler)
+    app.router.add_post("/internal/integration/v1/sagur/coupons/events", _coupons_events_handler)
     return app
 
 

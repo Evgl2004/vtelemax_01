@@ -394,3 +394,81 @@ class VkPhoneVerificationSessionRow(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SagurCouponEventRow(Base):
+    """Входящее событие купона от SAGUR (идемпотентность по event_id)."""
+
+    __tablename__ = "sagur_coupon_events"
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('assignments', 'status_update')",
+            name="ck_sagur_coupon_events_direction_allowed",
+        ),
+    )
+
+    event_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    direction: Mapped[str] = mapped_column(String(32), nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payload_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class PersonCouponRow(Base):
+    """Купон пользователя для отображения в чат-ботах."""
+
+    __tablename__ = "person_coupons"
+    __table_args__ = (
+        UniqueConstraint(
+            "person_id",
+            "coupon_series",
+            "coupon_code",
+            name="uq_person_coupons_person_series_code",
+        ),
+        CheckConstraint(
+            "status IN ('reserved', 'sent', 'used', 'expired', 'canceled', 'error')",
+            name="ck_person_coupons_status_allowed",
+        ),
+        Index("ix_person_coupons_person_visible", "person_id", "is_visible"),
+        Index("ix_person_coupons_person_venue_visible", "person_id", "venue_code", "is_visible"),
+        Index("ix_person_coupons_last_event_id", "last_event_id"),
+    )
+
+    coupon_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    person_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("persons.person_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    coupon_series: Mapped[str] = mapped_column(String(64), nullable=False)
+    coupon_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    campaign_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    venue_code: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        server_default=text("'__global__'"),
+    )
+    venue_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    promo_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    last_event_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("sagur_coupon_events.event_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

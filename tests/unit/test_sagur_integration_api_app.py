@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
 from aiohttp.test_utils import make_mocked_request
@@ -30,6 +31,7 @@ from vtelemax.apps.sagur_integration_api_app import (
     _validate_service_settings,
     build_web_app,
 )
+from vtelemax.infrastructure.postgres.sagur_coupons_repository import ApplyCouponEventResult
 from vtelemax.infrastructure.postgres.sagur_recipients_repository import _build_delta_statement
 from vtelemax.settings import AppSettings
 
@@ -48,6 +50,7 @@ def test_sagur_integration_app_registers_required_routes() -> None:
     assert "/metrics" in route_paths
     assert "/internal/integration/v1/sagur/recipients/snapshot" in route_paths
     assert "/internal/integration/v1/sagur/recipients/delta" in route_paths
+    assert "/internal/integration/v1/sagur/coupons/events" in route_paths
 
 
 def test_sagur_integration_settings_validation_rejects_bad_limits() -> None:
@@ -386,9 +389,184 @@ def test_metrics_payload_contains_required_counters() -> None:
             "request_latency_seconds_count": 3.0,
             "rows_returned_total": 25.0,
             "auth_failures_total": 2.0,
+            "coupon_events_total": 8.0,
+            "coupon_events_success_total": 7.0,
+            "coupon_events_error_total": 1.0,
+            "coupon_events_dedup_total": 3.0,
+            "coupon_event_latency_seconds_sum": 0.5,
+            "coupon_event_latency_seconds_count": 8.0,
         }
     )
 
     assert "sagur_integration_requests_total 10" in payload
     assert "sagur_integration_rows_returned_total 25" in payload
     assert "sagur_integration_auth_failures_total 2" in payload
+    assert "sagur_coupon_events_total 8" in payload
+    assert "sagur_coupon_events_success_total 7" in payload
+    assert "sagur_coupon_events_error_total 1" in payload
+    assert "sagur_coupon_events_dedup_total 3" in payload
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.committed = False
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+class _FakeSessionFactory:
+    def __init__(self, session: _FakeSession) -> None:
+        self._session = session
+
+    def __call__(self) -> "_FakeSessionFactory":
+        return self
+
+    def __enter__(self) -> _FakeSession:
+        return self._session
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object | None,
+    ) -> bool:
+        return False
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_rejects_missing_event_id_header() -> None:
+    settings = AppSettings()
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+    request = make_mocked_request(
+        "POST",
+        "/internal/integration/v1/sagur/coupons/events",
+        app=app,
+    )
+
+    response = await sagur_api._coupons_events_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 400
+    assert body["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_accepts_event_and_returns_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = AppSettings()
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+    fake_session = _FakeSession()
+    app[sagur_api._SESSION_FACTORY_KEY] = _FakeSessionFactory(fake_session)
+
+    event_id = uuid4()
+    expected_event_id = str(event_id)
+
+    async def _fake_read_json_object_body(_: object) -> dict[str, object]:
+        return {
+            "event_id": str(event_id),
+            "direction": "assignments",
+            "sent_at": "2026-05-15T08:00:00Z",
+            "payload": {
+                "person_id": "11111111-1111-1111-1111-111111111111",
+                "coupon_series": "A",
+                "coupon_code": "CPN-001",
+                "status": "reserved",
+            },
+        }
+
+    class _FakeCouponsRepository:
+        def __init__(self, _: object) -> None:
+            pass
+
+        def apply_event(
+            self,
+            *,
+            event_id: object,
+            direction: str,
+            sent_at: object,
+            payload_raw: dict[str, object],
+        ) -> ApplyCouponEventResult:
+            assert str(event_id) == expected_event_id
+            assert direction == "assignments"
+            assert sent_at is not None
+            assert payload_raw["coupon_code"] == "CPN-001"
+            return ApplyCouponEventResult(deduplicated=False, coupon_id=uuid4())
+
+    monkeypatch.setattr(sagur_api, "_read_json_object_body", _fake_read_json_object_body)
+    monkeypatch.setattr(sagur_api, "SQLAlchemySagurCouponsRepository", _FakeCouponsRepository)
+
+    request = make_mocked_request(
+        "POST",
+        "/internal/integration/v1/sagur/coupons/events",
+        headers={"X-Sagur-Event-Id": str(event_id)},
+        app=app,
+    )
+    request[sagur_api._REQUEST_ID_KEY] = "test-request-id"
+
+    response = await sagur_api._coupons_events_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 200
+    assert body == {"ok": True}
+    assert fake_session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_idempotent_duplicate_returns_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = AppSettings()
+    app = build_web_app(settings=settings, session_factory=sessionmaker())
+    fake_session = _FakeSession()
+    app[sagur_api._SESSION_FACTORY_KEY] = _FakeSessionFactory(fake_session)
+
+    event_id = uuid4()
+
+    async def _fake_read_json_object_body(_: object) -> dict[str, object]:
+        return {
+            "event_id": str(event_id),
+            "direction": "status_update",
+            "payload": {
+                "person_id": "22222222-2222-2222-2222-222222222222",
+                "coupon_series": "B",
+                "coupon_code": "CPN-002",
+                "status": "used",
+            },
+        }
+
+    class _FakeCouponsRepository:
+        def __init__(self, _: object) -> None:
+            pass
+
+        def apply_event(
+            self,
+            *,
+            event_id: object,
+            direction: str,
+            sent_at: object,
+            payload_raw: dict[str, object],
+        ) -> ApplyCouponEventResult:
+            assert direction == "status_update"
+            assert sent_at is None
+            assert payload_raw["status"] == "used"
+            return ApplyCouponEventResult(deduplicated=True, coupon_id=None)
+
+    monkeypatch.setattr(sagur_api, "_read_json_object_body", _fake_read_json_object_body)
+    monkeypatch.setattr(sagur_api, "SQLAlchemySagurCouponsRepository", _FakeCouponsRepository)
+
+    request = make_mocked_request(
+        "POST",
+        "/internal/integration/v1/sagur/coupons/events",
+        headers={"X-Sagur-Event-Id": str(event_id)},
+        app=app,
+    )
+    request[sagur_api._REQUEST_ID_KEY] = "test-request-id-2"
+
+    response = await sagur_api._coupons_events_handler(request)
+    body = json.loads(response.text)
+
+    assert response.status == 200
+    assert body == {"ok": True}
+    assert fake_session.committed is True
