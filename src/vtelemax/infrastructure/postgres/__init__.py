@@ -14,7 +14,7 @@ from .schema import (
     SupportTicketRow,
     VkPhoneVerificationSessionRow,
 )
-from .sagur_coupons_repository import SQLAlchemySagurCouponsRepository
+from .sagur_coupons_repository import CouponAlreadyAssignedError, SQLAlchemySagurCouponsRepository
 from .session import build_engine, build_session_factory
 from .sagur_recipients_repository import SQLAlchemySagurRecipientsRepository
 from .support_repository import SQLAlchemySupportRepository
@@ -36,6 +36,7 @@ __all__ = [
     "SQLAlchemySupportRepository",
     "SQLAlchemySagurRecipientsRepository",
     "SQLAlchemySagurCouponsRepository",
+    "CouponAlreadyAssignedError",
     "SQLAlchemyIdentityUnitOfWork",
     "build_engine",
     "build_session_factory",

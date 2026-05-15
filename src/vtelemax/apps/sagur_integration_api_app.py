@@ -17,10 +17,14 @@ from typing import Any
 
 from aiohttp import web
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.infrastructure import configure_logging
 from vtelemax.infrastructure.postgres import (
+    CouponAlreadyAssignedError,
+    PersonRow,
+    PhoneRow,
     SQLAlchemySagurCouponsRepository,
     SQLAlchemySagurRecipientsRepository,
     build_engine,
@@ -29,7 +33,7 @@ from vtelemax.infrastructure.postgres import (
 from vtelemax.settings import AppSettings
 
 _COMPONENT = "sagur_integration_api_app"
-_MAX_JSON_BODY_BYTES = 8 * 1024
+_MAX_JSON_BODY_BYTES = 512 * 1024
 _SETTINGS_KEY = web.AppKey("settings", AppSettings)
 _SESSION_FACTORY_KEY = web.AppKey("session_factory", sessionmaker[Session])
 _REQUEST_ID_KEY = web.AppKey("request_id", str)
@@ -41,9 +45,11 @@ _SAGUR_PATH_PREFIX = "/internal/integration/v1/sagur/"
 _H_TIMESTAMP = "X-Sagur-Timestamp"
 _H_SIGNATURE = "X-Sagur-Signature"
 _H_REQUEST_ID = "X-Request-Id"
+_H_SAGUR_REQUEST_ID = "X-Sagur-Request-Id"
 _H_EVENT_ID = "X-Sagur-Event-Id"
 _CURSOR_SIG_PREFIX = "cursor\n"
 _COUPON_DIRECTIONS = {"assignments", "status_update"}
+_COUPON_BATCH_ACK_STATUSES = {"acked"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,9 +102,17 @@ def _is_sagur_protected_path(path: str) -> bool:
     return path.startswith(_SAGUR_PATH_PREFIX)
 
 
-def _build_hmac_payload(*, method: str, path_qs: str, timestamp: int) -> str:
+def _build_hmac_payload(
+    *,
+    method: str,
+    path_qs: str,
+    timestamp: int,
+    body_sha256: str | None = None,
+) -> str:
     """Собирает canonical payload для проверки HMAC подписи."""
 
+    if body_sha256 is not None:
+        return f"{method.upper()}\n{path_qs}\n{timestamp}\n{body_sha256}"
     return f"{method.upper()}\n{path_qs}\n{timestamp}"
 
 
@@ -172,7 +186,9 @@ def _metrics_record_coupon_event(
 def _resolve_request_id(request: web.Request) -> str:
     """Возвращает request id из заголовка или генерирует новый."""
 
-    raw_request_id = str(request.headers.get(_H_REQUEST_ID) or "").strip()
+    raw_request_id = str(
+        request.headers.get(_H_SAGUR_REQUEST_ID) or request.headers.get(_H_REQUEST_ID) or ""
+    ).strip()
     if raw_request_id:
         return raw_request_id[:128]
     return uuid.uuid4().hex
@@ -192,6 +208,7 @@ def _validate_hmac_auth(
     request: web.Request,
     settings: AppSettings,
     now_epoch: int | None = None,
+    raw_body: bytes | None = None,
 ) -> AuthError | None:
     """Проверяет S2S подпись интеграционного запроса."""
 
@@ -219,13 +236,31 @@ def _validate_hmac_auth(
     if abs(current_epoch - timestamp) > settings.sagur_integration_hmac_max_skew_seconds:
         return AuthError(status=401, message="Подпись просрочена или время запроса недопустимо.")
 
-    payload = _build_hmac_payload(
-        method=request.method,
-        path_qs=request.path_qs,
-        timestamp=timestamp,
+    payloads = [
+        _build_hmac_payload(
+            method=request.method,
+            path_qs=request.path_qs,
+            timestamp=timestamp,
+        )
+    ]
+    if raw_body is not None:
+        body_sha256 = hashlib.sha256(raw_body).hexdigest()
+        payloads.append(
+            _build_hmac_payload(
+                method=request.method,
+                path_qs=request.path,
+                timestamp=timestamp,
+                body_sha256=body_sha256,
+            )
+        )
+
+    expected_signatures = (
+        _build_hmac_signature(secret=secret, payload=payload).lower() for payload in payloads
     )
-    expected_signature = _build_hmac_signature(secret=secret, payload=payload)
-    if not hmac.compare_digest(expected_signature, signature_raw):
+    if not any(
+        hmac.compare_digest(expected_signature, signature_raw)
+        for expected_signature in expected_signatures
+    ):
         return AuthError(status=401, message="Неверная подпись интеграционного запроса.")
     return None
 
@@ -245,7 +280,8 @@ async def _sagur_auth_middleware(
     started_at = time.perf_counter()
 
     settings = request.app[_SETTINGS_KEY]
-    auth_error = _validate_hmac_auth(request=request, settings=settings)
+    raw_body = await request.read() if request.can_read_body else b""
+    auth_error = _validate_hmac_auth(request=request, settings=settings, raw_body=raw_body)
     if auth_error is not None:
         latency_seconds = time.perf_counter() - started_at
         _metrics_record_request(app=request.app, latency_seconds=latency_seconds)
@@ -913,12 +949,360 @@ async def _delta_handler(request: web.Request) -> web.Response:
     )
 
 
+class CouponRecipientNotFoundError(ValueError):
+    """Raised when a coupon item cannot be matched to a local recipient."""
+
+
+def _coupon_item_result_acked(
+    *,
+    event_id: str,
+    deduplicated: bool = False,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"event_id": event_id, "status": "acked"}
+    if deduplicated:
+        result["deduplicated"] = True
+    return result
+
+
+def _coupon_item_result_rejected(
+    *,
+    event_id: str,
+    code: str,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "event_id": event_id,
+        "status": "rejected",
+        "code": code,
+        "message": message,
+    }
+
+
+def _build_coupon_batch_response_payload(
+    *,
+    request_id: str,
+    results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    batch_status = (
+        "acked"
+        if all(str(result.get("status") or "") in _COUPON_BATCH_ACK_STATUSES for result in results)
+        else "partial"
+    )
+    return {
+        "request_id": request_id,
+        "status": batch_status,
+        "results": results,
+    }
+
+
+def _resolve_coupon_item_person_id(
+    *,
+    db_session: Session,
+    payload_raw: dict[str, object],
+) -> uuid.UUID:
+    raw_person_id = str(payload_raw.get("person_id") or "").strip()
+    raw_phone = str(payload_raw.get("phone_e164") or "").strip()
+    parsed_person_id: uuid.UUID | None = None
+
+    if raw_person_id:
+        parsed_person_id = _parse_uuid(raw_person_id, field_name="payload.person_id")
+        if db_session.get(PersonRow, parsed_person_id) is not None:
+            return parsed_person_id
+
+    if raw_phone:
+        phone_row = db_session.execute(
+            select(PhoneRow).where(PhoneRow.phone_e164 == raw_phone)
+        ).scalar_one_or_none()
+        if phone_row is not None:
+            return phone_row.person_id
+
+    if parsed_person_id is not None:
+        raise CouponRecipientNotFoundError("recipient not found by person_id or phone_e164")
+    raise CouponRecipientNotFoundError("recipient not found: person_id or phone_e164 is required")
+
+
+def _apply_coupon_batch_item(
+    *,
+    db_session: Session,
+    direction: str,
+    sent_at: datetime | None,
+    item_raw: object,
+    request_id: str,
+) -> tuple[dict[str, Any], bool, bool]:
+    if not isinstance(item_raw, dict):
+        return (
+            _coupon_item_result_rejected(
+                event_id="",
+                code="invalid_payload",
+                message="item must be a JSON object",
+            ),
+            False,
+            False,
+        )
+
+    event_id_raw = str(item_raw.get("event_id") or "").strip()
+    if not event_id_raw:
+        return (
+            _coupon_item_result_rejected(
+                event_id="",
+                code="invalid_payload",
+                message="item.event_id is required",
+            ),
+            False,
+            False,
+        )
+
+    try:
+        event_id = _parse_uuid(event_id_raw, field_name="item.event_id")
+    except ValueError as exc:
+        return (
+            _coupon_item_result_rejected(
+                event_id=event_id_raw,
+                code="invalid_payload",
+                message=str(exc),
+            ),
+            False,
+            False,
+        )
+
+    payload_raw: dict[str, object] = dict(item_raw)
+    payload_raw.pop("event_id", None)
+    person_id_for_log = str(payload_raw.get("person_id") or "-").strip() or "-"
+    coupon_code_for_log = str(payload_raw.get("coupon_code") or "-").strip() or "-"
+
+    try:
+        person_id = _resolve_coupon_item_person_id(db_session=db_session, payload_raw=payload_raw)
+        payload_raw["person_id"] = str(person_id)
+        repository = SQLAlchemySagurCouponsRepository(db_session)
+        result = repository.apply_event(
+            event_id=event_id,
+            direction=direction,
+            sent_at=sent_at,
+            payload_raw=payload_raw,
+        )
+        db_session.commit()
+    except CouponRecipientNotFoundError as exc:
+        db_session.rollback()
+        logger.bind(component=_COMPONENT, stage="coupon_events").warning(
+            "Coupon batch item rejected / Элемент batch купонов отклонен. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}, code=recipient_not_found, reason={reason}.",
+            request_id=request_id,
+            event_id=event_id_raw,
+            person_id=person_id_for_log,
+            coupon_code=coupon_code_for_log,
+            direction=direction,
+            reason=str(exc),
+        )
+        return (
+            _coupon_item_result_rejected(
+                event_id=event_id_raw,
+                code="recipient_not_found",
+                message="Получатель не найден",
+            ),
+            False,
+            False,
+        )
+    except CouponAlreadyAssignedError as exc:
+        db_session.rollback()
+        logger.bind(component=_COMPONENT, stage="coupon_events").warning(
+            "Coupon batch item rejected / Элемент batch купонов отклонен. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}, code=coupon_already_assigned, reason={reason}.",
+            request_id=request_id,
+            event_id=event_id_raw,
+            person_id=person_id_for_log,
+            coupon_code=coupon_code_for_log,
+            direction=direction,
+            reason=str(exc),
+        )
+        return (
+            _coupon_item_result_rejected(
+                event_id=event_id_raw,
+                code="coupon_already_assigned",
+                message="Купон уже привязан и не был освобожден",
+            ),
+            False,
+            False,
+        )
+    except ValueError as exc:
+        db_session.rollback()
+        logger.bind(component=_COMPONENT, stage="coupon_events").warning(
+            "Coupon batch item rejected / Элемент batch купонов отклонен. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}, code=invalid_payload, reason={reason}.",
+            request_id=request_id,
+            event_id=event_id_raw,
+            person_id=person_id_for_log,
+            coupon_code=coupon_code_for_log,
+            direction=direction,
+            reason=str(exc),
+        )
+        return (
+            _coupon_item_result_rejected(
+                event_id=event_id_raw,
+                code="invalid_payload",
+                message=str(exc),
+            ),
+            False,
+            False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        db_session.rollback()
+        logger.bind(component=_COMPONENT, stage="coupon_events").exception(
+            "Coupon batch item failed / Ошибка элемента batch купонов. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}.",
+            request_id=request_id,
+            event_id=event_id_raw,
+            person_id=person_id_for_log,
+            coupon_code=coupon_code_for_log,
+            direction=direction,
+        )
+        return (
+            _coupon_item_result_rejected(
+                event_id=event_id_raw,
+                code="internal_error",
+                message="Внутренняя ошибка обработки события купона",
+            ),
+            False,
+            False,
+        )
+
+    logger.bind(component=_COMPONENT, stage="coupon_events").info(
+        "Coupon batch item processed / Элемент batch купонов обработан. request_id={request_id}, event_id={event_id}, person_id={person_id}, coupon_code={coupon_code}, direction={direction}, deduplicated={deduplicated}.",
+        request_id=request_id,
+        event_id=event_id_raw,
+        person_id=str(payload_raw.get("person_id") or person_id_for_log),
+        coupon_code=coupon_code_for_log,
+        direction=direction,
+        deduplicated=result.deduplicated,
+    )
+    return _coupon_item_result_acked(
+        event_id=event_id_raw,
+        deduplicated=result.deduplicated,
+    ), True, result.deduplicated
+
+
+def _parse_coupon_batch_body(
+    *,
+    body: dict[str, Any],
+    header_request_id: str,
+) -> tuple[str, str, datetime | None, list[object]]:
+    request_id = str(body.get("request_id") or "").strip()
+    if not request_id:
+        raise ValueError("request_id is required.")
+    _parse_uuid(request_id, field_name="request_id")
+
+    header_value = str(header_request_id or "").strip()
+    if header_value and header_value != request_id:
+        raise ValueError("request_id in body must match X-Sagur-Request-Id.")
+
+    direction = str(body.get("direction") or "").strip().lower()
+    if direction not in _COUPON_DIRECTIONS:
+        raise ValueError("direction должен быть assignments или status_update.")
+
+    raw_sent_at = str(body.get("sent_at") or "").strip()
+    sent_at: datetime | None = None
+    if raw_sent_at:
+        sent_at = _parse_rfc3339_utc(raw_sent_at)
+
+    items_raw = body.get("items")
+    if not isinstance(items_raw, list):
+        raise ValueError("items должен быть JSON-массивом.")
+    return request_id, direction, sent_at, list(items_raw)
+
+
+def _handle_coupon_batch_request(
+    *,
+    request: web.Request,
+    body: dict[str, Any],
+    started_at: float,
+) -> web.Response:
+    header_request_id = str(request.headers.get(_H_SAGUR_REQUEST_ID) or "").strip()
+    try:
+        request_id, direction, sent_at, items = _parse_coupon_batch_body(
+            body=body,
+            header_request_id=header_request_id,
+        )
+    except ValueError as exc:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message=str(exc))
+
+    request[_REQUEST_ID_KEY] = request_id
+    session_factory = request.app[_SESSION_FACTORY_KEY]
+    results: list[dict[str, Any]] = []
+
+    try:
+        with session_factory() as db_session:
+            for item in items:
+                result, success, deduplicated = _apply_coupon_batch_item(
+                    db_session=db_session,
+                    direction=direction,
+                    sent_at=sent_at,
+                    item_raw=item,
+                    request_id=request_id,
+                )
+                results.append(result)
+                _metrics_record_coupon_event(
+                    app=request.app,
+                    latency_seconds=time.perf_counter() - started_at,
+                    success=success,
+                    deduplicated=deduplicated,
+                )
+    except Exception:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        logger.bind(component=_COMPONENT, stage="coupon_events").exception(
+            "Coupon batch failed before item processing / Batch купонов упал до обработки items. request_id={request_id}, direction={direction}.",
+            request_id=request_id,
+            direction=direction,
+        )
+        return _json_response_error(status=500, message="Внутренняя ошибка обработки batch купонов.")
+
+    acked_count = sum(
+        1 for result in results if str(result.get("status") or "") in _COUPON_BATCH_ACK_STATUSES
+    )
+    rejected = [
+        {"event_id": result.get("event_id"), "code": result.get("code")}
+        for result in results
+        if str(result.get("status") or "") not in _COUPON_BATCH_ACK_STATUSES
+    ]
+    request[_AUDIT_ROWS_KEY] = len(results)
+    response_payload = _build_coupon_batch_response_payload(request_id=request_id, results=results)
+    logger.bind(component=_COMPONENT, stage="coupon_events").info(
+        "Coupon batch processed / Batch купонов обработан. request_id={request_id}, direction={direction}, items={items_count}, acked={acked_count}, rejected={rejected_count}, problems={problems}.",
+        request_id=request_id,
+        direction=direction,
+        items_count=len(items),
+        acked_count=acked_count,
+        rejected_count=len(results) - acked_count,
+        problems=rejected,
+    )
+    return _json_response_ok(response_payload)
+
+
 async def _coupons_events_handler(request: web.Request) -> web.Response:
     """Endpoint приема событий купонов от SAGUR."""
 
     started_at = time.perf_counter()
     request_id = request.get(_REQUEST_ID_KEY, "-")
     session_factory = request.app[_SESSION_FACTORY_KEY]
+
+    try:
+        body = await _read_json_object_body(request)
+    except ValueError as exc:
+        _metrics_record_coupon_event(
+            app=request.app,
+            latency_seconds=time.perf_counter() - started_at,
+            success=False,
+            deduplicated=False,
+        )
+        return _json_response_error(status=400, message=str(exc))
+
+    if "items" in body:
+        return _handle_coupon_batch_request(request=request, body=body, started_at=started_at)
 
     event_id_header = str(request.headers.get(_H_EVENT_ID) or "").strip()
     if not event_id_header:
@@ -932,17 +1316,6 @@ async def _coupons_events_handler(request: web.Request) -> web.Response:
 
     try:
         header_event_id = _parse_uuid(event_id_header, field_name="X-Sagur-Event-Id")
-    except ValueError as exc:
-        _metrics_record_coupon_event(
-            app=request.app,
-            latency_seconds=time.perf_counter() - started_at,
-            success=False,
-            deduplicated=False,
-        )
-        return _json_response_error(status=400, message=str(exc))
-
-    try:
-        body = await _read_json_object_body(request)
     except ValueError as exc:
         _metrics_record_coupon_event(
             app=request.app,

@@ -14,6 +14,11 @@ from .schema import PersonCouponRow, SagurCouponEventRow
 _GLOBAL_VENUE_CODE = "__global__"
 _COUPON_ACTIVE_STATUSES = {"reserved", "sent"}
 _COUPON_ALLOWED_STATUSES = _COUPON_ACTIVE_STATUSES | {"used", "expired", "canceled", "error"}
+_COUPON_NON_REASSIGNABLE_STATUSES = _COUPON_ACTIVE_STATUSES | {"used", "expired"}
+
+
+class CouponAlreadyAssignedError(ValueError):
+    """Raised when SAGUR tries to assign a non-released coupon again."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +168,22 @@ class SQLAlchemySagurCouponsRepository:
                 )
             )
         ).scalar_one_or_none()
+
+        if direction == "assignments":
+            conflicting_coupon = self._session.execute(
+                select(PersonCouponRow).where(
+                    PersonCouponRow.coupon_series == payload.coupon_series,
+                    PersonCouponRow.coupon_code == payload.coupon_code,
+                    PersonCouponRow.status.in_(_COUPON_NON_REASSIGNABLE_STATUSES),
+                )
+            ).scalar_one_or_none()
+            if conflicting_coupon is not None and (
+                conflicting_coupon.person_id != payload.person_id
+                or conflicting_coupon.status in {"used", "expired"}
+            ):
+                raise CouponAlreadyAssignedError(
+                    "coupon is already assigned and was not released"
+                )
 
         # SAGUR treats canceled as a release: remove the guest binding instead of
         # keeping a hidden terminal coupon, so the code can be assigned again.

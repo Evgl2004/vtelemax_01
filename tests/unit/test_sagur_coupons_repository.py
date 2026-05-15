@@ -5,12 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from vtelemax.infrastructure.postgres import (
     Base,
+    CouponAlreadyAssignedError,
     PersonCouponRow,
     PersonRow,
     SagurCouponEventRow,
@@ -227,6 +229,68 @@ def test_status_update_canceled_releases_coupon_and_allows_reassignment() -> Non
         assert [row.person_id for row in _person_coupon_rows(session, coupon_code=coupon_code)] == [
             second_person_id
         ]
+
+
+def test_assignments_rejects_reuse_of_used_coupon_without_release() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    session_factory = build_session_factory(engine)
+    first_person_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    second_person_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    coupon_series = "SER-USED"
+    coupon_code = "USED-2026-0001"
+    now = datetime(2026, 5, 15, 9, 30, tzinfo=timezone.utc)
+
+    with session_factory() as session:
+        session.add_all(
+            [
+                PersonRow(person_id=first_person_id),
+                PersonRow(person_id=second_person_id),
+            ]
+        )
+        session.commit()
+
+        repository = SQLAlchemySagurCouponsRepository(session)
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="assignments",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(first_person_id),
+                "coupon_series": coupon_series,
+                "coupon_code": coupon_code,
+                "venue_code": "nani",
+                "status": "reserved",
+            },
+        )
+        session.commit()
+
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="status_update",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(first_person_id),
+                "coupon_series": coupon_series,
+                "coupon_code": coupon_code,
+                "status": "used",
+            },
+        )
+        session.commit()
+
+        with pytest.raises(CouponAlreadyAssignedError):
+            repository.apply_event(
+                event_id=uuid4(),
+                direction="assignments",
+                sent_at=now,
+                payload_raw={
+                    "person_id": str(second_person_id),
+                    "coupon_series": coupon_series,
+                    "coupon_code": coupon_code,
+                    "venue_code": "susami",
+                    "status": "reserved",
+                },
+            )
 
 
 def _coupon_row(

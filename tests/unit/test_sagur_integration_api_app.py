@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
 from aiohttp.test_utils import make_mocked_request
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from vtelemax.apps import sagur_integration_api_app as sagur_api
@@ -30,6 +32,12 @@ from vtelemax.apps.sagur_integration_api_app import (
     _validate_hmac_auth,
     _validate_service_settings,
     build_web_app,
+)
+from vtelemax.infrastructure.postgres import (
+    Base,
+    PersonRow,
+    SQLAlchemySagurCouponsRepository,
+    build_session_factory,
 )
 from vtelemax.infrastructure.postgres.sagur_coupons_repository import ApplyCouponEventResult
 from vtelemax.infrastructure.postgres.sagur_recipients_repository import _build_delta_statement
@@ -161,6 +169,41 @@ def test_validate_hmac_auth_accepts_valid_signature() -> None:
     )
 
     auth_error = _validate_hmac_auth(request=request, settings=settings, now_epoch=timestamp)
+    assert auth_error is None
+
+
+def test_validate_hmac_auth_accepts_batch_body_hash_signature() -> None:
+    settings = AppSettings(
+        SAGUR_INTEGRATION_HMAC_SECRET="test-secret",
+        SAGUR_INTEGRATION_HMAC_MAX_SKEW_SECONDS=60,
+    )
+    timestamp = 1_777_777_777
+    path = "/internal/integration/v1/sagur/coupons/events"
+    raw_body = b'{"request_id":"11111111-1111-4111-8111-111111111111","items":[]}'
+    body_hash = hashlib.sha256(raw_body).hexdigest()
+    payload = _build_hmac_payload(
+        method="POST",
+        path_qs=path,
+        timestamp=timestamp,
+        body_sha256=body_hash,
+    )
+    signature = _build_hmac_signature(secret="test-secret", payload=payload)
+
+    request = make_mocked_request(
+        "POST",
+        path,
+        headers={
+            "X-Sagur-Timestamp": str(timestamp),
+            "X-Sagur-Signature": signature,
+        },
+    )
+
+    auth_error = _validate_hmac_auth(
+        request=request,
+        settings=settings,
+        now_epoch=timestamp,
+        raw_body=raw_body,
+    )
     assert auth_error is None
 
 
@@ -570,3 +613,356 @@ async def test_coupons_events_handler_idempotent_duplicate_returns_ok(
     assert response.status == 200
     assert body == {"ok": True}
     assert fake_session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_accepts_batch_and_returns_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_person_id = uuid4()
+    second_person_id = uuid4()
+    app, session_factory = _build_coupon_batch_test_app(first_person_id, second_person_id)
+    request_id = str(uuid4())
+    first_event_id = str(uuid4())
+    second_event_id = str(uuid4())
+
+    response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": request_id,
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:00:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=first_event_id,
+                    person_id=first_person_id,
+                    coupon_code="BATCH-0001",
+                ),
+                _coupon_batch_item(
+                    event_id=second_event_id,
+                    person_id=second_person_id,
+                    coupon_code="BATCH-0002",
+                ),
+            ],
+        },
+    )
+    body = json.loads(response.text)
+
+    assert response.status == 200
+    assert body["request_id"] == request_id
+    assert body["status"] == "acked"
+    assert body["results"] == [
+        {"event_id": first_event_id, "status": "acked"},
+        {"event_id": second_event_id, "status": "acked"},
+    ]
+
+    with session_factory() as session:
+        repository = SQLAlchemySagurCouponsRepository(session)
+        first_coupons = repository.list_visible_coupons(
+            person_id=first_person_id,
+            venue_code="nani",
+        )
+        second_coupons = repository.list_visible_coupons(
+            person_id=second_person_id,
+            venue_code="nani",
+        )
+
+    assert [coupon.coupon_code for coupon in first_coupons] == ["BATCH-0001"]
+    assert [coupon.coupon_code for coupon in second_coupons] == ["BATCH-0002"]
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_returns_partial_batch_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    known_person_id = uuid4()
+    missing_person_id = uuid4()
+    app, session_factory = _build_coupon_batch_test_app(known_person_id)
+    request_id = str(uuid4())
+    known_event_id = str(uuid4())
+    missing_event_id = str(uuid4())
+
+    response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": request_id,
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:00:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=known_event_id,
+                    person_id=known_person_id,
+                    coupon_code="BATCH-OK",
+                ),
+                _coupon_batch_item(
+                    event_id=missing_event_id,
+                    person_id=missing_person_id,
+                    coupon_code="BATCH-MISSING",
+                ),
+            ],
+        },
+    )
+    body = json.loads(response.text)
+
+    assert response.status == 200
+    assert body["status"] == "partial"
+    assert body["results"][0] == {"event_id": known_event_id, "status": "acked"}
+    assert body["results"][1]["event_id"] == missing_event_id
+    assert body["results"][1]["status"] == "rejected"
+    assert body["results"][1]["code"] == "recipient_not_found"
+
+    with session_factory() as session:
+        repository = SQLAlchemySagurCouponsRepository(session)
+        coupons = repository.list_visible_coupons(person_id=known_person_id, venue_code="nani")
+
+    assert [coupon.coupon_code for coupon in coupons] == ["BATCH-OK"]
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_keeps_item_level_idempotency_for_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    person_id = uuid4()
+    app, session_factory = _build_coupon_batch_test_app(person_id)
+    item_event_id = str(uuid4())
+    batch_body = {
+        "request_id": str(uuid4()),
+        "direction": "assignments",
+        "sent_at": "2026-05-15T10:00:00Z",
+        "items": [
+            _coupon_batch_item(
+                event_id=item_event_id,
+                person_id=person_id,
+                coupon_code="BATCH-RETRY",
+            )
+        ],
+    }
+
+    first_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body=batch_body,
+    )
+    retry_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={**batch_body, "request_id": str(uuid4())},
+    )
+    first_body = json.loads(first_response.text)
+    retry_body = json.loads(retry_response.text)
+
+    assert first_body["results"] == [{"event_id": item_event_id, "status": "acked"}]
+    assert retry_body["results"] == [
+        {"event_id": item_event_id, "status": "acked", "deduplicated": True}
+    ]
+
+    with session_factory() as session:
+        repository = SQLAlchemySagurCouponsRepository(session)
+        coupons = repository.list_visible_coupons(person_id=person_id, venue_code="nani")
+
+    assert [coupon.coupon_code for coupon in coupons] == ["BATCH-RETRY"]
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_rejects_reassign_of_used_coupon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_person_id = uuid4()
+    second_person_id = uuid4()
+    app, _ = _build_coupon_batch_test_app(first_person_id, second_person_id)
+    coupon_code = "BATCH-USED"
+
+    await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:00:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=first_person_id,
+                    coupon_code=coupon_code,
+                )
+            ],
+        },
+    )
+    await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "status_update",
+            "sent_at": "2026-05-15T10:05:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=first_person_id,
+                    coupon_code=coupon_code,
+                    status="used",
+                    venue_code=None,
+                )
+            ],
+        },
+    )
+    reassign_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:06:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=second_person_id,
+                    coupon_code=coupon_code,
+                )
+            ],
+        },
+    )
+    body = json.loads(reassign_response.text)
+
+    assert reassign_response.status == 200
+    assert body["status"] == "partial"
+    assert body["results"][0]["status"] == "rejected"
+    assert body["results"][0]["code"] == "coupon_already_assigned"
+
+
+@pytest.mark.asyncio
+async def test_coupons_events_handler_supports_canceled_release_reassign_batch_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_person_id = uuid4()
+    second_person_id = uuid4()
+    app, session_factory = _build_coupon_batch_test_app(first_person_id, second_person_id)
+    coupon_code = "BATCH-REUSE"
+
+    assign_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:00:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=first_person_id,
+                    coupon_code=coupon_code,
+                )
+            ],
+        },
+    )
+    cancel_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "status_update",
+            "sent_at": "2026-05-15T10:05:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=first_person_id,
+                    coupon_code=coupon_code,
+                    status="canceled",
+                    venue_code=None,
+                    meta={"release_to_pool": True, "remove_from_guest": True},
+                )
+            ],
+        },
+    )
+    reassign_response = await _call_coupons_batch_handler(
+        monkeypatch=monkeypatch,
+        app=app,
+        body={
+            "request_id": str(uuid4()),
+            "direction": "assignments",
+            "sent_at": "2026-05-15T10:06:00Z",
+            "items": [
+                _coupon_batch_item(
+                    event_id=str(uuid4()),
+                    person_id=second_person_id,
+                    coupon_code=coupon_code,
+                )
+            ],
+        },
+    )
+
+    assert json.loads(assign_response.text)["status"] == "acked"
+    assert json.loads(cancel_response.text)["status"] == "acked"
+    assert json.loads(reassign_response.text)["status"] == "acked"
+
+    with session_factory() as session:
+        repository = SQLAlchemySagurCouponsRepository(session)
+        first_coupons = repository.list_visible_coupons(person_id=first_person_id, venue_code="nani")
+        second_coupons = repository.list_visible_coupons(
+            person_id=second_person_id,
+            venue_code="nani",
+        )
+
+    assert first_coupons == ()
+    assert [coupon.coupon_code for coupon in second_coupons] == [coupon_code]
+
+
+def _build_coupon_batch_test_app(*person_ids: object) -> tuple[object, sessionmaker]:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    session_factory = build_session_factory(engine)
+    with session_factory() as session:
+        session.add_all(PersonRow(person_id=person_id) for person_id in person_ids)
+        session.commit()
+    app = build_web_app(settings=AppSettings(), session_factory=session_factory)
+    return app, session_factory
+
+
+async def _call_coupons_batch_handler(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    app: object,
+    body: dict[str, object],
+) -> object:
+    async def _fake_read_json_object_body(_: object) -> dict[str, object]:
+        return body
+
+    monkeypatch.setattr(sagur_api, "_read_json_object_body", _fake_read_json_object_body)
+    request = make_mocked_request(
+        "POST",
+        "/internal/integration/v1/sagur/coupons/events",
+        headers={"X-Sagur-Request-Id": str(body["request_id"])},
+        app=app,
+    )
+    request[sagur_api._REQUEST_ID_KEY] = str(body["request_id"])
+    return await sagur_api._coupons_events_handler(request)
+
+
+def _coupon_batch_item(
+    *,
+    event_id: str,
+    person_id: object,
+    coupon_code: str,
+    status: str = "reserved",
+    venue_code: str | None = "nani",
+    meta: dict[str, object] | None = None,
+) -> dict[str, object]:
+    item: dict[str, object] = {
+        "event_id": event_id,
+        "campaign_id": "CMP-BATCH",
+        "assignment_id": f"ASN-{coupon_code}",
+        "person_id": str(person_id),
+        "phone_e164": "+79990000001",
+        "coupon_series": "SER-BATCH",
+        "coupon_code": coupon_code,
+        "venue_name": "Nani",
+        "promo_text": "Batch coupon",
+        "status": status,
+    }
+    if venue_code is not None:
+        item["venue_code"] = venue_code
+    if meta is not None:
+        item["meta"] = meta
+    return item
