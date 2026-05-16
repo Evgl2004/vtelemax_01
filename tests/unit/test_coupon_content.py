@@ -45,6 +45,7 @@ def _coupon(
     is_visible: bool = True,
     venue_code: str = "nani",
     venue_name: str | None = "Грузинка Нани",
+    promo_text: str | None = "Подарочный десерт",
 ) -> _Coupon:
     return _Coupon(
         coupon_id=UUID("11111111-1111-4111-8111-111111111111"),
@@ -53,7 +54,7 @@ def _coupon(
         campaign_id="CMP-2026",
         venue_code=venue_code,
         venue_name=venue_name,
-        promo_text="Подарочный десерт",
+        promo_text=promo_text,
         status=status,
         is_visible=is_visible,
         updated_at=datetime(2026, 5, 15, 8, 30, tzinfo=timezone.utc),
@@ -100,6 +101,7 @@ def test_coupons_root_view_returns_clear_empty_screen() -> None:
     assert view.is_empty is True
     assert view.scopes == ()
     assert "активных купонов нет" in view.text
+    assert "SAGUR" not in view.text
 
 
 def test_coupons_list_view_uses_coupon_tail4_and_filters_inactive_statuses() -> None:
@@ -170,6 +172,16 @@ def test_coupon_card_view_contains_qr_payload_and_coupon_attributes() -> None:
     assert "PROMO-2026-7777" in view.text
     assert "SERIES-A" in view.text
     assert "CMP-2026" in view.text
+
+
+def test_coupon_card_view_uses_public_fallback_text_without_integration_name() -> None:
+    """Проверяет, что fallback-текст купона не раскрывает гостю техническую интеграцию."""
+
+    view = build_coupon_card_view(_coupon("PROMO-2026-7777", promo_text=None))
+
+    assert view is not None
+    assert "Персональное предложение" in view.text
+    assert "SAGUR" not in view.text
 
 
 def test_coupon_card_view_rejects_inactive_coupon() -> None:

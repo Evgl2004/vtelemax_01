@@ -142,7 +142,7 @@ def build_coupons_root_view(
         return CouponsRootView(
             text=(
                 "🎟️ Купоны\n\n"
-                "Сейчас активных купонов нет. Как только SAGUR пришлет новый купон, "
+                "Сейчас активных купонов нет. Как только появится новое предложение, "
                 "он появится здесь автоматически."
             ),
             scopes=(),
@@ -210,7 +210,7 @@ def build_coupon_card_view(coupon: CouponItemLike) -> CouponCardView | None:
         return None
 
     tail4 = coupon_tail4(coupon_code)
-    promo_text = str(coupon.promo_text or "").strip() or "Купон SAGUR"
+    promo_text = str(coupon.promo_text or "").strip() or "Персональное предложение"
     venue_name = _resolve_coupon_venue_name(coupon)
     status_text = _format_coupon_status(coupon.status)
     updated_at_text = _format_coupon_datetime(getattr(coupon, "updated_at", None))
