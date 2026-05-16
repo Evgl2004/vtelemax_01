@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, replace
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
 from loguru import logger
@@ -40,6 +43,22 @@ _VK_REMOVE_KEYBOARD_JSON = json.dumps(
     },
     ensure_ascii=False,
 )
+_VK_QR_UPLOAD_TIMEOUT = aiohttp.ClientTimeout(total=8, connect=4, sock_read=6)
+_VK_QR_UPLOAD_ATTEMPTS = 3
+_VK_QR_UPLOAD_RETRY_DELAY_SECONDS = 0.75
+
+
+@dataclass(frozen=True, slots=True)
+class _VirtualCardQrDeliveryResult:
+    """Итог доставки QR виртуальных карт в VK.
+
+    Нужен, чтобы финальное сообщение не обещало пользователю QR-коды,
+    если upload изображения в VK завис или отвалился по таймауту.
+    """
+
+    total: int
+    sent: int
+    failed: int
 _GUEST_MESSAGE_CLOSE_CMD = "guest_msg_close"
 
 
@@ -173,13 +192,8 @@ def _build_vk_photo_attachment(photo: Any) -> str | None:
     return attachment
 
 
-async def _upload_vk_png_for_messages(*, ctx_api: Any, peer_id: int, image_bytes: bytes) -> str | None:
-    """Загружает PNG в VK и возвращает attachment для отправки в личные сообщения."""
-
-    upload_info = await ctx_api.photos.get_messages_upload_server(peer_id=peer_id)
-    upload_url = _extract_field(upload_info, "upload_url")
-    if not upload_url:
-        return None
+def _build_vk_png_upload_form(image_bytes: bytes) -> aiohttp.FormData:
+    """Создает свежую multipart-форму для одной попытки upload в VK."""
 
     form = aiohttp.FormData()
     form.add_field(
@@ -188,15 +202,90 @@ async def _upload_vk_png_for_messages(*, ctx_api: Any, peer_id: int, image_bytes
         filename="virtual_card_qr.png",
         content_type="image/png",
     )
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            upload_url,
-            data=form,
-            timeout=aiohttp.ClientTimeout(total=20),
-        ) as response:
-            if response.status != 200:
-                return None
-            upload_result = await response.json(content_type=None)
+    return form
+
+
+def _safe_upload_host(upload_url: str) -> str:
+    """Возвращает host upload URL без path/query, чтобы не писать секреты в лог."""
+
+    try:
+        return urlparse(upload_url).netloc or "unknown"
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+async def _upload_vk_png_for_messages(*, ctx_api: Any, peer_id: int, image_bytes: bytes) -> str | None:
+    """Загружает PNG в VK и возвращает attachment для отправки в личные сообщения."""
+
+    upload_logger = logger.bind(
+        platform="vk",
+        component="router",
+        stage="vk_qr_upload",
+        user_id=str(peer_id),
+    )
+    upload_info = await ctx_api.photos.get_messages_upload_server(peer_id=peer_id)
+    upload_url = _extract_field(upload_info, "upload_url")
+    if not upload_url:
+        upload_logger.warning("VK не вернул upload_url для QR / VK did not return QR upload_url.")
+        return None
+
+    upload_host = _safe_upload_host(str(upload_url))
+    upload_result: dict[str, Any] | None = None
+    for attempt in range(1, _VK_QR_UPLOAD_ATTEMPTS + 1):
+        started_at = time.monotonic()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    str(upload_url),
+                    data=_build_vk_png_upload_form(image_bytes),
+                    timeout=_VK_QR_UPLOAD_TIMEOUT,
+                ) as response:
+                    duration_ms = int((time.monotonic() - started_at) * 1000)
+                    if response.status != 200:
+                        upload_logger.warning(
+                            "VK QR upload failed / Ошибка upload QR в VK. "
+                            "host={host}, attempt={attempt}/{attempts}, status={status}, duration_ms={duration_ms}.",
+                            host=upload_host,
+                            attempt=attempt,
+                            attempts=_VK_QR_UPLOAD_ATTEMPTS,
+                            status=response.status,
+                            duration_ms=duration_ms,
+                        )
+                    else:
+                        upload_result = await response.json(content_type=None)
+                        upload_logger.info(
+                            "VK QR upload completed / Upload QR в VK завершен. "
+                            "host={host}, attempt={attempt}/{attempts}, duration_ms={duration_ms}.",
+                            host=upload_host,
+                            attempt=attempt,
+                            attempts=_VK_QR_UPLOAD_ATTEMPTS,
+                            duration_ms=duration_ms,
+                        )
+                        break
+        except (TimeoutError, aiohttp.ClientError) as error:
+            duration_ms = int((time.monotonic() - started_at) * 1000)
+            upload_logger.warning(
+                "VK QR upload retryable failure / Временная ошибка upload QR в VK. "
+                "host={host}, attempt={attempt}/{attempts}, duration_ms={duration_ms}, error={error}.",
+                host=upload_host,
+                attempt=attempt,
+                attempts=_VK_QR_UPLOAD_ATTEMPTS,
+                duration_ms=duration_ms,
+                error=str(error) or type(error).__name__,
+            )
+
+        if upload_result is not None:
+            break
+        if attempt < _VK_QR_UPLOAD_ATTEMPTS:
+            await asyncio.sleep(_VK_QR_UPLOAD_RETRY_DELAY_SECONDS)
+
+    if upload_result is None:
+        upload_logger.warning(
+            "VK QR upload exhausted / Исчерпаны попытки upload QR в VK. host={host}, attempts={attempts}.",
+            host=upload_host,
+            attempts=_VK_QR_UPLOAD_ATTEMPTS,
+        )
+        return None
 
     photo_value = upload_result.get("photo")
     server_value = upload_result.get("server")
@@ -214,7 +303,40 @@ async def _upload_vk_png_for_messages(*, ctx_api: Any, peer_id: int, image_bytes
     return _build_vk_photo_attachment(saved_photos[0])
 
 
-async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_numbers: tuple[str, ...]) -> None:
+async def _send_virtual_card_text_fallback(
+    *,
+    ctx_api: Any,
+    peer_id: int,
+    card_number: str,
+    reason: str,
+) -> None:
+    """Отправляет номер карты текстом, если QR-картинку не удалось доставить."""
+
+    try:
+        await ctx_api.messages.send(
+            peer_id=peer_id,
+            random_id=0,
+            message=(
+                "⚠️ QR-код карты временно не удалось отправить.\n"
+                f"Причина: {reason}\n"
+                f"💳 Номер карты: {card_number}"
+            ),
+        )
+    except Exception:  # noqa: BLE001
+        logger.bind(
+            platform="vk",
+            component="router",
+            stage="virtual_card_qr",
+            user_id=str(peer_id),
+        ).exception("Не удалось отправить текстовый fallback номера карты в VK.")
+
+
+async def _send_virtual_card_qr_messages(
+    *,
+    ctx_api: Any,
+    peer_id: int,
+    card_numbers: tuple[str, ...],
+) -> _VirtualCardQrDeliveryResult:
     """Отправляет QR-коды карт в VK перед итоговым текстовым ответом.
 
     Для лучшего UX отправляем картинку и текст отдельными сообщениями:
@@ -223,9 +345,11 @@ async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_num
     """
 
     if not card_numbers:
-        return
+        return _VirtualCardQrDeliveryResult(total=0, sent=0, failed=0)
 
     qr_logger = logger.bind(platform="vk", component="router", stage="virtual_card_qr", user_id=str(peer_id))
+    sent_count = 0
+    failed_count = 0
     for index, card_number in enumerate(card_numbers, start=1):
         try:
             qr_png = generate_qr_png_bytes(card_number)
@@ -236,13 +360,34 @@ async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_num
             )
         except (QrGenerationError, ValueError):
             qr_logger.warning("Не удалось сгенерировать QR для карты #{index}.", index=index)
+            failed_count += 1
+            await _send_virtual_card_text_fallback(
+                ctx_api=ctx_api,
+                peer_id=peer_id,
+                card_number=card_number,
+                reason="ошибка генерации QR",
+            )
             continue
         except Exception:  # noqa: BLE001
             qr_logger.exception("Ошибка отправки QR в VK для карты #{index}.", index=index)
+            failed_count += 1
+            await _send_virtual_card_text_fallback(
+                ctx_api=ctx_api,
+                peer_id=peer_id,
+                card_number=card_number,
+                reason="таймаут или ошибка загрузки изображения",
+            )
             continue
 
         if attachment is None:
             qr_logger.warning("Не удалось загрузить QR в VK для карты #{index}.", index=index)
+            failed_count += 1
+            await _send_virtual_card_text_fallback(
+                ctx_api=ctx_api,
+                peer_id=peer_id,
+                card_number=card_number,
+                reason="VK не принял изображение QR",
+            )
             continue
 
         try:
@@ -257,17 +402,69 @@ async def _send_virtual_card_qr_messages(*, ctx_api: Any, peer_id: int, card_num
                 random_id=0,
                 message=f"💳 Карта: {card_number}",
             )
+            sent_count += 1
         except Exception:  # noqa: BLE001
             qr_logger.exception(
                 "Ошибка отправки раздельного контента QR в VK для карты #{index}. Пробуем fallback-комбинацию.",
                 index=index,
             )
-            await ctx_api.messages.send(
-                peer_id=peer_id,
-                random_id=0,
-                message=f"💳 Карта: {card_number}",
-                attachment=attachment,
-            )
+            try:
+                await ctx_api.messages.send(
+                    peer_id=peer_id,
+                    random_id=0,
+                    message=f"💳 Карта: {card_number}",
+                    attachment=attachment,
+                )
+                sent_count += 1
+            except Exception:  # noqa: BLE001
+                failed_count += 1
+                qr_logger.exception(
+                    "Fallback-отправка QR в VK тоже не удалась для карты #{index}.",
+                    index=index,
+                )
+                await _send_virtual_card_text_fallback(
+                    ctx_api=ctx_api,
+                    peer_id=peer_id,
+                    card_number=card_number,
+                    reason="ошибка отправки сообщения с QR",
+                )
+
+    return _VirtualCardQrDeliveryResult(
+        total=len(card_numbers),
+        sent=sent_count,
+        failed=failed_count,
+    )
+
+
+def _with_virtual_card_delivery_notice(
+    response: VkAdapterResponse,
+    result: _VirtualCardQrDeliveryResult,
+) -> VkAdapterResponse:
+    """Уточняет финальный текст, если VK не принял QR-картинку карты."""
+
+    if result.total == 0 or result.failed == 0:
+        return response
+
+    if result.sent == 0:
+        notice = (
+            "⚠️ QR-код карты временно не удалось отправить. "
+            "Номер карты отправлен отдельным сообщением выше."
+        )
+    else:
+        notice = (
+            "⚠️ Часть QR-кодов карт временно не удалось отправить. "
+            "Номера таких карт отправлены отдельными сообщениями выше."
+        )
+
+    text = response.text
+    inaccurate_phrases = (
+        "🪪 Выше представлены QR-коды ваших карт.",
+        "🪪 Список виртуальных карт и QR-коды отправлены выше.",
+    )
+    for phrase in inaccurate_phrases:
+        if phrase in text:
+            return replace(response, text=text.replace(phrase, notice, 1))
+    return replace(response, text=f"{notice}\n\n{text}")
 
 
 async def _send_coupon_qr_message(*, ctx_api: Any, peer_id: int, response: VkAdapterResponse) -> None:
@@ -615,11 +812,18 @@ async def _send_response(message: Any, response: VkAdapterResponse) -> None:
         ctx_api = getattr(message, "ctx_api", None)
         peer_id = getattr(message, "peer_id", None)
         if ctx_api is not None and peer_id is not None:
-            await _send_virtual_card_qr_messages(
+            delivery_result = await _send_virtual_card_qr_messages(
                 ctx_api=ctx_api,
                 peer_id=int(peer_id),
                 card_numbers=response.virtual_card_numbers,
             )
+        else:
+            delivery_result = _VirtualCardQrDeliveryResult(
+                total=len(response.virtual_card_numbers),
+                sent=0,
+                failed=len(response.virtual_card_numbers),
+            )
+        response = _with_virtual_card_delivery_notice(response, delivery_result)
     if response.coupon_qr_payload:
         ctx_api = getattr(message, "ctx_api", None)
         peer_id = getattr(message, "peer_id", None)
@@ -646,11 +850,18 @@ async def _send_event_response(event: MessageEvent, response: VkAdapterResponse)
     if response.virtual_card_numbers:
         await _try_delete_callback_message(event)
         if ctx_api is not None and peer_id is not None:
-            await _send_virtual_card_qr_messages(
+            delivery_result = await _send_virtual_card_qr_messages(
                 ctx_api=ctx_api,
                 peer_id=int(peer_id),
                 card_numbers=response.virtual_card_numbers,
             )
+        else:
+            delivery_result = _VirtualCardQrDeliveryResult(
+                total=len(response.virtual_card_numbers),
+                sent=0,
+                failed=len(response.virtual_card_numbers),
+            )
+        response = _with_virtual_card_delivery_notice(response, delivery_result)
         keyboard_json = render_vk_keyboard(response.screen)
         parse_mode = response.parse_mode
         if parse_mode is None and response.screen is not None:

@@ -12,7 +12,10 @@ from vtelemax.adapters.vk.router import (
     _is_message_not_modified_error,
     _normalize_vk_message,
     _send_virtual_card_qr_messages,
+    _upload_vk_png_for_messages,
+    _with_virtual_card_delivery_notice,
 )
+from vtelemax.adapters.vk.identity_adapter import VkAdapterResponse
 
 
 def test_is_message_not_modified_error_detects_known_patterns() -> None:
@@ -118,3 +121,131 @@ async def test_send_virtual_card_qr_messages_sends_image_and_text_separately(mon
     assert second_call["peer_id"] == 12345
     assert second_call["message"] == "💳 Карта: 79000000001_20260331"
     assert "attachment" not in second_call
+
+
+@pytest.mark.asyncio
+async def test_send_virtual_card_qr_messages_sends_text_fallback_when_upload_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Проверяет текстовый fallback, если VK upload QR не отвечает."""
+
+    class _FakeMessages:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def send(self, **kwargs: object) -> None:
+            self.calls.append(kwargs)
+
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.messages = _FakeMessages()
+
+    async def _fake_upload_vk_png_for_messages(*, ctx_api, peer_id: int, image_bytes: bytes) -> str:  # noqa: ANN001
+        raise TimeoutError("upload timeout")
+
+    monkeypatch.setattr("vtelemax.adapters.vk.router.generate_qr_png_bytes", lambda _: b"png")
+    monkeypatch.setattr(
+        "vtelemax.adapters.vk.router._upload_vk_png_for_messages",
+        _fake_upload_vk_png_for_messages,
+    )
+
+    fake_api = _FakeApi()
+    result = await _send_virtual_card_qr_messages(
+        ctx_api=fake_api,
+        peer_id=12345,
+        card_numbers=("79000000001_20260331",),
+    )
+
+    assert result.total == 1
+    assert result.sent == 0
+    assert result.failed == 1
+    assert len(fake_api.messages.calls) == 1
+    fallback = fake_api.messages.calls[0]
+    assert fallback["peer_id"] == 12345
+    assert "QR-код карты временно не удалось отправить" in fallback["message"]
+    assert "79000000001_20260331" in fallback["message"]
+
+
+def test_with_virtual_card_delivery_notice_replaces_inaccurate_qr_text() -> None:
+    """Проверяет, что итоговый текст не обещает QR после сбоя upload."""
+
+    response = VkAdapterResponse(
+        text="✅ Регистрация успешно завершена.\n\n🪪 Выше представлены QR-коды ваших карт.",
+    )
+
+    updated = _with_virtual_card_delivery_notice(
+        response,
+        result=type("_Result", (), {"total": 1, "sent": 0, "failed": 1})(),
+    )
+
+    assert "Выше представлены QR-коды" not in updated.text
+    assert "QR-код карты временно не удалось отправить" in updated.text
+
+
+@pytest.mark.asyncio
+async def test_upload_vk_png_retries_after_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проверяет retry upload QR в VK после временного таймаута."""
+
+    attempts: list[str] = []
+    sleeps: list[float] = []
+
+    class _FakeResponse:
+        status = 200
+
+        async def __aenter__(self) -> "_FakeResponse":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def json(self, *, content_type: object = None) -> dict[str, object]:
+            return {"photo": "photo-json", "server": 10, "hash": "hash-value"}
+
+    class _FakeSession:
+        async def __aenter__(self) -> "_FakeSession":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def post(self, upload_url: str, **kwargs: object) -> _FakeResponse:
+            attempts.append(upload_url)
+            if len(attempts) == 1:
+                raise TimeoutError("upload timeout")
+            return _FakeResponse()
+
+    class _FakePhotos:
+        async def get_messages_upload_server(self, *, peer_id: int) -> dict[str, str]:
+            return {"upload_url": "https://upload.vk.example/path?secret=hidden"}
+
+        async def save_messages_photo(
+            self,
+            *,
+            photo: str,
+            server: int,
+            hash: str,
+        ) -> list[dict[str, object]]:
+            assert photo == "photo-json"
+            assert server == 10
+            assert hash == "hash-value"
+            return [{"owner_id": 1, "id": 2, "access_key": "key"}]
+
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.photos = _FakePhotos()
+
+    async def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr("vtelemax.adapters.vk.router.aiohttp.ClientSession", _FakeSession)
+    monkeypatch.setattr("vtelemax.adapters.vk.router.asyncio.sleep", _fake_sleep)
+
+    attachment = await _upload_vk_png_for_messages(
+        ctx_api=_FakeApi(),
+        peer_id=12345,
+        image_bytes=b"png",
+    )
+
+    assert attachment == "photo1_2_key"
+    assert len(attempts) == 2
+    assert sleeps == [0.75]
