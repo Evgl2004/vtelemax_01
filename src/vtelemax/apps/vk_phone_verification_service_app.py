@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
+import time
 from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from aiohttp import web
 from loguru import logger
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.core import normalize_phone
@@ -24,6 +26,10 @@ from vtelemax.settings import AppSettings
 
 _COMPONENT = "vk_phone_verification_service_app"
 _MAX_JSON_BODY_BYTES = 32 * 1024
+_H_REQUEST_ID = "X-Request-Id"
+_SETTINGS_KEY = web.AppKey("settings", AppSettings)
+_SESSION_FACTORY_KEY = web.AppKey("session_factory", sessionmaker[Session])
+_REQUEST_ID_KEY = web.AppKey("request_id", str)
 
 _MINIAPP_HTML = """<!doctype html>
 <html lang="ru">
@@ -236,6 +242,79 @@ def _json_response_error(*, status: int, message: str) -> web.Response:
     return web.json_response({"status": "error", "message": message}, status=status)
 
 
+def _resolve_request_id(request: web.Request) -> str:
+    """Возвращает request_id из заголовка или генерирует новый для трассировки."""
+
+    raw_request_id = str(request.headers.get(_H_REQUEST_ID) or "").strip()
+    if raw_request_id:
+        return raw_request_id[:128]
+    return uuid4().hex
+
+
+def _resolve_caller_ip(request: web.Request) -> str:
+    """Определяет IP вызывающей стороны без доверия пользовательскому payload."""
+
+    x_real_ip = str(request.headers.get("X-Real-IP") or "").strip()
+    if x_real_ip:
+        return x_real_ip
+    return str(request.remote or "-")
+
+
+def _get_request_id(request: web.Request) -> str:
+    """Безопасно возвращает request_id текущего запроса для бизнес-логов."""
+
+    return str(request.get(_REQUEST_ID_KEY, "-"))
+
+
+@web.middleware
+async def _request_audit_middleware(
+    request: web.Request,
+    handler: Any,
+) -> web.StreamResponse:
+    """Логирует входящий Mini App HTTP-запрос и пробрасывает `X-Request-Id` в ответ.
+
+    Middleware не читает тело запроса и не логирует query string: обработчики сами парсят JSON,
+    а в логах не должны появляться телефон, подписи ссылок или другие чувствительные поля.
+    """
+
+    request_id = _resolve_request_id(request)
+    request[_REQUEST_ID_KEY] = request_id
+    started_at = time.perf_counter()
+    status = 500
+
+    try:
+        response = await handler(request)
+        status = response.status
+        response.headers[_H_REQUEST_ID] = request_id
+        return response
+    except web.HTTPException as error:
+        status = error.status
+        error.headers[_H_REQUEST_ID] = request_id
+        raise
+    except Exception:
+        logger.bind(component=_COMPONENT, stage="http_audit").exception(
+            "Mini App запрос завершился исключением. request_id={request_id}, method={method}, path={path}.",
+            request_id=request_id,
+            method=request.method,
+            path=request.path,
+        )
+        raise
+    finally:
+        latency_ms = (time.perf_counter() - started_at) * 1000
+        level = "WARNING" if status >= 500 else "INFO"
+        logger.bind(component=_COMPONENT, stage="http_audit").log(
+            level,
+            "Mini App запрос обработан. request_id={request_id}, caller_ip={caller_ip}, "
+            "method={method}, path={path}, status={status}, latency_ms={latency_ms:.2f}.",
+            request_id=request_id,
+            caller_ip=_resolve_caller_ip(request),
+            method=request.method,
+            path=request.path,
+            status=status,
+            latency_ms=latency_ms,
+        )
+
+
 def _parse_positive_int(data: dict[str, Any], key: str) -> int:
     """Читает обязательное целое положительное поле."""
 
@@ -282,6 +361,51 @@ async def _health_handler(request: web.Request) -> web.Response:
     return _json_response_ok({"status": "ok", "service": "vk-phone-verification"})
 
 
+async def _readiness_handler(request: web.Request) -> web.Response:
+    """Readiness endpoint: проверяет конфигурацию сервиса и доступность PostgreSQL."""
+
+    settings: AppSettings = request.app[_SETTINGS_KEY]
+    session_factory: sessionmaker[Session] = request.app[_SESSION_FACTORY_KEY]
+    checks: dict[str, str] = {
+        "service_enabled": (
+            "ok" if settings.vk_phone_verification_service_enabled else "disabled"
+        ),
+        "link_secret": "ok" if settings.vk_phone_verification_link_secret.strip() else "missing",
+        "api_token": "ok" if settings.vk_phone_verification_api_token.strip() else "missing",
+        "database": "unknown",
+    }
+
+    try:
+        with session_factory() as db_session:
+            db_session.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as error:  # noqa: BLE001
+        checks["database"] = "error"
+        logger.bind(component=_COMPONENT, stage="readiness").warning(
+            "Readiness Mini App сервиса не прошел проверку БД. request_id={request_id}, error={error}.",
+            request_id=_get_request_id(request),
+            error=str(error) or type(error).__name__,
+        )
+
+    is_ready = all(value == "ok" for value in checks.values())
+    status_code = 200 if is_ready else 503
+    if not is_ready:
+        logger.bind(component=_COMPONENT, stage="readiness").warning(
+            "Readiness Mini App сервиса вернул not_ready. request_id={request_id}, checks={checks}.",
+            request_id=_get_request_id(request),
+            checks=checks,
+        )
+
+    return web.json_response(
+        {
+            "status": "ok" if is_ready else "not_ready",
+            "service": "vk-phone-verification",
+            "checks": checks,
+        },
+        status=status_code,
+    )
+
+
 async def _miniapp_page_handler(request: web.Request) -> web.Response:
     """Возвращает HTML Mini App страницы подтверждения телефона."""
 
@@ -291,23 +415,39 @@ async def _miniapp_page_handler(request: web.Request) -> web.Response:
 async def _session_start_handler(request: web.Request) -> web.Response:
     """Стартует или возвращает активную сессию подтверждения телефона."""
 
-    settings: AppSettings = request.app["settings"]
-    session_factory: sessionmaker[Session] = request.app["session_factory"]
+    settings: AppSettings = request.app[_SETTINGS_KEY]
+    session_factory: sessionmaker[Session] = request.app[_SESSION_FACTORY_KEY]
 
     try:
         payload = await request.json()
     except Exception:  # noqa: BLE001
+        logger.bind(component=_COMPONENT, stage="miniapp_session_start").warning(
+            "Старт сессии Mini App отклонен: некорректный JSON. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=400, message="Некорректный JSON.")
     if not isinstance(payload, dict):
+        logger.bind(component=_COMPONENT, stage="miniapp_session_start").warning(
+            "Старт сессии Mini App отклонен: JSON payload не объект. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=400, message="JSON payload должен быть объектом.")
 
     try:
         vk_user_id = _parse_positive_int(payload, "vk_user_id")
         uid, ts, sig = _extract_signed_context(payload)
     except (TypeError, ValueError):
+        logger.bind(component=_COMPONENT, stage="miniapp_session_start").warning(
+            "Старт сессии Mini App отклонен: некорректные параметры. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=400, message="Некорректные параметры vk_user_id/uid/ts/sig.")
 
     if uid != vk_user_id:
+        logger.bind(component=_COMPONENT, stage="miniapp_session_start", user_id=str(vk_user_id)).warning(
+            "Старт сессии Mini App отклонен: uid не совпадает с vk_user_id. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=403, message="Подписанный uid не совпадает с vk_user_id.")
 
     is_valid_signature = verify_vk_phone_verification_signature(
@@ -318,6 +458,10 @@ async def _session_start_handler(request: web.Request) -> web.Response:
         max_age_seconds=settings.vk_phone_verification_link_ttl_seconds,
     )
     if not is_valid_signature:
+        logger.bind(component=_COMPONENT, stage="miniapp_session_start", user_id=str(vk_user_id)).warning(
+            "Старт сессии Mini App отклонен: подпись ссылки недействительна или истекла. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=403, message="Подпись ссылки недействительна или истекла.")
 
     now_utc = datetime.now(timezone.utc)
@@ -334,6 +478,12 @@ async def _session_start_handler(request: web.Request) -> web.Response:
         )
         db_session.commit()
 
+    logger.bind(component=_COMPONENT, stage="miniapp_session_start", user_id=str(vk_user_id)).info(
+        "Сессия Mini App готова. request_id={request_id}, session_id={session_id}, status={status}.",
+        request_id=_get_request_id(request),
+        session_id=str(session.session_id),
+        status=session.status,
+    )
     return _json_response_ok(
         {
             "status": "created",
@@ -346,14 +496,22 @@ async def _session_start_handler(request: web.Request) -> web.Response:
 async def _session_phone_handler(request: web.Request) -> web.Response:
     """Принимает номер телефона из Mini App и завершает сессию подтверждения."""
 
-    settings: AppSettings = request.app["settings"]
-    session_factory: sessionmaker[Session] = request.app["session_factory"]
+    settings: AppSettings = request.app[_SETTINGS_KEY]
+    session_factory: sessionmaker[Session] = request.app[_SESSION_FACTORY_KEY]
 
     try:
         payload = await request.json()
     except Exception:  # noqa: BLE001
+        logger.bind(component=_COMPONENT, stage="miniapp_phone_submit").warning(
+            "Прием телефона Mini App отклонен: некорректный JSON. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=400, message="Некорректный JSON.")
     if not isinstance(payload, dict):
+        logger.bind(component=_COMPONENT, stage="miniapp_phone_submit").warning(
+            "Прием телефона Mini App отклонен: JSON payload не объект. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=400, message="JSON payload должен быть объектом.")
 
     try:
@@ -364,12 +522,21 @@ async def _session_phone_handler(request: web.Request) -> web.Response:
         if not phone_raw:
             raise ValueError("phone is empty")
     except (TypeError, ValueError):
+        logger.bind(component=_COMPONENT, stage="miniapp_phone_submit").warning(
+            "Прием телефона Mini App отклонен: некорректные параметры. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(
             status=400,
             message="Некорректные параметры session_id/vk_user_id/uid/ts/sig/phone.",
         )
 
     if uid != vk_user_id:
+        logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).warning(
+            "Прием телефона Mini App отклонен: uid не совпадает с vk_user_id. request_id={request_id}, session_id={session_id}.",
+            request_id=_get_request_id(request),
+            session_id=str(session_id),
+        )
         return _json_response_error(status=403, message="Подписанный uid не совпадает с vk_user_id.")
 
     is_valid_signature = verify_vk_phone_verification_signature(
@@ -380,11 +547,21 @@ async def _session_phone_handler(request: web.Request) -> web.Response:
         max_age_seconds=settings.vk_phone_verification_link_ttl_seconds,
     )
     if not is_valid_signature:
+        logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).warning(
+            "Прием телефона Mini App отклонен: подпись ссылки недействительна или истекла. request_id={request_id}, session_id={session_id}.",
+            request_id=_get_request_id(request),
+            session_id=str(session_id),
+        )
         return _json_response_error(status=403, message="Подпись ссылки недействительна или истекла.")
 
     try:
         phone_e164 = normalize_phone(phone_raw)
     except ValueError:
+        logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).warning(
+            "Прием телефона Mini App отклонен: номер не нормализован. request_id={request_id}, session_id={session_id}.",
+            request_id=_get_request_id(request),
+            session_id=str(session_id),
+        )
         return _json_response_error(status=400, message="Не удалось нормализовать номер телефона.")
 
     now_utc = datetime.now(timezone.utc)
@@ -393,16 +570,36 @@ async def _session_phone_handler(request: web.Request) -> web.Response:
         repository.expire_outdated_created_sessions(now_utc=now_utc)
         row = repository.get_session_by_id_for_update(session_id=session_id)
         if row is None:
+            logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).warning(
+                "Прием телефона Mini App отклонен: сессия не найдена. request_id={request_id}, session_id={session_id}.",
+                request_id=_get_request_id(request),
+                session_id=str(session_id),
+            )
             return _json_response_error(status=404, message="Сессия не найдена.")
         if row.vk_user_id != vk_user_id:
+            logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).warning(
+                "Прием телефона Mini App отклонен: сессия принадлежит другому VK пользователю. request_id={request_id}, session_id={session_id}.",
+                request_id=_get_request_id(request),
+                session_id=str(session_id),
+            )
             return _json_response_error(status=403, message="Сессия принадлежит другому VK пользователю.")
 
         session_snapshot = repository.mark_expired_if_needed(row=row, now_utc=now_utc)
         if session_snapshot.status == "expired":
             db_session.commit()
+            logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).info(
+                "Сессия Mini App истекла до приема телефона. request_id={request_id}, session_id={session_id}.",
+                request_id=_get_request_id(request),
+                session_id=str(session_id),
+            )
             return _json_response_error(status=410, message="Сессия истекла. Вернитесь в бот и начните снова.")
         if session_snapshot.status == "verified" and session_snapshot.phone_e164:
             db_session.commit()
+            logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).info(
+                "Сессия Mini App уже была подтверждена ранее. request_id={request_id}, session_id={session_id}.",
+                request_id=_get_request_id(request),
+                session_id=str(session_snapshot.session_id),
+            )
             return _json_response_ok(
                 {
                     "status": "verified",
@@ -419,6 +616,11 @@ async def _session_phone_handler(request: web.Request) -> web.Response:
         )
         db_session.commit()
 
+    logger.bind(component=_COMPONENT, stage="miniapp_phone_submit", user_id=str(vk_user_id)).info(
+        "Телефон Mini App подтвержден. request_id={request_id}, session_id={session_id}.",
+        request_id=_get_request_id(request),
+        session_id=str(verified_session.session_id),
+    )
     return _json_response_ok(
         {
             "status": "verified",
@@ -431,12 +633,16 @@ async def _session_phone_handler(request: web.Request) -> web.Response:
 async def _session_status_handler(request: web.Request) -> web.Response:
     """Отдает статус подтверждения телефона для polling со стороны VK-бота."""
 
-    settings: AppSettings = request.app["settings"]
-    session_factory: sessionmaker[Session] = request.app["session_factory"]
+    settings: AppSettings = request.app[_SETTINGS_KEY]
+    session_factory: sessionmaker[Session] = request.app[_SESSION_FACTORY_KEY]
 
     provided_token = _extract_bearer_token(request)
     expected_token = settings.vk_phone_verification_api_token.strip()
     if not expected_token or provided_token != expected_token:
+        logger.bind(component=_COMPONENT, stage="miniapp_status_check").warning(
+            "Проверка статуса Mini App отклонена по токену. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=401, message="unauthorized")
 
     raw_vk_user_id = str(request.query.get("vk_user_id") or "").strip()
@@ -445,6 +651,10 @@ async def _session_status_handler(request: web.Request) -> web.Response:
         if vk_user_id <= 0:
             raise ValueError
     except ValueError:
+        logger.bind(component=_COMPONENT, stage="miniapp_status_check").warning(
+            "Проверка статуса Mini App отклонена: некорректный vk_user_id. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_error(status=400, message="Некорректный vk_user_id.")
 
     now_utc = datetime.now(timezone.utc)
@@ -455,8 +665,17 @@ async def _session_status_handler(request: web.Request) -> web.Response:
         db_session.commit()
 
     if session is None:
+        logger.bind(component=_COMPONENT, stage="miniapp_status_check", user_id=str(vk_user_id)).info(
+            "Статус Mini App для VK пользователя: not_found. request_id={request_id}.",
+            request_id=_get_request_id(request),
+        )
         return _json_response_ok({"status": "not_found"})
     if session.status == "verified" and session.phone_e164:
+        logger.bind(component=_COMPONENT, stage="miniapp_status_check", user_id=str(vk_user_id)).info(
+            "Статус Mini App для VK пользователя: verified. request_id={request_id}, session_id={session_id}.",
+            request_id=_get_request_id(request),
+            session_id=str(session.session_id),
+        )
         return _json_response_ok(
             {
                 "status": "verified",
@@ -464,6 +683,11 @@ async def _session_status_handler(request: web.Request) -> web.Response:
             }
         )
     if session.status == "failed":
+        logger.bind(component=_COMPONENT, stage="miniapp_status_check", user_id=str(vk_user_id)).info(
+            "Статус Mini App для VK пользователя: failed. request_id={request_id}, session_id={session_id}.",
+            request_id=_get_request_id(request),
+            session_id=str(session.session_id),
+        )
         return _json_response_ok(
             {
                 "status": "failed",
@@ -471,7 +695,18 @@ async def _session_status_handler(request: web.Request) -> web.Response:
             }
         )
     if session.status == "created":
+        logger.bind(component=_COMPONENT, stage="miniapp_status_check", user_id=str(vk_user_id)).info(
+            "Статус Mini App для VK пользователя: pending. request_id={request_id}, session_id={session_id}.",
+            request_id=_get_request_id(request),
+            session_id=str(session.session_id),
+        )
         return _json_response_ok({"status": "pending"})
+    logger.bind(component=_COMPONENT, stage="miniapp_status_check", user_id=str(vk_user_id)).info(
+        "Статус Mini App для VK пользователя: not_found из терминального статуса. request_id={request_id}, session_id={session_id}, source_status={source_status}.",
+        request_id=_get_request_id(request),
+        session_id=str(session.session_id),
+        source_status=session.status,
+    )
     return _json_response_ok({"status": "not_found"})
 
 
@@ -482,10 +717,14 @@ def build_web_app(
 ) -> web.Application:
     """Собирает aiohttp web-приложение VK Mini App verification сервиса."""
 
-    app = web.Application(client_max_size=_MAX_JSON_BODY_BYTES)
-    app["settings"] = settings
-    app["session_factory"] = session_factory
+    app = web.Application(
+        client_max_size=_MAX_JSON_BODY_BYTES,
+        middlewares=[_request_audit_middleware],
+    )
+    app[_SETTINGS_KEY] = settings
+    app[_SESSION_FACTORY_KEY] = session_factory
     app.router.add_get("/health", _health_handler)
+    app.router.add_get("/ready", _readiness_handler)
     app.router.add_get("/vk/miniapp", _miniapp_page_handler)
     app.router.add_get("/api/v1/vk/miniapp/session/status", _session_status_handler)
     app.router.add_post("/api/v1/vk/miniapp/session/start", _session_start_handler)
