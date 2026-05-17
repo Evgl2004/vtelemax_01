@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import re
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -25,8 +26,6 @@ from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 from .identity_adapter import MaxAdapterResponse, MaxIdentityAdapter
 from .keyboard_renderer import render_max_keyboard
 from .menu_adapter import (
-    COUPON_SCOPE_PREFIX,
-    COUPON_SHOW_PREFIX,
     MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
     MaxGuestMenuAdapter,
@@ -38,6 +37,25 @@ _GUEST_MESSAGE_CLOSE_PAYLOAD = "guest_msg_close"
 
 _VCF_PHONE_PATTERN = re.compile(r"TEL[^:]*:([^\r\n]+)", flags=re.IGNORECASE)
 _PHONE_SANITIZE_PATTERN = re.compile(r"[^0-9+]")
+_MAX_CONTACT_RAW_UPDATE_ATTR = "_vtelemax_raw_update"
+_MAX_CONTACT_HASH_FIELD_NAMES = (
+    "hash",
+    "contact_hash",
+    "contactHash",
+    "vcf_hash",
+    "vcfHash",
+    "signature",
+    "sign",
+)
+_MAX_CONTACT_HASH_COUNTER_NAMES = (
+    "hash_missing_total",
+    "hash_present_total",
+    "hash_verified_true_total",
+    "hash_verified_false_total",
+    "owner_match_true_total",
+    "owner_match_false_total",
+)
+_MAXAPI_RAW_UPDATE_PATCHED = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +67,98 @@ class _MaxContactAttachmentData:
     contact_hash: str | None
     max_user_id: int | None
     phone_source: str | None = None
+    contact_hash_source: str | None = None
+    contact_hash_present_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _MaxContactHashLookup:
+    """Результат поиска hash в contact payload по известным путям."""
+
+    value: str | None
+    source: str | None
+    present_paths: tuple[str, ...]
+
+
+def _attach_raw_max_update(event_model: Any, raw_event: dict[str, Any]) -> None:
+    """Прикрепляет сырой MAX update к pydantic-модели без изменения SDK-классов.
+
+    В `maxapi==0.9.16` модель contact-вложения не содержит поле `payload.hash`.
+    Поэтому мы сохраняем исходный JSON рядом с разобранным событием и читаем hash
+    из него уже в нашем адаптере. Это локальная, обратимая прослойка: она не меняет
+    сетевые вызовы SDK и не влияет на обработку событий других типов.
+    """
+
+    try:
+        object.__setattr__(event_model, _MAX_CONTACT_RAW_UPDATE_ATTR, raw_event)
+    except Exception:  # noqa: BLE001
+        # Диагностика не должна ломать polling, если SDK изменит внутреннюю модель.
+        return
+
+
+def _patch_maxapi_raw_update_preservation() -> bool:
+    """Включает сохранение сырого MAX update до pydantic-нормализации SDK.
+
+    MAX присылает `attachments[].payload.hash` только для контакта, отправленного
+    через `request_contact`. Текущая версия `maxapi` описывает contact payload без
+    этого поля, из-за чего hash теряется при разборе. Патч заменяет только функцию
+    преобразования updates внутри runtime-модуля SDK и добавляет к готовой модели
+    приватный атрибут с исходным JSON.
+    """
+
+    global _MAXAPI_RAW_UPDATE_PATCHED
+    if _MAXAPI_RAW_UPDATE_PATCHED:
+        return True
+
+    try:
+        import logging
+
+        import maxapi.dispatcher as maxapi_dispatcher
+        from maxapi.methods.types import getted_updates
+        from maxapi.types.updates import UNKNOWN_UPDATE_DISCLAIMER
+    except Exception:  # noqa: BLE001
+        return False
+
+    current_processor = getattr(maxapi_dispatcher, "process_update_request", None)
+    if getattr(current_processor, "_vtelemax_preserves_raw_update", False):
+        _MAXAPI_RAW_UPDATE_PATCHED = True
+        return True
+
+    sdk_logger = logging.getLogger("maxapi.methods.types.getted_updates")
+
+    async def _process_update_request_with_raw(
+        events: dict[str, Any],
+        bot: Any,
+    ) -> list[Any]:
+        """Повторяет SDK-парсинг polling updates и сохраняет raw event."""
+
+        event_models: list[Any] = []
+        for raw_event in events["updates"]:
+            event_model = await getted_updates.get_update_model(raw_event, bot)
+            if event_model is None:
+                update_type = raw_event["update_type"]
+                sdk_logger.warning(UNKNOWN_UPDATE_DISCLAIMER.format(update_type=update_type))
+                continue
+            _attach_raw_max_update(event_model, raw_event)
+            event_models.append(event_model)
+        return event_models
+
+    async def _process_update_webhook_with_raw(event_json: dict[str, Any], bot: Any) -> Any | None:
+        """Повторяет SDK-парсинг webhook update и сохраняет raw event."""
+
+        event_model = await getted_updates.get_update_model(bot=bot, event=event_json)
+        if event_model is not None:
+            _attach_raw_max_update(event_model, event_json)
+        return event_model
+
+    setattr(_process_update_request_with_raw, "_vtelemax_preserves_raw_update", True)
+    setattr(_process_update_webhook_with_raw, "_vtelemax_preserves_raw_update", True)
+    maxapi_dispatcher.process_update_request = _process_update_request_with_raw
+    maxapi_dispatcher.process_update_webhook = _process_update_webhook_with_raw
+    getted_updates.process_update_request = _process_update_request_with_raw
+    getted_updates.process_update_webhook = _process_update_webhook_with_raw
+    _MAXAPI_RAW_UPDATE_PATCHED = True
+    return True
 
 
 def _is_message_not_modified_error(error: Exception) -> bool:
@@ -304,9 +414,41 @@ def register_max_guest_handlers(
     """Регистрирует обработчики MAX-бота на переданном `router`."""
 
     router_logger = logger.bind(platform="max", component="router")
+    raw_patch_enabled = _patch_maxapi_raw_update_preservation()
+    router_logger.debug(
+        "MAX raw update preservation patch status. enabled={enabled}.",
+        enabled=raw_patch_enabled,
+    )
     shared_delivery_lock = delivery_lock or asyncio.Lock()
     support_prompt_message_id_by_user_id: dict[int, str | int] = {}
     moderation_reply_prompt_message_id_by_user_id: dict[int, str | int] = {}
+    contact_verification_counters: OrderedDict[str, int] = OrderedDict(
+        (name, 0) for name in _MAX_CONTACT_HASH_COUNTER_NAMES
+    )
+
+    def _record_contact_verification_counters(
+        *,
+        contact_data: _MaxContactAttachmentData | None,
+        hash_value_present: bool,
+        hash_verified: bool | None,
+        owner_match: bool | None,
+    ) -> None:
+        """Обновляет process-local счётчики проверки MAX-контактов."""
+
+        if contact_data is None:
+            return
+        if hash_value_present:
+            contact_verification_counters["hash_present_total"] += 1
+        else:
+            contact_verification_counters["hash_missing_total"] += 1
+        if hash_verified is True:
+            contact_verification_counters["hash_verified_true_total"] += 1
+        elif hash_verified is False:
+            contact_verification_counters["hash_verified_false_total"] += 1
+        if owner_match is True:
+            contact_verification_counters["owner_match_true_total"] += 1
+        elif owner_match is False:
+            contact_verification_counters["owner_match_false_total"] += 1
 
     def _remember_support_prompt(*, max_user_id: int, message_id: str | int | None) -> None:
         """Запоминает id технического экрана ввода вопроса."""
@@ -437,6 +579,22 @@ def register_max_guest_handlers(
                         sender_id=user_id,
                     )
                     contact_phone = None
+        _record_contact_verification_counters(
+            contact_data=contact_data,
+            hash_value_present=contact_hash_value_present,
+            hash_verified=contact_hash_verified,
+            owner_match=contact_owner_matches_sender,
+        )
+        if contact_data is not None:
+            event_logger.info(
+                "MAX contact verification counters / Метрики проверки MAX contact. "
+                "hash_missing_total={hash_missing_total}, hash_present_total={hash_present_total}, "
+                "hash_verified_true_total={hash_verified_true_total}, "
+                "hash_verified_false_total={hash_verified_false_total}, "
+                "owner_match_true_total={owner_match_true_total}, "
+                "owner_match_false_total={owner_match_false_total}.",
+                **contact_verification_counters,
+            )
         event_logger.debug(
             "Получено сообщение от пользователя. text={text}, contact={contact}, hash_present={hash_present}, hash_verified={hash_verified}, owner_match={owner_match}, strict_reject_reason={strict_reject_reason}.",
             text=text,
@@ -447,10 +605,16 @@ def register_max_guest_handlers(
             strict_reject_reason=strict_reject_reason,
         )
         event_logger.debug(
-            "MAX contact payload debug. phone_source={phone_source}, vcf_present={vcf_present}, hash_value_present={hash_value_present}, owner_id_present={owner_id_present}, vcf_length={vcf_length}, hash_length={hash_length}.",
+            "MAX contact payload debug. phone_source={phone_source}, vcf_present={vcf_present}, hash_value_present={hash_value_present}, hash_source={hash_source}, hash_paths={hash_paths}, owner_id_present={owner_id_present}, vcf_length={vcf_length}, hash_length={hash_length}.",
             phone_source=(contact_data.phone_source if contact_data is not None else None),
             vcf_present=contact_vcf_present,
             hash_value_present=contact_hash_value_present,
+            hash_source=(
+                contact_data.contact_hash_source if contact_data is not None else None
+            ),
+            hash_paths=(
+                contact_data.contact_hash_present_paths if contact_data is not None else ()
+            ),
             owner_id_present=contact_owner_id_present,
             vcf_length=(
                 len(contact_data.vcf_info or "")
@@ -462,6 +626,10 @@ def register_max_guest_handlers(
                 if contact_data is not None and contact_data.contact_hash is not None
                 else 0
             ),
+        )
+        event_logger.debug(
+            "MAX contact payload structure debug / Структура contact payload. snapshot={snapshot}.",
+            snapshot=_build_max_contact_payload_debug_snapshot(event, contact_data),
         )
 
         if lowered in _START_COMMANDS:
@@ -775,7 +943,200 @@ def _read_object_field(obj: Any, field_name: str) -> Any:
         return None
     if isinstance(obj, dict):
         return obj.get(field_name)
-    return getattr(obj, field_name, None)
+    value = getattr(obj, field_name, None)
+    if value is not None:
+        return value
+    model_extra = getattr(obj, "model_extra", None)
+    if isinstance(model_extra, dict):
+        return model_extra.get(field_name)
+    return None
+
+
+def _get_raw_max_update(event: Any) -> dict[str, Any] | None:
+    """Возвращает сырой MAX update, если он был сохранён до SDK-нормализации."""
+
+    raw_update = getattr(event, _MAX_CONTACT_RAW_UPDATE_ATTR, None)
+    return raw_update if isinstance(raw_update, dict) else None
+
+
+def _extract_raw_contact_payloads(event: Any) -> tuple[Any, ...]:
+    """Извлекает raw `attachments[].payload` для contact-вложений из исходного JSON."""
+
+    raw_update = _get_raw_max_update(event)
+    if raw_update is None:
+        return ()
+    raw_message = _read_object_field(raw_update, "message")
+    raw_body = _read_object_field(raw_message, "body")
+    raw_attachments = _read_object_field(raw_body, "attachments")
+    if not isinstance(raw_attachments, list):
+        return ()
+
+    payloads: list[Any] = []
+    for raw_attachment in raw_attachments:
+        if _read_object_field(raw_attachment, "type") != "contact":
+            continue
+        payload = _read_object_field(raw_attachment, "payload")
+        if payload is not None:
+            payloads.append(payload)
+    return tuple(payloads)
+
+
+def _lookup_max_contact_hash(payload: Any, *, base_path: str) -> _MaxContactHashLookup:
+    """Ищет hash контакта по официальному и legacy-набору имён полей."""
+
+    present_paths: list[str] = []
+    selected_value: str | None = None
+    selected_source: str | None = None
+    for field_name in _MAX_CONTACT_HASH_FIELD_NAMES:
+        value = _read_object_field(payload, field_name)
+        path = f"{base_path}.{field_name}"
+        if value is None or not str(value).strip():
+            continue
+        present_paths.append(path)
+        if selected_value is None:
+            selected_value = str(value)
+            selected_source = path
+    return _MaxContactHashLookup(
+        value=selected_value,
+        source=selected_source,
+        present_paths=tuple(present_paths),
+    )
+
+
+def _build_max_contact_hash_field_presence(payload: Any, *, base_path: str) -> dict[str, bool]:
+    """Строит DEBUG-карту наличия каждого ожидаемого hash-поля."""
+
+    return {
+        f"{base_path}.{field_name}": bool(_read_object_field(payload, field_name))
+        for field_name in _MAX_CONTACT_HASH_FIELD_NAMES
+    }
+
+
+def _debug_object_field_names(obj: Any) -> tuple[str, ...]:
+    """Возвращает имена полей объекта без значений, чтобы безопасно видеть структуру."""
+
+    if obj is None:
+        return ()
+    if isinstance(obj, dict):
+        return tuple(sorted(str(key) for key in obj.keys()))
+
+    names: set[str] = set()
+    model_fields = getattr(obj, "model_fields", None)
+    if isinstance(model_fields, dict):
+        names.update(str(key) for key in model_fields.keys())
+    model_extra = getattr(obj, "model_extra", None)
+    if isinstance(model_extra, dict):
+        names.update(str(key) for key in model_extra.keys())
+    object_dict = getattr(obj, "__dict__", None)
+    if isinstance(object_dict, dict):
+        names.update(str(key) for key in object_dict.keys() if not str(key).startswith("_"))
+    return tuple(sorted(names))
+
+
+def _mask_phone_for_log(value: Any) -> str | None:
+    """Маскирует телефон для логов, оставляя только последние четыре цифры."""
+
+    if value is None:
+        return None
+    digits = re.sub(r"\D", "", str(value))
+    if not digits:
+        return None
+    if len(digits) <= 4:
+        return "***"
+    return f"***{digits[-4:]}"
+
+
+def _build_vcf_debug_summary(vcf_info: Any) -> dict[str, object]:
+    """Возвращает безопасную сводку по VCF без вывода полной визитки."""
+
+    if vcf_info is None:
+        return {"present": False, "length": 0, "tel_masked": None}
+    vcf_text = str(vcf_info)
+    return {
+        "present": True,
+        "length": len(vcf_text),
+        "tel_masked": _mask_phone_for_log(_extract_phone_from_vcf(vcf_text)),
+    }
+
+
+def _build_max_contact_payload_debug_snapshot(
+    event: Any,
+    contact_data: _MaxContactAttachmentData | None,
+) -> dict[str, object]:
+    """Формирует безопасный DEBUG-снимок структуры contact payload.
+
+    Снимок нужен для прод-аудита: он показывает, какие поля дошли после SDK,
+    какие были в raw update, и где именно найден hash. PII не логируется:
+    телефоны маскируются, `vcf_info` сворачивается до длины и TEL-маски.
+    """
+
+    body = _read_object_field(_read_object_field(event, "message"), "body")
+    body_contact = _read_object_field(body, "contact")
+    body_attachments = _read_object_field(body, "attachments")
+    raw_payloads = _extract_raw_contact_payloads(event)
+
+    attachments_summary: list[dict[str, object]] = []
+    contact_index = 0
+    if isinstance(body_attachments, list):
+        for attachment in body_attachments:
+            attachment_type = _read_object_field(attachment, "type")
+            if attachment_type != "contact":
+                continue
+            payload = _read_object_field(attachment, "payload")
+            raw_payload = raw_payloads[contact_index] if contact_index < len(raw_payloads) else None
+            contact_index += 1
+            max_info = _read_object_field(payload, "max_info")
+            raw_max_info = _read_object_field(raw_payload, "max_info")
+            attachments_summary.append(
+                {
+                    "type": attachment_type,
+                    "payload_fields": _debug_object_field_names(payload),
+                    "raw_payload_fields": _debug_object_field_names(raw_payload),
+                    "phone_number_masked": _mask_phone_for_log(
+                        _read_object_field(payload, "phone_number")
+                    ),
+                    "vcf_info": _build_vcf_debug_summary(
+                        _read_object_field(payload, "vcf_info")
+                    ),
+                    "hash_field_presence": _build_max_contact_hash_field_presence(
+                        payload,
+                        base_path="payload",
+                    ),
+                    "raw_hash_field_presence": _build_max_contact_hash_field_presence(
+                        raw_payload,
+                        base_path="raw.payload",
+                    ),
+                    "max_info_user_id_present": _read_object_field(max_info, "user_id")
+                    is not None,
+                    "raw_max_info_user_id_present": _read_object_field(raw_max_info, "user_id")
+                    is not None,
+                }
+            )
+
+    return {
+        "body_contact": {
+            "present": body_contact is not None,
+            "fields": _debug_object_field_names(body_contact),
+            "phone_number_masked": _mask_phone_for_log(
+                _read_object_field(body_contact, "phone_number")
+            ),
+        },
+        "contact_attachments": attachments_summary,
+        "extracted": {
+            "phone_source": contact_data.phone_source if contact_data is not None else None,
+            "phone_number_masked": _mask_phone_for_log(
+                contact_data.phone_number if contact_data is not None else None
+            ),
+            "hash_source": contact_data.contact_hash_source if contact_data is not None else None,
+            "hash_present_paths": (
+                contact_data.contact_hash_present_paths if contact_data is not None else ()
+            ),
+            "owner_id_present": (
+                contact_data.max_user_id is not None if contact_data is not None else False
+            ),
+        },
+        "raw_update_attached": _get_raw_max_update(event) is not None,
+    }
 
 
 def _extract_max_info_user_id(max_info: Any) -> int | None:
@@ -805,24 +1166,41 @@ def _extract_contact_attachment_details(event: Any) -> _MaxContactAttachmentData
         if phone is not None:
             body_phone = str(phone)
 
+    raw_contact_payloads = _extract_raw_contact_payloads(event)
     if (
         hasattr(event, "message")
         and hasattr(event.message, "body")
         and hasattr(event.message.body, "attachments")
         and event.message.body.attachments is not None
     ):
+        contact_index = 0
         for attachment in event.message.body.attachments:
             if _read_object_field(attachment, "type") != "contact":
                 continue
             payload = _read_object_field(attachment, "payload")
             if payload is None:
                 continue
+            raw_payload = (
+                raw_contact_payloads[contact_index]
+                if contact_index < len(raw_contact_payloads)
+                else None
+            )
+            contact_index += 1
 
             payload_phone = _read_object_field(payload, "phone_number")
             payload_vcf_info = _read_object_field(payload, "vcf_info")
-            payload_hash = _read_object_field(payload, "hash")
             payload_max_info = _read_object_field(payload, "max_info")
+            raw_max_info = _read_object_field(raw_payload, "max_info")
             payload_max_user_id = _extract_max_info_user_id(payload_max_info)
+            if payload_max_user_id is None:
+                payload_max_user_id = _extract_max_info_user_id(raw_max_info)
+            parsed_hash_lookup = _lookup_max_contact_hash(payload, base_path="payload")
+            raw_hash_lookup = _lookup_max_contact_hash(raw_payload, base_path="raw.payload")
+            payload_hash = parsed_hash_lookup.value or raw_hash_lookup.value
+            payload_hash_source = parsed_hash_lookup.source or raw_hash_lookup.source
+            payload_hash_present_paths = (
+                parsed_hash_lookup.present_paths + raw_hash_lookup.present_paths
+            )
 
             phone: str | None = None
             if payload_phone is not None:
@@ -849,6 +1227,8 @@ def _extract_contact_attachment_details(event: Any) -> _MaxContactAttachmentData
                     if payload_vcf_info is not None
                     else "body.contact+payload.meta"
                 ),
+                contact_hash_source=payload_hash_source,
+                contact_hash_present_paths=payload_hash_present_paths,
             )
 
     if body_phone is not None:

@@ -18,7 +18,58 @@ from vtelemax.adapters.max.router import (
     _is_message_not_modified_error,
     _send_response,
     _verify_max_contact_hash,
+    register_max_guest_handlers,
 )
+
+
+class _RouterStub:
+    """Минимальный router для проверки зарегистрированного MAX handler."""
+
+    def __init__(self) -> None:
+        self.handlers: dict[str, object] = {}
+
+    def _register(self, name: str):
+        def decorator(func):
+            self.handlers[name] = func
+            return func
+
+        return decorator
+
+    def message_created(self):
+        return self._register("message_created")
+
+    def bot_started(self):
+        return self._register("bot_started")
+
+    def message_callback(self):
+        return self._register("message_callback")
+
+
+class _AdapterStub:
+    """Минимальный adapter, фиксирующий входящие контакты без core-сценария."""
+
+    def __init__(self) -> None:
+        self.incoming_calls: list[dict[str, object]] = []
+
+    def handle_start(self, max_user_id: int) -> MaxAdapterResponse:
+        return MaxAdapterResponse(text=f"start:{max_user_id}")
+
+    def handle_incoming(
+        self,
+        max_user_id: int,
+        text: str,
+        payload: object | None,
+        contact_phone: str | None = None,
+    ) -> MaxAdapterResponse:
+        self.incoming_calls.append(
+            {
+                "max_user_id": max_user_id,
+                "text": text,
+                "payload": payload,
+                "contact_phone": contact_phone,
+            }
+        )
+        return MaxAdapterResponse(text="ok")
 
 
 def test_extract_contact_attachment_reads_body_contact_phone() -> None:
@@ -149,6 +200,86 @@ def test_extract_contact_attachment_data_uses_body_phone_with_attachment_meta_wi
     assert result.phone_source == "body.contact+payload.meta"
 
 
+def test_extract_contact_attachment_data_reads_hash_from_legacy_alias() -> None:
+    """Проверяет извлечение hash из альтернативного имени поля contactHash."""
+
+    event = SimpleNamespace(
+        message=SimpleNamespace(
+            body=SimpleNamespace(
+                attachments=[
+                    {
+                        "type": "contact",
+                        "payload": {
+                            "vcf_info": "BEGIN:VCARD\nTEL:+79123456789\nEND:VCARD\n",
+                            "contactHash": "hash-from-alias",
+                            "max_info": {"user_id": "555001"},
+                        },
+                    }
+                ]
+            )
+        )
+    )
+
+    result = _extract_contact_attachment_details(event)
+
+    assert result is not None
+    assert result.contact_hash == "hash-from-alias"
+    assert result.contact_hash_source == "payload.contactHash"
+    assert result.contact_hash_present_paths == ("payload.contactHash",)
+    assert result.max_user_id == 555001
+
+
+def test_extract_contact_attachment_data_reads_hash_from_raw_update() -> None:
+    """Проверяет fallback на raw update, если SDK-модель потеряла payload.hash."""
+
+    event = SimpleNamespace(
+        message=SimpleNamespace(
+            body=SimpleNamespace(
+                mid="mid.1",
+                attachments=[
+                    SimpleNamespace(
+                        type="contact",
+                        payload=SimpleNamespace(
+                            vcf_info="BEGIN:VCARD\nTEL:+79123456789\nEND:VCARD\n",
+                            max_info=SimpleNamespace(user_id=555001),
+                        ),
+                    )
+                ],
+            )
+        )
+    )
+    setattr(
+        event,
+        "_vtelemax_raw_update",
+        {
+            "update_type": "message_created",
+            "message": {
+                "body": {
+                    "mid": "mid.1",
+                    "attachments": [
+                        {
+                            "type": "contact",
+                            "payload": {
+                                "vcf_info": "BEGIN:VCARD\nTEL:+79123456789\nEND:VCARD\n",
+                                "hash": "hash-from-raw",
+                                "max_info": {"user_id": 555001},
+                            },
+                        }
+                    ],
+                }
+            },
+        },
+    )
+
+    result = _extract_contact_attachment_details(event)
+
+    assert result is not None
+    assert result.contact_hash == "hash-from-raw"
+    assert result.contact_hash_source == "raw.payload.hash"
+    assert result.contact_hash_present_paths == ("raw.payload.hash",)
+    assert result.max_user_id == 555001
+
+
 def test_verify_max_contact_hash_accepts_crlf_and_lf_variants() -> None:
     """Проверяет устойчивую верификацию hash при отличиях переносов строк в vcf_info."""
 
@@ -260,6 +391,139 @@ def test_extract_callback_message_id_returns_int_mid_without_conversion_errors()
     callback_mid = _extract_callback_message_id(event)
 
     assert callback_mid == 12345
+
+
+@pytest.mark.asyncio
+async def test_message_handler_keeps_contact_when_hash_missing_in_shadow_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Проверяет, что shadow-режим не блокирует контакт без hash."""
+
+    monkeypatch.setattr(
+        "vtelemax.adapters.max.router._patch_maxapi_raw_update_preservation",
+        lambda: False,
+    )
+    router = _RouterStub()
+    adapter = _AdapterStub()
+    register_max_guest_handlers(
+        router,
+        adapter,  # type: ignore[arg-type]
+        max_contact_strict_hash_enabled=False,
+        max_contact_hash_shadow_mode_enabled=True,
+    )
+    event = SimpleNamespace(
+        from_user=SimpleNamespace(user_id=555001),
+        message=SimpleNamespace(
+            body=SimpleNamespace(
+                text="",
+                attachments=[
+                    SimpleNamespace(
+                        type="contact",
+                        payload=SimpleNamespace(
+                            vcf_info="BEGIN:VCARD\nTEL:+79123456789\nEND:VCARD\n",
+                            max_info=SimpleNamespace(user_id=555001),
+                        ),
+                    )
+                ],
+            )
+        ),
+    )
+
+    await router.handlers["message_created"](event)  # type: ignore[operator]
+
+    assert adapter.incoming_calls == [
+        {
+            "max_user_id": 555001,
+            "text": "",
+            "payload": None,
+            "contact_phone": "+79123456789",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_message_handler_uses_raw_hash_when_strict_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Проверяет, что strict пропускает контакт, если hash найден в raw update."""
+
+    verified_calls: list[dict[str, str]] = []
+
+    def _verify_stub(*, access_token: str, vcf_info: str, provided_hash: str) -> bool:
+        verified_calls.append(
+            {
+                "access_token": access_token,
+                "vcf_info": vcf_info,
+                "provided_hash": provided_hash,
+            }
+        )
+        return True
+
+    monkeypatch.setattr(
+        "vtelemax.adapters.max.router._patch_maxapi_raw_update_preservation",
+        lambda: False,
+    )
+    monkeypatch.setattr("vtelemax.adapters.max.router._verify_max_contact_hash", _verify_stub)
+    router = _RouterStub()
+    adapter = _AdapterStub()
+    register_max_guest_handlers(
+        router,
+        adapter,  # type: ignore[arg-type]
+        max_bot_token="token",
+        max_contact_strict_hash_enabled=True,
+        max_contact_hash_shadow_mode_enabled=True,
+    )
+    event = SimpleNamespace(
+        from_user=SimpleNamespace(user_id=555001),
+        message=SimpleNamespace(
+            body=SimpleNamespace(
+                text="",
+                mid="mid.1",
+                attachments=[
+                    SimpleNamespace(
+                        type="contact",
+                        payload=SimpleNamespace(
+                            vcf_info="BEGIN:VCARD\nTEL:+79123456789\nEND:VCARD\n",
+                            max_info=SimpleNamespace(user_id=555001),
+                        ),
+                    )
+                ],
+            )
+        ),
+    )
+    setattr(
+        event,
+        "_vtelemax_raw_update",
+        {
+            "update_type": "message_created",
+            "message": {
+                "body": {
+                    "mid": "mid.1",
+                    "attachments": [
+                        {
+                            "type": "contact",
+                            "payload": {
+                                "vcf_info": "BEGIN:VCARD\nTEL:+79123456789\nEND:VCARD\n",
+                                "hash": "raw-good-hash",
+                                "max_info": {"user_id": 555001},
+                            },
+                        }
+                    ],
+                }
+            },
+        },
+    )
+
+    await router.handlers["message_created"](event)  # type: ignore[operator]
+
+    assert verified_calls == [
+        {
+            "access_token": "token",
+            "vcf_info": "BEGIN:VCARD\nTEL:+79123456789\nEND:VCARD\n",
+            "provided_hash": "raw-good-hash",
+        }
+    ]
+    assert adapter.incoming_calls[-1]["contact_phone"] == "+79123456789"
 
 
 @pytest.mark.asyncio
