@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -238,6 +238,51 @@ def test_status_update_canceled_releases_coupon_and_allows_reassignment() -> Non
         assert [row.person_id for row in _person_coupon_rows(session, coupon_code=coupon_code)] == [
             second_person_id
         ]
+
+
+def test_apply_event_flushes_coupon_event_before_coupon_row_for_fk_order() -> None:
+    """Проверяет порядок записи события и купона при включенных FK как в PostgreSQL."""
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_foreign_keys(dbapi_connection: object, _: object) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    Base.metadata.create_all(engine)
+    session_factory = build_session_factory(engine)
+    person_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    event_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    now = datetime(2026, 5, 18, 12, 23, tzinfo=timezone.utc)
+
+    with session_factory() as session:
+        session.add(PersonRow(person_id=person_id))
+        session.commit()
+
+        repository = SQLAlchemySagurCouponsRepository(session)
+        applied = repository.apply_event(
+            event_id=event_id,
+            direction="assignments",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(person_id),
+                "coupon_series": "E2E_SAMI_20260516_0732",
+                "coupon_code": "E2E-OVT89GWN",
+                "venue_code": "c9a0df27-11dc-4bee-83a3-f0a5aa16c185",
+                "venue_name": "Сами Сусами",
+                "promo_text": "Подарок по персональному купону E2E-OVT89GWN.",
+                "status": "reserved",
+            },
+        )
+        session.commit()
+
+        assert applied.deduplicated is False
+        assert session.get(SagurCouponEventRow, event_id) is not None
+        rows = _person_coupon_rows(session, coupon_code="E2E-OVT89GWN")
+        assert len(rows) == 1
+        assert rows[0].last_event_id == event_id
 
 
 def test_assignments_rejects_reuse_of_used_coupon_without_release() -> None:

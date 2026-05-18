@@ -166,6 +166,10 @@ class SQLAlchemySagurCouponsRepository:
                 payload_json=payload_raw,
             )
         )
+        # В проектной session_factory отключен autoflush, поэтому явно фиксируем
+        # audit-событие в транзакции до записи person_coupons.last_event_id.
+        # Иначе PostgreSQL может проверить FK раньше вставки строки события.
+        self._session.flush()
 
         is_visible = payload.status in _COUPON_ACTIVE_STATUSES
         venue_code = payload.venue_code or _GLOBAL_VENUE_CODE
