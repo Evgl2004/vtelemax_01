@@ -551,15 +551,15 @@ def register_max_guest_handlers(
             if max_contact_hash_shadow_mode_enabled:
                 if contact_hash_present and contact_hash_verified is False:
                     event_logger.warning(
-                        "MAX contact hash mismatch (shadow). phone={phone}, max_user_id={max_user_id}, sender_id={sender_id}.",
-                        phone=contact_phone,
+                        "MAX contact hash mismatch (shadow). phone_masked={phone_masked}, max_user_id={max_user_id}, sender_id={sender_id}.",
+                        phone_masked=_mask_phone_for_log(contact_phone),
                         max_user_id=contact_data.max_user_id,
                         sender_id=user_id,
                     )
                 if contact_owner_matches_sender is False:
                     event_logger.warning(
-                        "MAX contact owner mismatch (shadow). phone={phone}, max_user_id={max_user_id}, sender_id={sender_id}.",
-                        phone=contact_phone,
+                        "MAX contact owner mismatch (shadow). phone_masked={phone_masked}, max_user_id={max_user_id}, sender_id={sender_id}.",
+                        phone_masked=_mask_phone_for_log(contact_phone),
                         max_user_id=contact_data.max_user_id,
                         sender_id=user_id,
                     )
@@ -572,9 +572,9 @@ def register_max_guest_handlers(
                     strict_reject_reason = "owner_mismatch"
                 if strict_reject_reason is not None:
                     event_logger.warning(
-                        "MAX strict contact verification rejected. reason={reason}, phone={phone}, max_user_id={max_user_id}, sender_id={sender_id}.",
+                        "MAX strict contact verification rejected. reason={reason}, phone_masked={phone_masked}, max_user_id={max_user_id}, sender_id={sender_id}.",
                         reason=strict_reject_reason,
-                        phone=contact_phone,
+                        phone_masked=_mask_phone_for_log(contact_phone),
                         max_user_id=contact_data.max_user_id,
                         sender_id=user_id,
                     )
@@ -596,9 +596,9 @@ def register_max_guest_handlers(
                 **contact_verification_counters,
             )
         event_logger.debug(
-            "Получено сообщение от пользователя. text={text}, contact={contact}, hash_present={hash_present}, hash_verified={hash_verified}, owner_match={owner_match}, strict_reject_reason={strict_reject_reason}.",
+            "Получено сообщение от пользователя. text={text}, contact_masked={contact_masked}, hash_present={hash_present}, hash_verified={hash_verified}, owner_match={owner_match}, strict_reject_reason={strict_reject_reason}.",
             text=text,
-            contact=contact_phone,
+            contact_masked=_mask_phone_for_log(contact_phone),
             hash_present=contact_hash_present,
             hash_verified=contact_hash_verified,
             owner_match=contact_owner_matches_sender,

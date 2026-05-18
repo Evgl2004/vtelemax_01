@@ -20,9 +20,7 @@ from vtelemax.core import (
     BUTTON_ACCEPT_RULES,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
-    BUTTON_SUPPORT_QUESTION,
     BUTTON_MY_TICKETS,
-    BUTTON_BACK_TO_SUPPORT,
     GLOBAL_COUPON_VENUE_CODE,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
@@ -45,7 +43,6 @@ from vtelemax.core import (
     ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
-    OpenSupportTicketSummary,
     PersonSupportTicketSummary,
     PersonTicketsPageResult,
     PlatformName,
@@ -130,6 +127,19 @@ _STATE_WAITING_IIKO_SYNC = OnboardingState.WAITING_IIKO_SYNC.value
 _STATE_WAITING_LEGACY_PHONE = OnboardingState.WAITING_LEGACY_PHONE.value
 _STATE_WAITING_SUPPORT_QUESTION = "waiting_support_question"
 _STATE_WAITING_SUPPORT_REPLY = "waiting_support_reply"
+
+
+def _mask_phone_for_log(value: object | None) -> str | None:
+    """Маскирует телефон для логов, не меняя рабочее значение номера."""
+
+    if value is None:
+        return None
+    digits = re.sub(r"\D", "", str(value))
+    if not digits:
+        return None
+    if len(digits) <= 4:
+        return "***"
+    return f"***{digits[-4:]}"
 _STATE_PROFILE_EDIT_CHOICE = "profile_edit_choice"
 _STATE_PROFILE_EDIT_FIRST_NAME = "profile_edit_first_name"
 _STATE_PROFILE_EDIT_LAST_NAME = "profile_edit_last_name"
@@ -359,9 +369,9 @@ class MaxIdentityAdapter:
 
         method_logger = self._logger.bind(stage="handle_incoming", user_id=str(max_user_id))
         method_logger.debug(
-            "Входящее сообщение. text={text}, contact_phone={contact}.",
+            "Входящее сообщение. text={text}, contact_phone_masked={contact}.",
             text=text,
-            contact=contact_phone,
+            contact=_mask_phone_for_log(contact_phone),
         )
         # Если есть контакт, обрабатываем как телефонный ввод только на ожидаемом шаге.
         if contact_phone is not None:

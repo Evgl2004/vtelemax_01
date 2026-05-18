@@ -81,6 +81,13 @@ class _FakeCouponSessionFactory:
         return _FakeCouponSession()
 
 
+def test_identity_adapter_masks_contact_phone_for_logs() -> None:
+    """Проверяет общий формат маски телефона в логах MAX identity adapter."""
+
+    assert max_identity_module._mask_phone_for_log("+7 (912) 345-67-89") == "***6789"
+    assert max_identity_module._mask_phone_for_log("abc") is None
+
+
 class InMemoryIdentityUnitOfWork(IdentityUnitOfWork):
     """Тестовый UnitOfWork поверх in-memory репозитория."""
 
@@ -223,7 +230,9 @@ def _build_adapter(with_support: bool = False) -> MaxIdentityAdapter:
     if not with_support:
         return MaxIdentityAdapter(registration_use_case, lookup_use_case)
 
-    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    def support_uow_factory() -> InMemorySupportUnitOfWork:
+        return InMemorySupportUnitOfWork(repository, support_repository)
+
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory, vk_pending_verification_delivery_enabled=True)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
@@ -261,7 +270,9 @@ def _build_adapter_with_support_context() -> tuple[
     lookup_use_case = GetPersonByAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    def support_uow_factory() -> InMemorySupportUnitOfWork:
+        return InMemorySupportUnitOfWork(repository, support_repository)
+
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     moderator_reply_use_case = RouteModeratorReplyTransactionalUseCase(unit_of_work_factory=support_uow_factory, vk_pending_verification_delivery_enabled=True)
     ticket_details_use_case = GetSupportTicketDetailsTransactionalUseCase(unit_of_work_factory=support_uow_factory)
@@ -783,7 +794,9 @@ def test_max_virtual_card_error_has_back_button_and_creates_auto_ticket() -> Non
     lookup_use_case = GetPersonByAccountTransactionalUseCase(
         unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
     )
-    support_uow_factory = lambda: InMemorySupportUnitOfWork(repository, support_repository)
+    def support_uow_factory() -> InMemorySupportUnitOfWork:
+        return InMemorySupportUnitOfWork(repository, support_repository)
+
     create_ticket_use_case = CreateSupportTicketTransactionalUseCase(unit_of_work_factory=support_uow_factory)
     list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
         unit_of_work_factory=support_uow_factory

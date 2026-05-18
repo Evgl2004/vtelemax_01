@@ -16,6 +16,7 @@ from vtelemax.adapters.max.router import (
     _extract_contact_attachment_details,
     _extract_phone_from_vcf,
     _is_message_not_modified_error,
+    _mask_phone_for_log,
     _send_response,
     _verify_max_contact_hash,
     register_max_guest_handlers,
@@ -70,6 +71,14 @@ class _AdapterStub:
             }
         )
         return MaxAdapterResponse(text="ok")
+
+
+def test_mask_phone_for_log_hides_contact_digits() -> None:
+    """Проверяет, что лог-маска не раскрывает полный телефон гостя."""
+
+    assert _mask_phone_for_log("+7 (912) 345-67-89") == "***6789"
+    assert _mask_phone_for_log("123") == "***"
+    assert _mask_phone_for_log(None) is None
 
 
 def test_extract_contact_attachment_reads_body_contact_phone() -> None:
