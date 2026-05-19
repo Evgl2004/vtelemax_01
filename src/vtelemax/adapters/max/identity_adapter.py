@@ -53,7 +53,7 @@ from vtelemax.core import (
     SetSupportTicketStatusTransactionalUseCase,
     SUPPORTED_PLATFORMS,
     SupportTicketStatus,
-    build_coupon_card_view,
+    build_coupon_card_view_for_markup,
     build_coupons_list_view,
     build_coupons_root_view,
     normalize_email,
@@ -1193,7 +1193,7 @@ class MaxIdentityAdapter:
         if coupon is None:
             return self._build_coupon_not_found_response()
 
-        card = build_coupon_card_view(coupon)
+        card = build_coupon_card_view_for_markup(coupon, markup="html")
         if card is None:
             return self._build_coupon_not_found_response()
 
@@ -1201,6 +1201,7 @@ class MaxIdentityAdapter:
         return MaxAdapterResponse(
             text=screen.text,
             screen=screen,
+            parse_mode="html",
             coupon_qr_payload=card.qr_payload,
             coupon_qr_caption=f"🎟️ Купон • {card.coupon_tail4}",
         )

@@ -21,6 +21,7 @@ from vtelemax.core import (
     PendingModeratorDelivery,
     SupportMessageAuthor,
     build_iiko_sync_pending_screen,
+    is_coupon_delivery_text,
 )
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
@@ -121,6 +122,31 @@ def _build_vk_guest_message_close_keyboard_json() -> str:
     )
 
 
+def _build_vk_coupon_delivery_keyboard_json() -> str:
+    """Возвращает inline-кнопку VK для перехода из рассылки в меню купонов."""
+
+    payload = {"cmd": GuestMenuAction.COUPONS.value}
+    return json.dumps(
+        {
+            "one_time": False,
+            "inline": True,
+            "buttons": [
+                [
+                    {
+                        "action": {
+                            "type": "callback",
+                            "label": "🎟️ Перейти к купонам",
+                            "payload": json.dumps(payload, ensure_ascii=False),
+                        },
+                        "color": "primary",
+                    }
+                ]
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
 def build_vk_pending_delivery_sender(
     bot: Any,
 ) -> Callable[[PendingModeratorDelivery, str], Awaitable[None]]:
@@ -128,7 +154,9 @@ def build_vk_pending_delivery_sender(
 
     async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
         kwargs: dict[str, Any] = {}
-        if delivery.author == SupportMessageAuthor.SYSTEM:
+        if is_coupon_delivery_text(text):
+            kwargs["keyboard"] = _build_vk_coupon_delivery_keyboard_json()
+        elif delivery.author == SupportMessageAuthor.SYSTEM:
             kwargs["keyboard"] = _build_vk_moderation_notification_keyboard_json(str(delivery.ticket_id))
         elif delivery.author == SupportMessageAuthor.MODERATOR:
             kwargs["keyboard"] = _build_vk_guest_message_close_keyboard_json()

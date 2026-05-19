@@ -25,6 +25,7 @@ from vtelemax.core import (
     PendingModeratorDelivery,
     SupportMessageAuthor,
     build_iiko_sync_pending_screen,
+    is_coupon_delivery_text,
 )
 from vtelemax.adapters.moderation_delivery import PendingModeratorDeliveryProcessor
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
@@ -86,6 +87,7 @@ from .menu import (
     build_delivery_inline_keyboard,
     build_business_lunch_inline_keyboard,
     build_coupon_card_inline_keyboard,
+    build_coupon_delivery_inline_keyboard,
     build_coupons_list_inline_keyboard,
     build_coupons_root_inline_keyboard,
     build_table_booking_inline_keyboard,
@@ -147,7 +149,9 @@ def build_telegram_pending_delivery_sender(
 
     async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
         reply_markup = None
-        if delivery.author == SupportMessageAuthor.SYSTEM:
+        if is_coupon_delivery_text(text):
+            reply_markup = build_coupon_delivery_inline_keyboard()
+        elif delivery.author == SupportMessageAuthor.SYSTEM:
             reply_markup = build_moderation_notification_inline_keyboard(str(delivery.ticket_id))
         elif delivery.author == SupportMessageAuthor.MODERATOR:
             reply_markup = build_guest_message_close_inline_keyboard()

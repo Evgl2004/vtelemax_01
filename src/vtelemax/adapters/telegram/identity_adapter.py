@@ -75,7 +75,7 @@ from vtelemax.core import (
     SupportTicketStatus,
     build_about_screen,
     build_business_lunch_screen,
-    build_coupon_card_view,
+    build_coupon_card_view_for_markup,
     build_coupons_list_view,
     build_coupons_root_view,
     build_delivery_screen,
@@ -1559,13 +1559,14 @@ class TelegramIdentityAdapter:
         if coupon is None:
             return self._build_coupon_not_found_result()
 
-        card = build_coupon_card_view(coupon)
+        card = build_coupon_card_view_for_markup(coupon, markup="html")
         if card is None:
             return self._build_coupon_not_found_result()
 
         return TelegramMenuActionResult(
             status="coupon_card",
             message=card.text,
+            parse_mode="HTML",
             coupon_qr_payload=card.qr_payload,
             coupon_qr_caption=f"🎟️ Купон • {card.coupon_tail4}",
         )

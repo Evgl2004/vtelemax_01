@@ -94,6 +94,7 @@ COUPON_SCOPE_PREFIX = "coupon_scope:"
 COUPON_SHOW_PREFIX = "coupon_show:"
 COUPON_SCOPE_GLOBAL_TOKEN = "global"
 BUTTON_BACK_TO_COUPONS = "🔙 Назад к купонам"
+BUTTON_OPEN_COUPONS = "🎟️ Перейти к купонам"
 DOCS_URL = PERSONAL_DATA_CONSENT_URLS["telegram"]
 NOTIFICATIONS_DOCS_URL = MAILING_CONSENT_URLS["telegram"]
 SUPPORT_FEEDBACK_URL = "https://rdata.one/Nyyl"
@@ -443,6 +444,16 @@ def build_coupon_card_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=BUTTON_BACK_TO_COUPONS, callback_data=_action_callback(GuestMenuAction.COUPONS))]
+        ]
+    )
+
+
+def build_coupon_delivery_inline_keyboard() -> InlineKeyboardMarkup:
+    """Создает кнопку перехода из купонной рассылки в раздел «Купоны»."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTON_OPEN_COUPONS, callback_data=_action_callback(GuestMenuAction.COUPONS))]
         ]
     )
 

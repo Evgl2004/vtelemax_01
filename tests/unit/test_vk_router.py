@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
 import pytest
 
 from vtelemax.adapters.vk.router import (
+    build_vk_pending_delivery_sender,
+    _build_vk_coupon_delivery_keyboard_json,
     _build_vk_moderation_notification_keyboard_json,
     _build_vk_photo_attachment,
     _is_message_not_modified_error,
@@ -16,6 +19,7 @@ from vtelemax.adapters.vk.router import (
     _with_virtual_card_delivery_notice,
 )
 from vtelemax.adapters.vk.identity_adapter import VkAdapterResponse
+from vtelemax.core import PendingModeratorDelivery, SupportMessageAuthor
 
 
 def test_is_message_not_modified_error_detects_known_patterns() -> None:
@@ -78,6 +82,61 @@ def test_build_vk_moderation_notification_keyboard_contains_reply_and_phone_butt
     assert phone_button["action"]["label"] == "📞 Телефон гостя"
     assert reply_cmd.startswith("mod_reply_")
     assert phone_cmd.startswith("mod_phone_show_")
+
+
+def test_build_vk_coupon_delivery_keyboard_opens_coupons_menu() -> None:
+    """Проверяет VK-кнопку перехода из купонной рассылки в меню купонов."""
+
+    keyboard_json = _build_vk_coupon_delivery_keyboard_json()
+    payload = json.loads(keyboard_json)
+
+    button = payload["buttons"][0][0]
+    callback_payload = json.loads(button["action"]["payload"])
+
+    assert payload["inline"] is True
+    assert button["action"]["label"] == "🎟️ Перейти к купонам"
+    assert callback_payload == {"cmd": "coupons"}
+
+
+@pytest.mark.asyncio
+async def test_vk_pending_delivery_sender_adds_coupon_menu_button() -> None:
+    """Проверяет кнопку перехода в купоны под VK-рассылкой купона."""
+
+    class _FakeMessages:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def send(self, **kwargs: object) -> None:
+            self.calls.append(kwargs)
+
+    class _FakeBot:
+        def __init__(self) -> None:
+            self.api = type("_Api", (), {"messages": _FakeMessages()})()
+
+    bot = _FakeBot()
+    sender = build_vk_pending_delivery_sender(bot)
+    await sender(
+        PendingModeratorDelivery(
+            message_id=uuid4(),
+            author=SupportMessageAuthor.SYSTEM,
+            ticket_id=uuid4(),
+            source_platform="vk",
+            target_platform="vk",
+            target_external_id="1001",
+            body="Код купона: E2E-OVT89GWN",
+            created_at=None,
+        ),
+        "Код купона: E2E-OVT89GWN",
+    )
+
+    call = bot.api.messages.calls[0]
+    keyboard = json.loads(call["keyboard"])
+    button = keyboard["buttons"][0][0]
+    payload = json.loads(button["action"]["payload"])
+
+    assert call["user_id"] == 1001
+    assert button["action"]["label"] == "🎟️ Перейти к купонам"
+    assert payload == {"cmd": "coupons"}
 
 
 @pytest.mark.asyncio

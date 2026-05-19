@@ -20,6 +20,7 @@ from vtelemax.core import (
     PendingModeratorDelivery,
     SupportMessageAuthor,
     build_iiko_sync_pending_screen,
+    is_coupon_delivery_text,
 )
 from vtelemax.infrastructure import QrGenerationError, generate_qr_png_bytes
 
@@ -239,6 +240,20 @@ def _build_max_guest_message_close_keyboard() -> object | None:
     return builder.as_markup()
 
 
+def _build_max_coupon_delivery_keyboard() -> object | None:
+    """Возвращает inline-кнопку MAX для перехода из рассылки в раздел купонов."""
+
+    try:
+        from maxapi.types import CallbackButton
+        from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+    except Exception:
+        return None
+
+    builder = InlineKeyboardBuilder()
+    builder.row(CallbackButton(text="🎟️ Перейти к купонам", payload=GuestMenuAction.COUPONS.value))
+    return builder.as_markup()
+
+
 def build_max_pending_delivery_sender(
     bot: Any,
 ) -> Callable[[PendingModeratorDelivery, str], Awaitable[None]]:
@@ -246,7 +261,11 @@ def build_max_pending_delivery_sender(
 
     async def _send_message(delivery: PendingModeratorDelivery, text: str) -> None:
         kwargs: dict[str, Any] = {}
-        if delivery.author == SupportMessageAuthor.SYSTEM:
+        if is_coupon_delivery_text(text):
+            keyboard = _build_max_coupon_delivery_keyboard()
+            if keyboard is not None:
+                kwargs["attachments"] = [keyboard]
+        elif delivery.author == SupportMessageAuthor.SYSTEM:
             keyboard = _build_max_moderation_notification_keyboard(str(delivery.ticket_id))
             if keyboard is not None:
                 kwargs["attachments"] = [keyboard]

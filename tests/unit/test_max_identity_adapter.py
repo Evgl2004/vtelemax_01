@@ -638,9 +638,11 @@ def test_max_adapter_builds_coupon_root_scope_and_card(monkeypatch) -> None:
     card = adapter.handle_incoming(max_user_id=1001, text="", payload=card_payload)
     assert card.screen is not None
     assert card.screen.screen_id == "coupon_card"
+    assert card.parse_mode == "html"
     assert card.coupon_qr_payload == "PROMO-2026-7777"
     assert card.coupon_qr_caption == "🎟️ Купон • 7777"
     assert "Подарочный десерт" in card.text
+    assert "<code>PROMO-2026-7777</code>" in card.text
 
 
 def test_max_adapter_returns_empty_coupon_screen(monkeypatch) -> None:

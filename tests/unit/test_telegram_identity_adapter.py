@@ -441,10 +441,12 @@ def test_telegram_adapter_opens_coupon_card_with_qr_payload(monkeypatch) -> None
     )
 
     assert result.status == "coupon_card"
+    assert result.parse_mode == "HTML"
     assert result.coupon_qr_payload == "PROMO-2026-7777"
     assert result.coupon_qr_caption == "🎟️ Купон • 7777"
     assert "Подарочный десерт" in result.message
     assert "Грузинка Нани" in result.message
+    assert "<code>PROMO-2026-7777</code>" in result.message
 
 
 def test_telegram_adapter_returns_coupon_empty_screen(monkeypatch) -> None:

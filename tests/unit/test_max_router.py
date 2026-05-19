@@ -5,11 +5,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
+from vtelemax.core import PendingModeratorDelivery, SupportMessageAuthor
 from vtelemax.adapters.max.identity_adapter import MaxAdapterResponse
 from vtelemax.adapters.max.router import (
+    build_max_pending_delivery_sender,
     _extract_callback_message_id,
     _extract_max_upload_token,
     _extract_contact_attachment,
@@ -79,6 +82,47 @@ def test_mask_phone_for_log_hides_contact_digits() -> None:
     assert _mask_phone_for_log("+7 (912) 345-67-89") == "***6789"
     assert _mask_phone_for_log("123") == "***"
     assert _mask_phone_for_log(None) is None
+
+
+@pytest.mark.asyncio
+async def test_max_pending_delivery_sender_adds_coupon_menu_button(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проверяет, что MAX-рассылка купона получает кнопку перехода в меню купонов."""
+
+    class _FakeBot:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def send_message(self, **kwargs: object) -> None:
+            self.calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "vtelemax.adapters.max.router._build_max_coupon_delivery_keyboard",
+        lambda: "coupon-keyboard",
+    )
+
+    bot = _FakeBot()
+    sender = build_max_pending_delivery_sender(bot)
+    await sender(
+        PendingModeratorDelivery(
+            message_id=uuid4(),
+            author=SupportMessageAuthor.SYSTEM,
+            ticket_id=uuid4(),
+            source_platform="max",
+            target_platform="max",
+            target_external_id="1001",
+            body="Код купона: E2E-OVT89GWN",
+            created_at=None,
+        ),
+        "Код купона: E2E-OVT89GWN",
+    )
+
+    assert bot.calls == [
+        {
+            "user_id": 1001,
+            "text": "Код купона: E2E-OVT89GWN",
+            "attachments": ["coupon-keyboard"],
+        }
+    ]
 
 
 def test_extract_contact_attachment_reads_body_contact_phone() -> None:

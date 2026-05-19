@@ -7,9 +7,10 @@
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 GLOBAL_COUPON_VENUE_CODE = "__global__"
@@ -196,6 +197,16 @@ def build_coupons_list_view(
 
 
 def build_coupon_card_view(coupon: CouponItemLike) -> CouponCardView | None:
+    """Строит plain-text карточку купона для платформ без HTML-разметки."""
+
+    return build_coupon_card_view_for_markup(coupon, markup="plain")
+
+
+def build_coupon_card_view_for_markup(
+    coupon: CouponItemLike,
+    *,
+    markup: Literal["plain", "html"] = "plain",
+) -> CouponCardView | None:
     """Строит текст карточки купона и возвращает код для QR.
 
     Если купон уже стал неактивным, возвращаем `None`: адаптер покажет
@@ -212,26 +223,30 @@ def build_coupon_card_view(coupon: CouponItemLike) -> CouponCardView | None:
     tail4 = coupon_tail4(coupon_code)
     promo_text = str(coupon.promo_text or "").strip() or "Персональное предложение"
     venue_name = _resolve_coupon_venue_name(coupon)
-    status_text = _format_coupon_status(coupon.status)
-    updated_at_text = _format_coupon_datetime(getattr(coupon, "updated_at", None))
 
-    lines = [
-        "🎟️ Купон открыт",
-        "",
-        f"🏷️ Предложение: {promo_text}",
-        f"🏠 Заведение: {venue_name}",
-        f"🔢 Код купона: {coupon_code}",
-        f"🔎 Последние 4 символа: {tail4}",
-        f"📌 Статус: {status_text}",
-    ]
-    coupon_series = str(coupon.coupon_series or "").strip()
-    if coupon_series:
-        lines.append(f"🧾 Серия: {coupon_series}")
-    campaign_id = str(coupon.campaign_id or "").strip()
-    if campaign_id:
-        lines.append(f"🏁 Кампания: {campaign_id}")
-    if updated_at_text:
-        lines.append(f"🕒 Обновлено: {updated_at_text}")
+    if markup == "html":
+        lines = [
+            "🎟️ <b>Купон открыт</b>",
+            "",
+            "🏷️ <b>Предложение:</b>",
+            html.escape(promo_text),
+            "",
+            f"🏠 <b>Заведение:</b> {html.escape(venue_name)}",
+            "",
+            f"🔢 <b>Код купона:</b> <code>{html.escape(coupon_code)}</code>",
+        ]
+    else:
+        lines = [
+            "🎟️ Купон открыт",
+            "",
+            "🏷️ Предложение:",
+            promo_text,
+            "",
+            f"🏠 Заведение: {venue_name}",
+            "",
+            f"🔢 Код купона: {coupon_code}",
+        ]
+
     lines.extend(
         [
             "",
@@ -246,6 +261,24 @@ def coupon_tail4(coupon_code: str) -> str:
 
     normalized = str(coupon_code or "").strip()
     return normalized[-4:] if len(normalized) > 4 else normalized
+
+
+def is_coupon_delivery_text(text: str) -> bool:
+    """Определяет, похоже ли pending-сообщение на рассылку персонального купона.
+
+    SAGUR формирует текст рассылки с кодом купона, а vtelemax добавляет только
+    удобную кнопку перехода в меню. Проверка намеренно консервативная: нам нужен
+    явный купонный текст, чтобы не подменить клавиатуры обычной поддержки.
+    """
+
+    normalized = " ".join(str(text or "").lower().split())
+    if not normalized:
+        return False
+    return (
+        "код купона" in normalized
+        or "персональный купон" in normalized
+        or "покажите купон" in normalized
+    )
 
 
 def _build_coupon_list_item(coupon: CouponItemLike) -> CouponListItemView:

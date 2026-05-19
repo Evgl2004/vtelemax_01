@@ -10,9 +10,11 @@ from vtelemax.core import (
     GLOBAL_COUPON_SCOPE_KEY,
     GLOBAL_COUPON_VENUE_CODE,
     build_coupon_card_view,
+    build_coupon_card_view_for_markup,
     build_coupons_list_view,
     build_coupons_root_view,
     coupon_tail4,
+    is_coupon_delivery_text,
     is_coupon_visible_for_guest,
 )
 
@@ -157,7 +159,7 @@ def test_coupons_list_view_returns_empty_when_all_coupons_inactive() -> None:
     assert "нет активных купонов" in view.text
 
 
-def test_coupon_card_view_contains_qr_payload_and_coupon_attributes() -> None:
+def test_coupon_card_view_contains_guest_facing_qr_payload_and_coupon_attributes() -> None:
     """Проверяет карточку конкретного купона перед отправкой QR."""
 
     coupon = _coupon("PROMO-2026-7777")
@@ -170,8 +172,30 @@ def test_coupon_card_view_contains_qr_payload_and_coupon_attributes() -> None:
     assert "Подарочный десерт" in view.text
     assert "Грузинка Нани" in view.text
     assert "PROMO-2026-7777" in view.text
-    assert "SERIES-A" in view.text
-    assert "CMP-2026" in view.text
+    assert "SERIES-A" not in view.text
+    assert "CMP-2026" not in view.text
+    assert "Последние 4" not in view.text
+    assert "Статус" not in view.text
+
+
+def test_coupon_card_view_html_markup_uses_bold_labels_and_code_tag() -> None:
+    """Проверяет HTML-разметку карточки для Telegram/MAX."""
+
+    view = build_coupon_card_view_for_markup(
+        _coupon(
+            "PROMO-2026-7777",
+            venue_name='Кафе "Нани"',
+            promo_text="Десерт <в подарок>",
+        ),
+        markup="html",
+    )
+
+    assert view is not None
+    assert "🎟️ <b>Купон открыт</b>" in view.text
+    assert "🏷️ <b>Предложение:</b>" in view.text
+    assert "Десерт &lt;в подарок&gt;" in view.text
+    assert "Кафе &quot;Нани&quot;" in view.text
+    assert "<code>PROMO-2026-7777</code>" in view.text
 
 
 def test_coupon_card_view_uses_public_fallback_text_without_integration_name() -> None:
@@ -203,3 +227,11 @@ def test_coupon_visibility_predicate_and_tail4_are_stable() -> None:
 
     assert coupon_tail4("ABCDEF") == "CDEF"
     assert coupon_tail4("123") == "123"
+
+
+def test_coupon_delivery_text_detector_is_conservative() -> None:
+    """Проверяет распознавание купонной рассылки для кнопки перехода."""
+
+    assert is_coupon_delivery_text("Код купона: E2E-OVT89GWN") is True
+    assert is_coupon_delivery_text("Мы подготовили персональный купон на кофе.") is True
+    assert is_coupon_delivery_text("Новое обращение от гостя\nТикет: #1234") is False

@@ -17,6 +17,7 @@ from vtelemax.adapters.telegram.menu import (
     USER_TICKETS_NEXT_PAGE_PREFIX,
     USER_TICKET_DETAILS_PREFIX,
     build_coupon_card_inline_keyboard,
+    build_coupon_delivery_inline_keyboard,
     build_coupon_scope_callback,
     build_coupon_show_callback,
     build_coupons_list_inline_keyboard,
@@ -529,3 +530,13 @@ def test_build_moderation_notification_keyboard_has_reply_and_phone_toggle() -> 
     assert reply_button.callback_data == f"{MOD_REPLY_PREFIX}{ticket_id}_new_1"
     assert phone_button.text == "📞 Телефон гостя"
     assert phone_button.callback_data == f"{MOD_PHONE_SHOW_PREFIX}{ticket_id}_new_1"
+
+
+def test_build_coupon_delivery_keyboard_opens_coupons_menu() -> None:
+    """Проверяет кнопку перехода из рассылки купона в меню купонов."""
+
+    keyboard = build_coupon_delivery_inline_keyboard()
+    button = keyboard.inline_keyboard[0][0]
+
+    assert button.text == "🎟️ Перейти к купонам"
+    assert button.callback_data == GuestMenuAction.COUPONS.value

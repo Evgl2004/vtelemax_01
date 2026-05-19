@@ -19,9 +19,11 @@ from .coupon_content import (
     CouponsListView,
     CouponsRootView,
     build_coupon_card_view,
+    build_coupon_card_view_for_markup,
     build_coupons_list_view,
     build_coupons_root_view,
     coupon_tail4,
+    is_coupon_delivery_text,
     is_coupon_visible_for_guest,
 )
 from .guest_content import (
@@ -210,9 +212,11 @@ __all__ = [
     "CouponsListView",
     "CouponsRootView",
     "build_coupon_card_view",
+    "build_coupon_card_view_for_markup",
     "build_coupons_list_view",
     "build_coupons_root_view",
     "coupon_tail4",
+    "is_coupon_delivery_text",
     "is_coupon_visible_for_guest",
     "IdentityRepository",
     "IdentityUnitOfWork",

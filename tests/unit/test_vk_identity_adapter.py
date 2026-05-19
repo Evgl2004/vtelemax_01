@@ -917,6 +917,9 @@ def test_vk_adapter_builds_coupon_root_scope_and_card(monkeypatch) -> None:
     assert card.coupon_qr_payload == "PROMO-2026-7777"
     assert card.coupon_qr_caption == "🎟️ Купон • 7777"
     assert "Подарочный десерт" in card.text
+    assert "SER-A" not in card.text
+    assert "CMP-1" not in card.text
+    assert "Последние 4" not in card.text
 
 
 def test_vk_adapter_returns_empty_coupon_screen(monkeypatch) -> None:
