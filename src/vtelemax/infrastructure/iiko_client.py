@@ -75,7 +75,16 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             token=token,
         )
         if status_code == 200:
-            return self._extract_customer(body)
+            try:
+                return self._extract_customer(body)
+            except LoyaltyGatewayError as error:
+                raise LoyaltyGatewayError(
+                    str(error),
+                    reason_code="customer_info_payload_invalid",
+                    endpoint="/loyalty/iiko/customer/info",
+                    status_code=status_code,
+                    is_transient=False,
+                ) from error
         if status_code in {400, 404}:
             # Для бизнес-логики это штатный сценарий: клиент ещё не создан.
             self._logger.info(
@@ -84,7 +93,11 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             )
             return None
         raise LoyaltyGatewayError(
-            f"Ошибка получения данных клиента iiko (HTTP {status_code}): {raw_text or 'empty response'}"
+            f"Ошибка получения данных клиента iiko (HTTP {status_code}): {raw_text or 'empty response'}",
+            reason_code="customer_info_http_error",
+            endpoint="/loyalty/iiko/customer/info",
+            status_code=status_code,
+            is_transient=self._is_transient_http_status(status_code),
         )
 
     def register_customer(
@@ -151,12 +164,22 @@ class IikoLoyaltyGateway(LoyaltyGateway):
         )
         if status_code != 200:
             raise LoyaltyGatewayError(
-                f"Ошибка регистрации клиента iiko (HTTP {status_code}): {raw_text or 'empty response'}"
+                f"Ошибка регистрации клиента iiko (HTTP {status_code}): {raw_text or 'empty response'}",
+                reason_code="customer_upsert_http_error",
+                endpoint="/loyalty/iiko/customer/create_or_update",
+                status_code=status_code,
+                is_transient=self._is_transient_http_status(status_code),
             )
 
         customer_id = str(body.get("id") or "").strip()
         if not customer_id:
-            raise LoyaltyGatewayError("iiko вернул пустой customer_id после регистрации клиента.")
+            raise LoyaltyGatewayError(
+                "iiko вернул пустой customer_id после регистрации клиента.",
+                reason_code="customer_upsert_empty_customer_id",
+                endpoint="/loyalty/iiko/customer/create_or_update",
+                status_code=status_code,
+                is_transient=False,
+            )
 
         return LoyaltyRegisterCustomerResult(
             customer_id=customer_id,
@@ -172,7 +195,12 @@ class IikoLoyaltyGateway(LoyaltyGateway):
 
         safe_customer_id = str(customer_id).strip()
         if not safe_customer_id:
-            raise LoyaltyGatewayError("Не указан customer_id для выпуска карты.")
+            raise LoyaltyGatewayError(
+                "Не указан customer_id для выпуска карты.",
+                reason_code="card_issue_missing_customer_id",
+                endpoint="/loyalty/iiko/customer/card/add",
+                is_transient=False,
+            )
 
         token = self._get_access_token()
         card_number = self._build_card_number(phone_e164)
@@ -189,7 +217,11 @@ class IikoLoyaltyGateway(LoyaltyGateway):
         )
         if status_code != 200:
             raise LoyaltyGatewayError(
-                f"Ошибка выпуска карты iiko (HTTP {status_code}): {raw_text or 'empty response'}"
+                f"Ошибка выпуска карты iiko (HTTP {status_code}): {raw_text or 'empty response'}",
+                reason_code="card_issue_http_error",
+                endpoint="/loyalty/iiko/customer/card/add",
+                status_code=status_code,
+                is_transient=self._is_transient_http_status(status_code),
             )
 
         # Подключение к программе лояльности не блокирует успешный выпуск карты.
@@ -263,12 +295,22 @@ class IikoLoyaltyGateway(LoyaltyGateway):
         )
         if status_code != 200:
             raise LoyaltyGatewayError(
-                f"Ошибка получения access token iiko (HTTP {status_code}): {raw_text or 'empty response'}"
+                f"Ошибка получения access token iiko (HTTP {status_code}): {raw_text or 'empty response'}",
+                reason_code="access_token_http_error",
+                endpoint="/access_token",
+                status_code=status_code,
+                is_transient=self._is_transient_http_status(status_code),
             )
 
         token = str(body.get("token") or "").strip()
         if not token:
-            raise LoyaltyGatewayError("iiko вернул пустой access token.")
+            raise LoyaltyGatewayError(
+                "iiko вернул пустой access token.",
+                reason_code="access_token_empty",
+                endpoint="/access_token",
+                status_code=status_code,
+                is_transient=False,
+            )
 
         self._access_token_state = _AccessTokenState(
             token=token,
@@ -306,9 +348,20 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             raw_text = raw_bytes.decode("utf-8", errors="replace")
             return int(error.code), self._try_parse_json(raw_text), raw_text
         except (URLError, TimeoutError, socket.timeout) as error:
-            raise LoyaltyGatewayError(f"Сетевая ошибка обращения к iiko: {error}") from error
+            raise LoyaltyGatewayError(
+                f"Сетевая ошибка обращения к iiko: {error}",
+                reason_code="network_error",
+                endpoint=path,
+                is_transient=True,
+            ) from error
 
         return status_code, self._try_parse_json(raw_text), raw_text
+
+    @staticmethod
+    def _is_transient_http_status(status_code: int) -> bool:
+        """Определяет статусы iiko, которые стоит считать временными сбоями."""
+
+        return status_code in {408, 429} or 500 <= status_code <= 599
 
     @staticmethod
     def _try_parse_json(raw_text: str) -> dict[str, Any]:

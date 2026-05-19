@@ -3005,6 +3005,7 @@ class TelegramIdentityAdapter:
             self._create_external_error_ticket_for_guest(
                 telegram_user_id=telegram_user_id,
                 guest_error_message=error_message,
+                diagnostic_context="code=IIKO-BAL-000; reason=balance_use_case_not_configured; transient=false",
             )
             return TelegramMenuActionResult(
                 status="balance_unavailable",
@@ -3030,6 +3031,7 @@ class TelegramIdentityAdapter:
             self._create_external_error_ticket_for_guest(
                 telegram_user_id=telegram_user_id,
                 guest_error_message=result.message,
+                diagnostic_context=result.diagnostic_context,
             )
         return TelegramMenuActionResult(
             status=result.status,
@@ -3096,6 +3098,7 @@ class TelegramIdentityAdapter:
         *,
         telegram_user_id: int,
         guest_error_message: str,
+        diagnostic_context: str | None = None,
     ) -> None:
         """Создает тикет модератору при критической ошибке внешней системы."""
 
@@ -3107,6 +3110,7 @@ class TelegramIdentityAdapter:
             return
 
         error_code = self._extract_iiko_error_code(normalized_error) or "unknown"
+        safe_diagnostic_context = self._sanitize_diagnostic_context(diagnostic_context)
         ticket_text = (
             "⚠️ Автоматическое обращение: критическая ошибка внешней системы.\n"
             f"Платформа: telegram\n"
@@ -3116,6 +3120,12 @@ class TelegramIdentityAdapter:
             f"{normalized_error}\n\n"
             "Просьба модератору: передайте это сообщение техническим специалистам."
         )
+        if safe_diagnostic_context:
+            ticket_text = (
+                f"{ticket_text}\n\n"
+                "Диагностика для техспециалиста:\n"
+                f"{safe_diagnostic_context}"
+            )
 
         method_logger = self._logger.bind(
             stage="external_error_ticket",
@@ -3144,6 +3154,37 @@ class TelegramIdentityAdapter:
         if match is None:
             return None
         return match.group(0)
+
+    @staticmethod
+    def _sanitize_diagnostic_context(raw_context: str | None) -> str | None:
+        """Оставляет в диагностике только безопасные ключи без PII и секретов."""
+
+        normalized = str(raw_context or "").strip()
+        if not normalized:
+            return None
+
+        safe_parts: list[str] = []
+        for raw_part in normalized.split(";"):
+            key, separator, value = raw_part.partition("=")
+            if not separator:
+                continue
+
+            safe_key = key.strip().lower()
+            safe_value = value.strip()
+            if safe_key == "code" and re.fullmatch(r"[A-Z0-9_-]{1,32}", safe_value):
+                safe_parts.append(f"{safe_key}={safe_value}")
+            elif safe_key == "reason" and re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", safe_value):
+                safe_parts.append(f"{safe_key}={safe_value}")
+            elif safe_key == "endpoint" and re.fullmatch(r"/[A-Za-z0-9_./:-]{1,120}", safe_value):
+                safe_parts.append(f"{safe_key}={safe_value}")
+            elif safe_key == "status_code" and re.fullmatch(r"\d{3}", safe_value):
+                safe_parts.append(f"{safe_key}={safe_value}")
+            elif safe_key == "transient" and safe_value in {"true", "false"}:
+                safe_parts.append(f"{safe_key}={safe_value}")
+            elif safe_key == "phone_hash" and re.fullmatch(r"[a-fA-F0-9]{8,64}", safe_value):
+                safe_parts.append(f"{safe_key}={safe_value.lower()}")
+
+        return "; ".join(safe_parts) or None
 
     @staticmethod
     def _collect_account_platforms(accounts: set[object]) -> tuple[str, ...]:

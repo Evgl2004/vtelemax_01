@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from vtelemax.core.loyalty_ports import LoyaltyCustomerUpsertData
+import pytest
+
+from vtelemax.core.loyalty_ports import LoyaltyCustomerUpsertData, LoyaltyGatewayError
 from vtelemax.infrastructure.iiko_client import IikoLoyaltyGateway
 
 
@@ -117,3 +119,59 @@ def test_register_customer_maps_profile_to_create_or_update_payload() -> None:
     assert payload["shouldReceivePromoActionsInfo"] is False
     assert payload["shouldReceiveLoyaltyInfo"] is False
     assert payload["id"] == "legacy-customer-id"
+
+
+def test_get_customer_info_returns_none_for_not_found_status() -> None:
+    """Проверяет штатный сценарий: 400/404 от customer/info означает, что клиент не найден."""
+
+    gateway = IikoLoyaltyGateway(api_key="test-key", organization_id="test-org")
+    gateway._get_access_token = lambda: "test-token"  # noqa: SLF001 - стаб для unit-теста
+
+    def _fake_post_json(*, path: str, payload: dict[str, object], token: str | None):
+        return 404, {}, '{"error":"not found"}'
+
+    gateway._post_json = _fake_post_json  # noqa: SLF001 - стаб для unit-теста
+
+    assert gateway.get_customer_info("+79129923438") is None
+
+
+def test_get_customer_info_maps_http_error_to_diagnostic_metadata() -> None:
+    """Проверяет диагностический маппинг HTTP-ошибок iiko в LoyaltyGatewayError."""
+
+    gateway = IikoLoyaltyGateway(api_key="test-key", organization_id="test-org")
+    gateway._get_access_token = lambda: "test-token"  # noqa: SLF001 - стаб для unit-теста
+
+    def _fake_post_json(*, path: str, payload: dict[str, object], token: str | None):
+        return 503, {}, '{"error":"temporarily unavailable"}'
+
+    gateway._post_json = _fake_post_json  # noqa: SLF001 - стаб для unit-теста
+
+    with pytest.raises(LoyaltyGatewayError) as error_info:
+        gateway.get_customer_info("+79129923438")
+
+    error = error_info.value
+    assert error.reason_code == "customer_info_http_error"
+    assert error.endpoint == "/loyalty/iiko/customer/info"
+    assert error.status_code == 503
+    assert error.is_transient is True
+
+
+def test_get_customer_info_maps_invalid_payload_to_diagnostic_metadata() -> None:
+    """Проверяет диагностический маппинг невалидного успешного ответа iiko."""
+
+    gateway = IikoLoyaltyGateway(api_key="test-key", organization_id="test-org")
+    gateway._get_access_token = lambda: "test-token"  # noqa: SLF001 - стаб для unit-теста
+
+    def _fake_post_json(*, path: str, payload: dict[str, object], token: str | None):
+        return 200, {}, "{}"
+
+    gateway._post_json = _fake_post_json  # noqa: SLF001 - стаб для unit-теста
+
+    with pytest.raises(LoyaltyGatewayError) as error_info:
+        gateway.get_customer_info("+79129923438")
+
+    error = error_info.value
+    assert error.reason_code == "customer_info_payload_invalid"
+    assert error.endpoint == "/loyalty/iiko/customer/info"
+    assert error.status_code == 200
+    assert error.is_transient is False

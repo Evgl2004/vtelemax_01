@@ -94,6 +94,7 @@ def test_balance_use_case_returns_balance_screen_when_customer_found() -> None:
     assert result.status == "balance"
     assert result.parse_mode == "markdown"
     assert "125.50" in result.message
+    assert result.diagnostic_context is None
 
 
 def test_balance_use_case_returns_unavailable_when_customer_missing() -> None:
@@ -106,6 +107,7 @@ def test_balance_use_case_returns_unavailable_when_customer_missing() -> None:
 
     assert result.status == "balance_unavailable"
     assert "не удалось" in result.message.lower()
+    assert result.diagnostic_context == "code=IIKO-BAL-001; reason=customer_not_found; transient=false"
 
 
 def test_balance_use_case_returns_unavailable_when_gateway_failed() -> None:
@@ -114,7 +116,12 @@ def test_balance_use_case_returns_unavailable_when_gateway_failed() -> None:
     gateway = FakeLoyaltyGateway(
         _GatewayBehavior(
             customer_sequence=[],
-            info_error=LoyaltyGatewayError("gateway failed"),
+            info_error=LoyaltyGatewayError(
+                "gateway failed",
+                reason_code="network_error",
+                endpoint="/loyalty/iiko/customer/info",
+                is_transient=True,
+            ),
         )
     )
     use_case = GetLoyaltyBalanceUseCase(gateway)
@@ -122,6 +129,11 @@ def test_balance_use_case_returns_unavailable_when_gateway_failed() -> None:
     result = use_case.execute(phone_e164="+79123456789")
 
     assert result.status == "balance_unavailable"
+    assert result.diagnostic_context is not None
+    assert "reason=network_error" in result.diagnostic_context
+    assert "endpoint=/loyalty/iiko/customer/info" in result.diagnostic_context
+    assert "transient=true" in result.diagnostic_context
+    assert "gateway failed" not in result.diagnostic_context
 
 
 def test_virtual_card_use_case_returns_existing_cards_without_issue() -> None:

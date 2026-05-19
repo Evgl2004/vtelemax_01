@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
+
+from loguru import logger
 
 from .guest_content import build_balance_screen
 from .loyalty_ports import (
@@ -37,6 +40,32 @@ class LoyaltyMenuResult:
     message: str
     parse_mode: str | None = None
     card_numbers: tuple[str, ...] = ()
+    diagnostic_context: str | None = None
+
+
+def _phone_hash(phone_e164: str) -> str:
+    """Возвращает короткий хеш телефона для логов без раскрытия PII."""
+
+    return hashlib.sha256(str(phone_e164).encode("utf-8")).hexdigest()[:12]
+
+
+def _format_gateway_diagnostic(error: LoyaltyGatewayError) -> str:
+    """Формирует безопасный diagnostic context для внутренних тикетов и логов."""
+
+    parts = [
+        "code=IIKO-BAL-001",
+        f"reason={getattr(error, 'reason_code', 'unknown')}",
+    ]
+    endpoint = getattr(error, "endpoint", None)
+    if endpoint:
+        parts.append(f"endpoint={endpoint}")
+    status_code = getattr(error, "status_code", None)
+    if status_code is not None:
+        parts.append(f"status_code={status_code}")
+    is_transient = getattr(error, "is_transient", None)
+    if is_transient is not None:
+        parts.append(f"transient={str(bool(is_transient)).lower()}")
+    return "; ".join(parts)
 
 
 class GetLoyaltyBalanceUseCase:
@@ -52,13 +81,36 @@ class GetLoyaltyBalanceUseCase:
         if not normalized_phone:
             raise ValueError("Телефон пользователя не может быть пустым.")
 
+        balance_logger = logger.bind(component="loyalty_use_case", stage="balance")
+        safe_phone_hash = _phone_hash(normalized_phone)
+
         try:
             customer = self._loyalty_gateway.get_customer_info(normalized_phone)
-        except LoyaltyGatewayError:
-            return LoyaltyMenuResult(status="balance_unavailable", message=_BALANCE_UNAVAILABLE_TEXT)
+        except LoyaltyGatewayError as error:
+            diagnostic_context = _format_gateway_diagnostic(error)
+            balance_logger.warning(
+                "Баланс недоступен: ошибка шлюза iiko. diagnostic={diagnostic}, phone_hash={phone_hash}.",
+                diagnostic=diagnostic_context,
+                phone_hash=safe_phone_hash,
+            )
+            return LoyaltyMenuResult(
+                status="balance_unavailable",
+                message=_BALANCE_UNAVAILABLE_TEXT,
+                diagnostic_context=diagnostic_context,
+            )
 
         if customer is None:
-            return LoyaltyMenuResult(status="balance_unavailable", message=_BALANCE_UNAVAILABLE_TEXT)
+            diagnostic_context = "code=IIKO-BAL-001; reason=customer_not_found; transient=false"
+            balance_logger.warning(
+                "Баланс недоступен: клиент не найден в iiko. diagnostic={diagnostic}, phone_hash={phone_hash}.",
+                diagnostic=diagnostic_context,
+                phone_hash=safe_phone_hash,
+            )
+            return LoyaltyMenuResult(
+                status="balance_unavailable",
+                message=_BALANCE_UNAVAILABLE_TEXT,
+                diagnostic_context=diagnostic_context,
+            )
 
         screen = build_balance_screen(balance=float(customer.balance))
         return LoyaltyMenuResult(

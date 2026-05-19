@@ -143,7 +143,12 @@ class AlwaysFailLoyaltyGateway(LoyaltyGateway):
     """Тестовый шлюз, который всегда возвращает ошибку iiko."""
 
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
-        raise LoyaltyGatewayError("temporary unavailable")
+        raise LoyaltyGatewayError(
+            "temporary unavailable",
+            reason_code="network_error",
+            endpoint="/loyalty/iiko/customer/info",
+            is_transient=True,
+        )
 
     def register_customer(
         self,
@@ -587,6 +592,15 @@ def test_telegram_balance_error_creates_automatic_support_ticket() -> None:
     assert "IIKO-BAL-001" in result.message
     assert len(tickets) == 1
     assert tickets[0].status.value == "open"
+    messages = support_repository.list_messages(tickets[0].ticket_id)
+    assert len(messages) == 1
+    ticket_body = messages[0].body
+    assert "Диагностика для техспециалиста" in ticket_body
+    assert "reason=network_error" in ticket_body
+    assert "endpoint=/loyalty/iiko/customer/info" in ticket_body
+    assert "transient=true" in ticket_body
+    assert "temporary unavailable" not in ticket_body
+    assert "+79123456789" not in ticket_body
 
 
 def test_telegram_adapter_returns_virtual_card_from_loyalty_use_case() -> None:

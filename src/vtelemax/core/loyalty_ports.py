@@ -71,7 +71,26 @@ class LoyaltyIssueCardResult:
 
 
 class LoyaltyGatewayError(RuntimeError):
-    """Ошибки обращения к внешней бонусной системе."""
+    """Ошибки обращения к внешней бонусной системе.
+
+    Дополнительные поля нужны только для внутренней диагностики. Они не должны
+    содержать телефон, тело ответа iiko, токены или другие чувствительные данные.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str = "unknown",
+        endpoint: str | None = None,
+        status_code: int | None = None,
+        is_transient: bool | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.endpoint = endpoint
+        self.status_code = status_code
+        self.is_transient = is_transient
 
 
 class LoyaltyGateway(Protocol):
