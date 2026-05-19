@@ -130,6 +130,15 @@ def test_migration_0015_allows_used_after_campaign_coupon_status() -> None:
     assert "USED_AFTER_CAMPAIGN" in upper
 
 
+def test_migration_0016_adds_coupon_valid_until_column() -> None:
+    migration_file = _PROJECT_ROOT / "migrations" / "sql" / "0016_sagur_coupons_valid_until.sql"
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "ADD COLUMN IF NOT EXISTS VALID_UNTIL" in upper
+    assert "TIMESTAMPTZ" in upper
+
+
 def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
     """Проверяет, что миграция применяется один раз и не выполняется повторно."""
 

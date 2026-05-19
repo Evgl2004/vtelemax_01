@@ -454,6 +454,7 @@ class PersonCouponRow(Base):
     )
     venue_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     promo_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     last_event_id: Mapped[UUID | None] = mapped_column(

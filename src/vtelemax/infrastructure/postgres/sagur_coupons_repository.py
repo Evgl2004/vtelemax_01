@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, select
@@ -27,6 +27,29 @@ _COUPON_NON_REASSIGNABLE_STATUSES = _COUPON_ACTIVE_STATUSES | {
 }
 
 
+def _parse_optional_rfc3339_datetime(value: object | None, *, field_name: str) -> datetime | None:
+    """Parses optional ISO-8601 datetime with timezone from SAGUR payload."""
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        raw_value = str(value).strip()
+        if not raw_value:
+            return None
+        if raw_value.endswith("Z"):
+            raw_value = raw_value[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"payload.{field_name} must be ISO-8601 datetime") from exc
+
+    if parsed.tzinfo is None:
+        raise ValueError(f"payload.{field_name} must contain timezone")
+    return parsed.astimezone(timezone.utc)
+
+
 class CouponAlreadyAssignedError(ValueError):
     """Raised when SAGUR tries to assign a non-released coupon again."""
 
@@ -44,6 +67,7 @@ class IncomingCouponPayload:
     venue_code: str
     venue_name: str | None
     promo_text: str | None
+    valid_until: datetime | None
     status: str
     vtelemax_sync_status: str | None
 
@@ -85,6 +109,10 @@ class IncomingCouponPayload:
             venue_code=venue_code,
             venue_name=_s(payload.get("venue_name")),
             promo_text=_s(payload.get("promo_text")),
+            valid_until=_parse_optional_rfc3339_datetime(
+                payload.get("valid_until"),
+                field_name="valid_until",
+            ),
             status=status,
             vtelemax_sync_status=_s(payload.get("vtelemax_sync_status")),
         )
@@ -111,6 +139,7 @@ class CouponUiItem:
     venue_code: str
     venue_name: str | None
     promo_text: str | None
+    valid_until: datetime | None
     status: str
     is_visible: bool
     updated_at: datetime
@@ -221,6 +250,7 @@ class SQLAlchemySagurCouponsRepository:
                     venue_code=venue_code,
                     venue_name=payload.venue_name,
                     promo_text=payload.promo_text,
+                    valid_until=payload.valid_until,
                     status=payload.status,
                     is_visible=is_visible,
                     last_event_id=event_id,
@@ -232,6 +262,8 @@ class SQLAlchemySagurCouponsRepository:
         existing_coupon.venue_code = venue_code
         existing_coupon.venue_name = payload.venue_name
         existing_coupon.promo_text = payload.promo_text
+        if direction == "assignments" or payload.valid_until is not None:
+            existing_coupon.valid_until = payload.valid_until
         existing_coupon.status = payload.status
         existing_coupon.is_visible = is_visible
         existing_coupon.last_event_id = event_id
@@ -333,6 +365,7 @@ def _to_coupon_ui_item(row: PersonCouponRow) -> CouponUiItem:
         venue_code=row.venue_code,
         venue_name=row.venue_name,
         promo_text=row.promo_text,
+        valid_until=row.valid_until,
         status=row.status,
         is_visible=bool(row.is_visible),
         updated_at=row.updated_at,

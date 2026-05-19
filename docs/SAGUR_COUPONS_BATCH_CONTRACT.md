@@ -107,6 +107,28 @@ SHA256(BODY)
 Legacy-подпись без hash тела сохранена для обратной совместимости существующих
 SAGUR endpoint.
 
+## Поле valid_until
+
+Для направления `assignments` vtelemax поддерживает отдельное machine-readable поле срока действия купона:
+
+```json
+{
+  "event_id": "6f8c2b8d-13d0-4b0f-8f72-2e2fda7fd001",
+  "coupon_series": "E2E_SAMI_20260516_0732",
+  "coupon_code": "E2E-OVT89GWN",
+  "valid_until": "2026-05-18T23:59:59+05:00"
+}
+```
+
+Семантика:
+
+- поле передается в каждом `assignments` item;
+- формат: ISO-8601/RFC3339 с timezone;
+- vtelemax сохраняет значение в `person_coupons.valid_until`;
+- карточка купона показывает гостю срок действия из `valid_until`, а не пытается извлекать дату из `promo_text`;
+- `status_update` может не передавать `valid_until`, если срок действия не менялся;
+- `expired` остается отдельным статусным событием и отвечает за скрытие купона из активного списка.
+
 ## Статусы купонов
 
 `assignments`:

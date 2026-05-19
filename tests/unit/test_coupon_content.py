@@ -35,6 +35,7 @@ class _Coupon:
     venue_code: str
     venue_name: str | None
     promo_text: str | None
+    valid_until: datetime | None
     status: str
     is_visible: bool
     updated_at: datetime
@@ -48,6 +49,7 @@ def _coupon(
     venue_code: str = "nani",
     venue_name: str | None = "Грузинка Нани",
     promo_text: str | None = "Подарочный десерт",
+    valid_until: datetime | None = None,
 ) -> _Coupon:
     return _Coupon(
         coupon_id=UUID("11111111-1111-4111-8111-111111111111"),
@@ -57,6 +59,7 @@ def _coupon(
         venue_code=venue_code,
         venue_name=venue_name,
         promo_text=promo_text,
+        valid_until=valid_until,
         status=status,
         is_visible=is_visible,
         updated_at=datetime(2026, 5, 15, 8, 30, tzinfo=timezone.utc),
@@ -196,6 +199,22 @@ def test_coupon_card_view_html_markup_uses_bold_labels_and_code_tag() -> None:
     assert "Десерт &lt;в подарок&gt;" in view.text
     assert "Кафе &quot;Нани&quot;" in view.text
     assert "<code>PROMO-2026-7777</code>" in view.text
+
+
+def test_coupon_card_view_shows_valid_until_from_machine_readable_field() -> None:
+    """Проверяет, что срок действия берется из поля valid_until, а не из текста акции."""
+
+    view = build_coupon_card_view_for_markup(
+        _coupon(
+            "PROMO-2026-7777",
+            promo_text="Скидка без даты в тексте",
+            valid_until=datetime(2026, 5, 18, 18, 59, 59, tzinfo=timezone.utc),
+        ),
+        markup="html",
+    )
+
+    assert view is not None
+    assert "⏳ <b>Действует до:</b> 18.05.2026" in view.text
 
 
 def test_coupon_card_view_uses_public_fallback_text_without_integration_name() -> None:

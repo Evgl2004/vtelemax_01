@@ -87,6 +87,12 @@ def test_person_coupons_allow_used_after_campaign_status() -> None:
     assert "used_after_campaign" in check_constraints["ck_person_coupons_status_allowed"]
 
 
+def test_person_coupons_has_valid_until_column() -> None:
+    """Проверяет наличие нормализованного срока действия купона."""
+
+    assert "valid_until" in PersonCouponRow.__table__.columns
+
+
 def test_foreign_keys_point_to_persons_table() -> None:
     """Проверяет внешние ключи `phones` и `platform_accounts` на `persons`."""
 

@@ -670,6 +670,15 @@ async def test_coupons_events_handler_accepts_batch_and_returns_results(
 
     assert [coupon.coupon_code for coupon in first_coupons] == ["BATCH-0001"]
     assert [coupon.coupon_code for coupon in second_coupons] == ["BATCH-0002"]
+    assert _as_aware_utc(first_coupons[0].valid_until) == datetime(
+        2026,
+        5,
+        18,
+        18,
+        59,
+        59,
+        tzinfo=timezone.utc,
+    )
 
 
 @pytest.mark.asyncio
@@ -1046,6 +1055,7 @@ def _coupon_batch_item(
     coupon_code: str,
     status: str = "reserved",
     venue_code: str | None = "nani",
+    valid_until: str | None = "2026-05-18T23:59:59+05:00",
     meta: dict[str, object] | None = None,
 ) -> dict[str, object]:
     item: dict[str, object] = {
@@ -1062,6 +1072,16 @@ def _coupon_batch_item(
     }
     if venue_code is not None:
         item["venue_code"] = venue_code
+    if valid_until is not None and status in {"reserved", "sent"}:
+        item["valid_until"] = valid_until
     if meta is not None:
         item["meta"] = meta
     return item
+
+
+def _as_aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

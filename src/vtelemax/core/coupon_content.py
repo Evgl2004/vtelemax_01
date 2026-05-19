@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, Protocol
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 GLOBAL_COUPON_VENUE_CODE = "__global__"
 GLOBAL_COUPON_SCOPE_KEY = "global"
@@ -19,6 +20,7 @@ COUPON_ACTIVE_STATUSES = frozenset({"reserved", "sent"})
 COUPON_INACTIVE_STATUSES = frozenset(
     {"used", "used_after_campaign", "expired", "canceled", "error"}
 )
+_LOCAL_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
 
 
 class CouponVenueLike(Protocol):
@@ -39,6 +41,7 @@ class CouponItemLike(Protocol):
     venue_code: str
     venue_name: str | None
     promo_text: str | None
+    valid_until: datetime | None
     status: str
     is_visible: bool
     updated_at: datetime
@@ -223,6 +226,7 @@ def build_coupon_card_view_for_markup(
     tail4 = coupon_tail4(coupon_code)
     promo_text = str(coupon.promo_text or "").strip() or "Персональное предложение"
     venue_name = _resolve_coupon_venue_name(coupon)
+    valid_until_text = _format_coupon_valid_until(getattr(coupon, "valid_until", None))
 
     if markup == "html":
         lines = [
@@ -235,6 +239,13 @@ def build_coupon_card_view_for_markup(
             "",
             f"🔢 <b>Код купона:</b> <code>{html.escape(coupon_code)}</code>",
         ]
+        if valid_until_text:
+            lines.extend(
+                [
+                    "",
+                    f"⏳ <b>Действует до:</b> {html.escape(valid_until_text)}",
+                ]
+            )
     else:
         lines = [
             "🎟️ Купон открыт",
@@ -246,6 +257,13 @@ def build_coupon_card_view_for_markup(
             "",
             f"🔢 Код купона: {coupon_code}",
         ]
+        if valid_until_text:
+            lines.extend(
+                [
+                    "",
+                    f"⏳ Действует до: {valid_until_text}",
+                ]
+            )
 
     lines.extend(
         [
@@ -317,3 +335,14 @@ def _format_coupon_datetime(value: datetime | None) -> str | None:
     if normalized.tzinfo is None:
         normalized = normalized.replace(tzinfo=timezone.utc)
     return normalized.strftime("%d.%m.%Y %H:%M")
+
+
+def _format_coupon_valid_until(value: datetime | None) -> str | None:
+    """Formats coupon validity deadline for guest-facing bot UI."""
+
+    if value is None:
+        return None
+    normalized = value
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    return normalized.astimezone(_LOCAL_TIMEZONE).strftime("%d.%m.%Y")

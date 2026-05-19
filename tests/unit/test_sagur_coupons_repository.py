@@ -285,6 +285,60 @@ def test_apply_event_flushes_coupon_event_before_coupon_row_for_fk_order() -> No
         assert rows[0].last_event_id == event_id
 
 
+def test_assignments_store_valid_until_and_status_update_preserves_it_when_missing() -> None:
+    """Проверяет хранение срока действия купона из machine-readable поля valid_until."""
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    session_factory = build_session_factory(engine)
+    person_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    coupon_code = "VALID-UNTIL-0001"
+    now = datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc)
+    expected_valid_until = datetime(2026, 5, 18, 18, 59, 59, tzinfo=timezone.utc)
+
+    with session_factory() as session:
+        session.add(PersonRow(person_id=person_id))
+        session.commit()
+
+        repository = SQLAlchemySagurCouponsRepository(session)
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="assignments",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(person_id),
+                "coupon_series": "SER-VALID",
+                "coupon_code": coupon_code,
+                "venue_code": "susami",
+                "venue_name": "Сами Сусами",
+                "promo_text": "Кофе по купону",
+                "status": "reserved",
+                "valid_until": "2026-05-18T23:59:59+05:00",
+            },
+        )
+        session.commit()
+
+        row = _person_coupon_rows(session, coupon_code=coupon_code)[0]
+        assert _as_aware_utc(row.valid_until) == expected_valid_until
+
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="status_update",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(person_id),
+                "coupon_series": "SER-VALID",
+                "coupon_code": coupon_code,
+                "status": "used",
+            },
+        )
+        session.commit()
+
+        row = _person_coupon_rows(session, coupon_code=coupon_code)[0]
+        assert row.status == "used"
+        assert _as_aware_utc(row.valid_until) == expected_valid_until
+
+
 def test_assignments_rejects_reuse_of_used_coupon_without_release() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
@@ -468,3 +522,11 @@ def _person_coupon_rows(session: Session, *, coupon_code: str) -> tuple[PersonCo
         .order_by(PersonCouponRow.created_at.asc())
     ).scalars()
     return tuple(rows)
+
+
+def _as_aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
