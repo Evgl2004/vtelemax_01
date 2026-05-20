@@ -255,6 +255,7 @@ def build_sql(args: argparse.Namespace, window_start_utc: datetime, window_end_u
     platform = sql_literal(args.platform)
     external_id = sql_literal(args.external_id)
     phone = sql_literal(args.phone_e164)
+    error_codes = "ARRAY[" + ", ".join(sql_literal(code) for code in args.error_codes) + "]"
     error_code_patterns = "ARRAY[" + ", ".join(sql_literal(f"%{code}%") for code in args.error_codes) + "]"
     ticket_suffix = sql_literal(args.ticket_suffix.upper())
     window_start = sql_literal(window_start_utc.isoformat())
@@ -357,9 +358,10 @@ WHERE st.created_at BETWEEN {window_start}::timestamptz AND {window_end}::timest
    OR tm.bodies ILIKE ANY ({error_code_patterns})
 ORDER BY st.created_at;
 
-\\echo [5] Same iiko error codes for other guests in the window
+\\echo [5] Same iiko error codes for other tickets in the window
 SELECT
-    sm.created_at,
+    min(sm.created_at) AS first_matched_at,
+    max(sm.created_at) AS last_matched_at,
     right(st.ticket_id::text, 4) AS ticket_suffix,
     st.ticket_id,
     st.status,
@@ -367,13 +369,22 @@ SELECT
     st.last_guest_platform,
     st.last_guest_external_id,
     ph.phone_e164,
-    left(sm.body, 900) AS body_preview
+    count(DISTINCT sm.message_id) AS matched_messages_count,
+    string_agg(DISTINCT matched.code, ', ' ORDER BY matched.code) AS matched_error_codes,
+    (array_agg(left(sm.body, 900) ORDER BY sm.created_at))[1] AS first_body_preview
 FROM support_messages sm
 JOIN support_tickets st ON st.ticket_id = sm.ticket_id
 LEFT JOIN phones ph ON ph.person_id = st.person_id
+JOIN LATERAL unnest({error_codes}) AS matched(code) ON sm.body ILIKE '%' || matched.code || '%'
 WHERE sm.created_at BETWEEN {window_start}::timestamptz AND {window_end}::timestamptz
-  AND sm.body ILIKE ANY ({error_code_patterns})
-ORDER BY sm.created_at;
+GROUP BY
+    st.ticket_id,
+    st.status,
+    st.source_platform,
+    st.last_guest_platform,
+    st.last_guest_external_id,
+    ph.phone_e164
+ORDER BY first_matched_at;
 
 \\echo [6] Profile sync queue for target person and window
 WITH target AS (

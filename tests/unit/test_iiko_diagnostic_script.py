@@ -90,5 +90,9 @@ def test_build_sql_searches_all_error_codes_read_only() -> None:
     assert "BEGIN READ ONLY" in sql
     assert "ROLLBACK" in sql
     assert "ILIKE ANY" in sql
+    assert "Same iiko error codes for other tickets" in sql
+    assert "count(DISTINCT sm.message_id) AS matched_messages_count" in sql
+    assert "string_agg(DISTINCT matched.code" in sql
+    assert "GROUP BY\n    st.ticket_id" in sql
     assert "%IIKO-BAL-001%" in sql
     assert "%IIKO-CARD-001%" in sql
