@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Read-only диагностика инцидентов баланса iiko.
+"""Read-only диагностика инцидентов iiko в разделах лояльности.
 
-Скрипт собирает факты для ошибки вида `IIKO-BAL-001`: identity, профиль,
-тикеты, соседние ошибки, runtime-конфиг iiko и логи контейнеров за окно
-инцидента. Все SQL-запросы выполняются внутри транзакции `READ ONLY`.
+Скрипт собирает факты для ошибок вида `IIKO-BAL-*` и `IIKO-CARD-*`: identity,
+профиль, тикеты, соседние ошибки, runtime-конфиг iiko и логи контейнеров за
+окно инцидента. Все SQL-запросы выполняются внутри транзакции `READ ONLY`.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shlex
 import subprocess
@@ -26,20 +25,43 @@ from zoneinfo import ZoneInfo
 DEFAULT_PROJECT_DIR = "/var/www/vtelemax"
 DEFAULT_BASE_URL = "https://api-ru.iiko.services/api/1"
 SAFE_PLATFORMS = {"telegram", "vk", "max"}
+DEFAULT_ERROR_CODE = "IIKO-BAL-001"
+KNOWN_IIKO_ERROR_CODES: dict[str, str] = {
+    "IIKO-BAL-000": "Баланс: use-case не подключен, локальная интеграция выключена/недоступна.",
+    "IIKO-BAL-001": "Баланс: клиент не найден в iiko или запрос customer/info завершился ошибкой.",
+    "IIKO-CARD-000": "Виртуальная карта: use-case не подключен, локальная интеграция выключена/недоступна.",
+    "IIKO-CARD-001": "Виртуальная карта: не удалось получить customer/info перед показом карты.",
+    "IIKO-CARD-002": "Виртуальная карта: не удалось создать/зарегистрировать клиента в iiko.",
+    "IIKO-CARD-003": "Виртуальная карта: не удалось выпустить карту в iiko.",
+    "IIKO-CARD-004": "Виртуальная карта: не удалось обновить профиль клиента в iiko.",
+}
 
 
 def parse_args() -> argparse.Namespace:
     """Разбирает минимальный набор параметров расследования."""
 
     parser = argparse.ArgumentParser(
-        description="Собрать read-only отчет по ошибке получения баланса iiko.",
+        description="Собрать read-only отчет по ошибкам iiko в разделах лояльности.",
+    )
+    parser.add_argument(
+        "--list-known-codes",
+        action="store_true",
+        help="Показать известные IIKO-коды и завершить работу без обращения к БД.",
     )
     parser.add_argument("--platform", default="telegram", choices=sorted(SAFE_PLATFORMS))
-    parser.add_argument("--external-id", required=True)
+    parser.add_argument("--external-id", default="")
     parser.add_argument("--phone-e164", default="")
     parser.add_argument("--ticket-suffix", default="")
-    parser.add_argument("--error-code", default="IIKO-BAL-001")
-    parser.add_argument("--incident-local", required=True, help="Например: 2026-05-19 12:05:41")
+    parser.add_argument(
+        "--error-code",
+        action="append",
+        default=None,
+        help=(
+            "Код для поиска. Можно указать несколько раз или через запятую. "
+            f"По умолчанию: {DEFAULT_ERROR_CODE}."
+        ),
+    )
+    parser.add_argument("--incident-local", default="", help="Например: 2026-05-19 12:05:41")
     parser.add_argument("--timezone", default="Asia/Yekaterinburg")
     parser.add_argument("--window-minutes", type=int, default=30)
     parser.add_argument("--project-dir", default=DEFAULT_PROJECT_DIR)
@@ -53,17 +75,50 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_error_codes(raw_values: list[str] | None) -> tuple[str, ...]:
+    """Нормализует один или несколько кодов ошибок из CLI."""
+
+    values = raw_values or [DEFAULT_ERROR_CODE]
+    normalized_codes: list[str] = []
+    for raw_value in values:
+        for raw_code in str(raw_value).split(","):
+            code = raw_code.strip().upper()
+            if not code:
+                continue
+            if not re.fullmatch(r"IIKO-[A-Z]+-\d{3}", code):
+                raise SystemExit(f"Некорректный --error-code: {raw_code}.")
+            if code not in normalized_codes:
+                normalized_codes.append(code)
+
+    if not normalized_codes:
+        raise SystemExit("Нужно указать хотя бы один --error-code.")
+    return tuple(normalized_codes)
+
+
+def render_known_codes() -> str:
+    """Возвращает справочник известных iiko-кодов для консоли и документации."""
+
+    lines = ["Известные коды iiko:"]
+    for code, description in KNOWN_IIKO_ERROR_CODES.items():
+        lines.append(f"- {code}: {description}")
+    return "\n".join(lines)
+
+
 def validate_args(args: argparse.Namespace) -> None:
     """Проверяет параметры до обращения к БД и docker."""
 
+    args.error_codes = normalize_error_codes(args.error_code)
+    args.primary_error_code = args.error_codes[0]
+    if not args.external_id:
+        raise SystemExit("Нужно указать --external-id.")
+    if not args.incident_local:
+        raise SystemExit("Нужно указать --incident-local.")
     if not re.fullmatch(r"[A-Za-z0-9:_@.+-]{1,128}", args.external_id):
         raise SystemExit("Некорректный --external-id.")
     if args.phone_e164 and not re.fullmatch(r"\+\d{10,15}", args.phone_e164):
         raise SystemExit("Некорректный --phone-e164. Нужен E.164, например +79829303027.")
     if args.ticket_suffix and not re.fullmatch(r"[A-Fa-f0-9]{1,12}", args.ticket_suffix):
         raise SystemExit("Некорректный --ticket-suffix.")
-    if not re.fullmatch(r"IIKO-[A-Z]+-\d{3}", args.error_code):
-        raise SystemExit("Некорректный --error-code.")
     if args.window_minutes <= 0 or args.window_minutes > 24 * 60:
         raise SystemExit("--window-minutes должен быть от 1 до 1440.")
     if args.max_log_lines <= 0:
@@ -88,7 +143,8 @@ def default_report_path(args: argparse.Namespace) -> Path:
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_external_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", args.external_id)
-    return Path(f"/tmp/iiko_balance_incident_{safe_external_id}_{stamp}.txt")
+    safe_code = re.sub(r"[^A-Za-z0-9_.-]+", "_", getattr(args, "primary_error_code", DEFAULT_ERROR_CODE))
+    return Path(f"/tmp/iiko_incident_{safe_code}_{safe_external_id}_{stamp}.txt")
 
 
 def read_env_file(project_dir: Path) -> dict[str, str]:
@@ -199,7 +255,7 @@ def build_sql(args: argparse.Namespace, window_start_utc: datetime, window_end_u
     platform = sql_literal(args.platform)
     external_id = sql_literal(args.external_id)
     phone = sql_literal(args.phone_e164)
-    error_code = sql_literal(args.error_code)
+    error_code_patterns = "ARRAY[" + ", ".join(sql_literal(f"%{code}%") for code in args.error_codes) + "]"
     ticket_suffix = sql_literal(args.ticket_suffix.upper())
     window_start = sql_literal(window_start_utc.isoformat())
     window_end = sql_literal(window_end_utc.isoformat())
@@ -298,10 +354,10 @@ JOIN target t ON t.person_id = st.person_id
 LEFT JOIN ticket_messages tm ON tm.ticket_id = st.ticket_id
 WHERE st.created_at BETWEEN {window_start}::timestamptz AND {window_end}::timestamptz
    OR upper(right(st.ticket_id::text, 4)) = {ticket_suffix}
-   OR tm.bodies ILIKE '%' || {error_code} || '%'
+   OR tm.bodies ILIKE ANY ({error_code_patterns})
 ORDER BY st.created_at;
 
-\\echo [5] Same error code for other guests in the window
+\\echo [5] Same iiko error codes for other guests in the window
 SELECT
     sm.created_at,
     right(st.ticket_id::text, 4) AS ticket_suffix,
@@ -316,7 +372,7 @@ FROM support_messages sm
 JOIN support_tickets st ON st.ticket_id = sm.ticket_id
 LEFT JOIN phones ph ON ph.person_id = st.person_id
 WHERE sm.created_at BETWEEN {window_start}::timestamptz AND {window_end}::timestamptz
-  AND sm.body ILIKE '%' || {error_code} || '%'
+  AND sm.body ILIKE ANY ({error_code_patterns})
 ORDER BY sm.created_at;
 
 \\echo [6] Profile sync queue for target person and window
@@ -395,16 +451,19 @@ def collect_logs(
     _, output = run_command(command, cwd=project_dir, timeout_seconds=60)
 
     needles = {
-        args.error_code.lower(),
         args.external_id.lower(),
         args.phone_e164.lower(),
         "balance",
         "баланс",
+        "virtual_card",
+        "card",
+        "карта",
         "iiko",
         "ticket",
         "тикет",
         "loyalty",
     }
+    needles.update(code.lower() for code in args.error_codes)
     needles.discard("")
     matched_lines = []
     for line in output.splitlines():
@@ -508,6 +567,10 @@ def main() -> int:
     """Точка входа диагностического скрипта."""
 
     args = parse_args()
+    if args.list_known_codes:
+        print(render_known_codes())
+        return 0
+
     validate_args(args)
 
     project_dir = Path(args.project_dir).resolve()
@@ -520,14 +583,14 @@ def main() -> int:
 
     report: list[str] = []
     report.append(
-        "IIKO balance incident read-only report\n"
+        "IIKO loyalty incident read-only report\n"
         f"generated_at_utc={datetime.now(timezone.utc).isoformat()}\n"
         f"project_dir={project_dir}\n"
         f"platform={args.platform}\n"
         f"external_id={args.external_id}\n"
         f"phone_e164={args.phone_e164 or '<not provided>'}\n"
         f"ticket_suffix={args.ticket_suffix or '<not provided>'}\n"
-        f"error_code={args.error_code}\n"
+        f"error_codes={', '.join(args.error_codes)}\n"
         f"incident_local={incident_local.isoformat()}\n"
         f"incident_utc={incident_utc.isoformat()}\n"
         f"window_utc={window_start_utc.isoformat()} .. {window_end_utc.isoformat()}\n"
