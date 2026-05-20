@@ -316,13 +316,19 @@ JOIN target t ON t.person_id = pa.person_id
 ORDER BY pa.platform, pa.created_at;
 
 \\echo [3] Phone uniqueness check
+WITH target AS (
+    SELECT person_id
+    FROM platform_accounts
+    WHERE platform = {platform} AND external_id = {external_id}
+)
 SELECT
     ph.phone_e164,
     count(*) AS phones_rows,
     count(DISTINCT ph.person_id) AS persons_count,
     string_agg(ph.person_id::text, ', ' ORDER BY ph.person_id::text) AS person_ids
 FROM phones ph
-WHERE ({phone} = '' OR ph.phone_e164 = {phone})
+WHERE ({phone} <> '' AND ph.phone_e164 = {phone})
+   OR ({phone} = '' AND ph.person_id IN (SELECT person_id FROM target))
 GROUP BY ph.phone_e164
 ORDER BY ph.phone_e164;
 

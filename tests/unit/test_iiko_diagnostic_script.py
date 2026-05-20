@@ -96,3 +96,23 @@ def test_build_sql_searches_all_error_codes_read_only() -> None:
     assert "GROUP BY\n    st.ticket_id" in sql
     assert "%IIKO-BAL-001%" in sql
     assert "%IIKO-CARD-001%" in sql
+
+
+def test_build_sql_limits_phone_check_to_target_person_when_phone_missing() -> None:
+    """Проверяет, что отчет без телефона не разворачивает всю таблицу phones."""
+
+    args = argparse.Namespace(
+        platform="max",
+        external_id="210098639",
+        phone_e164="",
+        ticket_suffix="78A8",
+        error_codes=("IIKO-BAL-001",),
+    )
+    sql = diagnostic_script.build_sql(
+        args,
+        datetime(2026, 4, 22, 10, 0, tzinfo=timezone.utc),
+        datetime(2026, 4, 22, 10, 20, tzinfo=timezone.utc),
+    )
+
+    assert "OR ('' = '' AND ph.person_id IN (SELECT person_id FROM target))" in sql
+    assert "WHERE ('' = '' OR ph.phone_e164 = '')" not in sql
