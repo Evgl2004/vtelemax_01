@@ -521,12 +521,17 @@ async def _send_coupon_qr_message(*, ctx_api: Any, peer_id: int, response: VkAda
         qr_logger.warning("Не удалось загрузить QR купона в VK / Failed to upload coupon QR to VK.")
         return
 
-    await ctx_api.messages.send(
-        peer_id=peer_id,
-        random_id=0,
-        message=response.coupon_qr_caption or "🎟️ Купон",
-        attachment=attachment,
-    )
+    try:
+        await ctx_api.messages.send(
+            peer_id=peer_id,
+            random_id=0,
+            message=response.coupon_qr_caption or "🎟️ Купон",
+            attachment=attachment,
+        )
+    except Exception:  # noqa: BLE001
+        qr_logger.exception(
+            "Не удалось отправить QR купона вложением в VK / Failed to send coupon QR attachment in VK."
+        )
 
 
 def _extract_vk_peer_id(event: MessageEvent) -> int | None:

@@ -14,6 +14,7 @@ from vtelemax.adapters.vk.router import (
     _build_vk_photo_attachment,
     _is_message_not_modified_error,
     _normalize_vk_message,
+    _send_coupon_qr_message,
     _send_virtual_card_qr_messages,
     _upload_vk_png_for_messages,
     _with_virtual_card_delivery_notice,
@@ -223,6 +224,85 @@ async def test_send_virtual_card_qr_messages_sends_text_fallback_when_upload_fai
     assert fallback["peer_id"] == 12345
     assert "QR-код карты временно не удалось отправить" in fallback["message"]
     assert "79000000001_20260331" in fallback["message"]
+
+
+@pytest.mark.asyncio
+async def test_send_coupon_qr_message_sends_attachment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проверяет успешную отправку QR купона в VK."""
+
+    class _FakeMessages:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def send(self, **kwargs: object) -> None:
+            self.calls.append(kwargs)
+
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.messages = _FakeMessages()
+
+    async def _fake_upload_vk_png_for_messages(*, ctx_api, peer_id: int, image_bytes: bytes) -> str:  # noqa: ANN001
+        return "photo10_20_abc"
+
+    monkeypatch.setattr("vtelemax.adapters.vk.router.generate_qr_png_bytes", lambda _: b"png")
+    monkeypatch.setattr(
+        "vtelemax.adapters.vk.router._upload_vk_png_for_messages",
+        _fake_upload_vk_png_for_messages,
+    )
+
+    fake_api = _FakeApi()
+    await _send_coupon_qr_message(
+        ctx_api=fake_api,
+        peer_id=12345,
+        response=VkAdapterResponse(
+            text="Карточка купона",
+            coupon_qr_payload="PROMO-2026-7777",
+            coupon_qr_caption="🎟️ Купон • 7777",
+        ),
+    )
+
+    assert fake_api.messages.calls == [
+        {
+            "peer_id": 12345,
+            "random_id": 0,
+            "message": "🎟️ Купон • 7777",
+            "attachment": "photo10_20_abc",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_coupon_qr_message_does_not_raise_when_attachment_send_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Проверяет fallback-поведение: ошибка отправки QR купона не роняет текстовую карточку."""
+
+    class _FakeMessages:
+        async def send(self, **kwargs: object) -> None:
+            raise RuntimeError("messages.send failed")
+
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.messages = _FakeMessages()
+
+    async def _fake_upload_vk_png_for_messages(*, ctx_api, peer_id: int, image_bytes: bytes) -> str:  # noqa: ANN001
+        return "photo10_20_abc"
+
+    monkeypatch.setattr("vtelemax.adapters.vk.router.generate_qr_png_bytes", lambda _: b"png")
+    monkeypatch.setattr(
+        "vtelemax.adapters.vk.router._upload_vk_png_for_messages",
+        _fake_upload_vk_png_for_messages,
+    )
+
+    await _send_coupon_qr_message(
+        ctx_api=_FakeApi(),
+        peer_id=12345,
+        response=VkAdapterResponse(
+            text="Карточка купона",
+            coupon_qr_payload="PROMO-2026-7777",
+            coupon_qr_caption="🎟️ Купон • 7777",
+        ),
+    )
 
 
 def test_with_virtual_card_delivery_notice_replaces_inaccurate_qr_text() -> None:
