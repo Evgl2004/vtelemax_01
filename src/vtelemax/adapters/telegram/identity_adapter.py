@@ -1568,7 +1568,7 @@ class TelegramIdentityAdapter:
             message=card.text,
             parse_mode="HTML",
             coupon_qr_payload=card.qr_payload,
-            coupon_qr_caption=f"🎟️ Купон • {card.coupon_tail4}",
+            coupon_qr_caption=f"🎟️ Купон • {card.coupon_code}",
         )
 
     def _open_coupons_session(

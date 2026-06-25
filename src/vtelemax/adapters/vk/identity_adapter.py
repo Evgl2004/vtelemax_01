@@ -1315,7 +1315,7 @@ class VkIdentityAdapter:
             text=screen.text,
             screen=screen,
             coupon_qr_payload=card.qr_payload,
-            coupon_qr_caption=f"🎟️ Купон • {card.coupon_tail4}",
+            coupon_qr_caption=f"🎟️ Купон • {card.coupon_code}",
         )
 
     def _open_coupons_session(self, *, vk_user_id: int, stage: str) -> Session | None:

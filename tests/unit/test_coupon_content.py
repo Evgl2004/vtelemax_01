@@ -14,6 +14,7 @@ from vtelemax.core import (
     build_coupons_list_view,
     build_coupons_root_view,
     coupon_tail4,
+    coupon_tail6,
     is_coupon_delivery_text,
     is_coupon_visible_for_guest,
 )
@@ -39,6 +40,7 @@ class _Coupon:
     status: str
     is_visible: bool
     updated_at: datetime
+    coupon_title: str | None = None
 
 
 def _coupon(
@@ -50,6 +52,7 @@ def _coupon(
     venue_name: str | None = "Грузинка Нани",
     promo_text: str | None = "Подарочный десерт",
     valid_until: datetime | None = None,
+    coupon_title: str | None = None,
 ) -> _Coupon:
     return _Coupon(
         coupon_id=UUID("11111111-1111-4111-8111-111111111111"),
@@ -63,6 +66,7 @@ def _coupon(
         status=status,
         is_visible=is_visible,
         updated_at=datetime(2026, 5, 15, 8, 30, tzinfo=timezone.utc),
+        coupon_title=coupon_title,
     )
 
 
@@ -109,10 +113,10 @@ def test_coupons_root_view_returns_clear_empty_screen() -> None:
     assert "SAGUR" not in view.text
 
 
-def test_coupons_list_view_uses_coupon_tail4_and_filters_inactive_statuses() -> None:
-    """Проверяет подписи по последним 4 символам и скрытие неактивных купонов."""
+def test_coupons_list_view_uses_coupon_tail6_fallback_and_filters_inactive_statuses() -> None:
+    """Проверяет fallback по последним 6 символам и скрытие неактивных купонов."""
 
-    active_sent = _coupon("LONG-CODE-1234", status="sent")
+    active_sent = _coupon("LONG-CODE-123456", status="sent")
     active_reserved = _coupon("R-55", status="reserved")
     used = _coupon("USED-0001", status="used")
     used_after_campaign = _coupon("USED-LATE-0006", status="used_after_campaign")
@@ -136,8 +140,27 @@ def test_coupons_list_view_uses_coupon_tail4_and_filters_inactive_statuses() -> 
     )
 
     assert view.is_empty is False
-    assert [item.label for item in view.items] == ["🎟️ Купон • 1234", "🎟️ Купон • R-55"]
-    assert [item.coupon_tail4 for item in view.items] == ["1234", "R-55"]
+    assert [item.label for item in view.items] == ["🎟️ Купон • 123456", "🎟️ Купон • R-55"]
+    assert [item.coupon_tail4 for item in view.items] == ["3456", "R-55"]
+    assert [item.coupon_tail6 for item in view.items] == ["123456", "R-55"]
+
+
+def test_coupons_list_view_uses_coupon_title_when_present() -> None:
+    """Проверяет, что SAGUR title становится названием купона в списке."""
+
+    view = build_coupons_list_view(
+        scope_title="Сами Сусами",
+        coupons=(
+            _coupon(
+                "PROMO-2026-5P0B4C",
+                coupon_title="  Купон на сет «Канпети»  ",
+            ),
+        ),
+    )
+
+    assert view.is_empty is False
+    assert view.items[0].label == "Купон на сет «Канпети»"
+    assert view.items[0].display_title == "Купон на сет «Канпети»"
 
 
 def test_coupons_list_view_returns_empty_when_all_coupons_inactive() -> None:
@@ -171,6 +194,7 @@ def test_coupon_card_view_contains_guest_facing_qr_payload_and_coupon_attributes
 
     assert view is not None
     assert view.qr_payload == "PROMO-2026-7777"
+    assert view.coupon_code == "PROMO-2026-7777"
     assert view.coupon_tail4 == "7777"
     assert "Подарочный десерт" in view.text
     assert "Грузинка Нани" in view.text
@@ -246,6 +270,8 @@ def test_coupon_visibility_predicate_and_tail4_are_stable() -> None:
 
     assert coupon_tail4("ABCDEF") == "CDEF"
     assert coupon_tail4("123") == "123"
+    assert coupon_tail6("LONG-ABCDEF") == "ABCDEF"
+    assert coupon_tail6("5P0B4C") == "5P0B4C"
 
 
 def test_coupon_delivery_text_detector_is_conservative() -> None:

@@ -1203,7 +1203,7 @@ class MaxIdentityAdapter:
             screen=screen,
             parse_mode="html",
             coupon_qr_payload=card.qr_payload,
-            coupon_qr_caption=f"🎟️ Купон • {card.coupon_tail4}",
+            coupon_qr_caption=f"🎟️ Купон • {card.coupon_code}",
         )
 
     def _open_coupons_session(self, *, max_user_id: int, stage: str) -> Session | None:

@@ -37,6 +37,7 @@ class CouponItemLike(Protocol):
     coupon_id: UUID
     coupon_series: str
     coupon_code: str
+    coupon_title: str | None
     campaign_id: str | None
     venue_code: str
     venue_name: str | None
@@ -66,6 +67,8 @@ class CouponListItemView:
     coupon_id_hex: str
     label: str
     coupon_tail4: str
+    coupon_tail6: str
+    display_title: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +96,7 @@ class CouponCardView:
     text: str
     qr_payload: str
     coupon_tail4: str
+    coupon_code: str
 
 
 def is_coupon_visible_for_guest(*, status: str, is_visible: bool) -> bool:
@@ -191,7 +195,7 @@ def build_coupons_list_view(
     return CouponsListView(
         text=(
             f"🎟️ {title}\n\n"
-            "Выберите купон. В списке показываем последние 4 символа кода, "
+            "Выберите купон. Если названия нет, в списке показываем последние 6 символов кода, "
             "а полный QR отправим после открытия."
         ),
         items=items,
@@ -271,7 +275,12 @@ def build_coupon_card_view_for_markup(
             "Покажите QR-код сотруднику заведения. Если QR не считывается, можно назвать код купона.",
         ]
     )
-    return CouponCardView(text="\n".join(lines), qr_payload=coupon_code, coupon_tail4=tail4)
+    return CouponCardView(
+        text="\n".join(lines),
+        qr_payload=coupon_code,
+        coupon_tail4=tail4,
+        coupon_code=coupon_code,
+    )
 
 
 def coupon_tail4(coupon_code: str) -> str:
@@ -279,6 +288,13 @@ def coupon_tail4(coupon_code: str) -> str:
 
     normalized = str(coupon_code or "").strip()
     return normalized[-4:] if len(normalized) > 4 else normalized
+
+
+def coupon_tail6(coupon_code: str) -> str:
+    """Возвращает последние 6 символов кода купона для fallback-названия."""
+
+    normalized = str(coupon_code or "").strip()
+    return normalized[-6:] if len(normalized) > 6 else normalized
 
 
 def is_coupon_delivery_text(text: str) -> bool:
@@ -301,12 +317,23 @@ def is_coupon_delivery_text(text: str) -> bool:
 
 def _build_coupon_list_item(coupon: CouponItemLike) -> CouponListItemView:
     tail4 = coupon_tail4(coupon.coupon_code)
+    tail6 = coupon_tail6(coupon.coupon_code)
+    display_title = _resolve_coupon_display_title(coupon, coupon_tail6=tail6)
     return CouponListItemView(
         coupon_id=coupon.coupon_id,
         coupon_id_hex=coupon.coupon_id.hex,
-        label=f"🎟️ Купон • {tail4}",
+        label=display_title,
         coupon_tail4=tail4,
+        coupon_tail6=tail6,
+        display_title=display_title,
     )
+
+
+def _resolve_coupon_display_title(coupon: CouponItemLike, *, coupon_tail6: str) -> str:
+    title = str(getattr(coupon, "coupon_title", "") or "").strip()
+    if title:
+        return title
+    return f"🎟️ Купон • {coupon_tail6}"
 
 
 def _resolve_coupon_venue_name(coupon: CouponItemLike) -> str:

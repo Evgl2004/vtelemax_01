@@ -59,6 +59,7 @@ class _CouponItem:
     status: str
     is_visible: bool
     updated_at: datetime
+    coupon_title: str | None = None
 
 
 class _FakeCouponSession:
@@ -855,7 +856,7 @@ def test_vk_adapter_builds_coupon_root_scope_and_card(monkeypatch) -> None:
         coupon_id=coupon_id,
         person_id=UUID("33333333-3333-4333-8333-333333333333"),
         coupon_series="SER-A",
-        coupon_code="PROMO-2026-7777",
+        coupon_code="PROMO-2026-777777",
         campaign_id="CMP-1",
         venue_code="nani",
         venue_name="Грузинка Нани",
@@ -908,14 +909,14 @@ def test_vk_adapter_builds_coupon_root_scope_and_card(monkeypatch) -> None:
     coupon_list = adapter.handle_incoming(vk_user_id=1001, text="", payload=venue_payload)
     assert coupon_list.screen is not None
     assert coupon_list.screen.screen_id == "coupon_list"
-    assert coupon_list.screen.rows[0][0].label == "🎟️ Купон • 7777"
+    assert coupon_list.screen.rows[0][0].label == "🎟️ Купон • 777777"
 
     card_payload = coupon_list.screen.rows[0][0].payload
     card = adapter.handle_incoming(vk_user_id=1001, text="", payload=card_payload)
     assert card.screen is not None
     assert card.screen.screen_id == "coupon_card"
-    assert card.coupon_qr_payload == "PROMO-2026-7777"
-    assert card.coupon_qr_caption == "🎟️ Купон • 7777"
+    assert card.coupon_qr_payload == "PROMO-2026-777777"
+    assert card.coupon_qr_caption == "🎟️ Купон • PROMO-2026-777777"
     assert "Подарочный десерт" in card.text
     assert "SER-A" not in card.text
     assert "CMP-1" not in card.text

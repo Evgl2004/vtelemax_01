@@ -61,6 +61,7 @@ class _CouponItem:
     status: str
     is_visible: bool
     updated_at: datetime
+    coupon_title: str | None = None
 
 
 class _FakeCouponSession:
@@ -336,7 +337,7 @@ def test_telegram_adapter_builds_coupon_root_and_scope(monkeypatch) -> None:
         coupon_id=coupon_id,
         person_id=UUID("33333333-3333-4333-8333-333333333333"),
         coupon_series="SER-A",
-        coupon_code="PROMO-2026-1234",
+        coupon_code="PROMO-2026-123456",
         campaign_id="CMP-1",
         venue_code="nani",
         venue_name="Грузинка Нани",
@@ -391,7 +392,7 @@ def test_telegram_adapter_builds_coupon_root_and_scope(monkeypatch) -> None:
     coupon_list = adapter.handle_menu_action(telegram_user_id=1001, action_text=venue_callback)
 
     assert coupon_list.status == "coupon_list"
-    assert coupon_list.coupon_buttons == ((f"coupon_show:{coupon_id.hex}", "🎟️ Купон • 1234"),)
+    assert coupon_list.coupon_buttons == ((f"coupon_show:{coupon_id.hex}", "🎟️ Купон • 123456"),)
     assert "полный QR отправим после открытия" in coupon_list.message
 
 
@@ -448,7 +449,7 @@ def test_telegram_adapter_opens_coupon_card_with_qr_payload(monkeypatch) -> None
     assert result.status == "coupon_card"
     assert result.parse_mode == "HTML"
     assert result.coupon_qr_payload == "PROMO-2026-7777"
-    assert result.coupon_qr_caption == "🎟️ Купон • 7777"
+    assert result.coupon_qr_caption == "🎟️ Купон • PROMO-2026-7777"
     assert "Подарочный десерт" in result.message
     assert "Грузинка Нани" in result.message
     assert "<code>PROMO-2026-7777</code>" in result.message

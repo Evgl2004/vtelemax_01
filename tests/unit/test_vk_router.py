@@ -257,7 +257,7 @@ async def test_send_coupon_qr_message_sends_attachment(monkeypatch: pytest.Monke
         response=VkAdapterResponse(
             text="Карточка купона",
             coupon_qr_payload="PROMO-2026-7777",
-            coupon_qr_caption="🎟️ Купон • 7777",
+            coupon_qr_caption="🎟️ Купон • PROMO-2026-7777",
         ),
     )
 
@@ -265,7 +265,7 @@ async def test_send_coupon_qr_message_sends_attachment(monkeypatch: pytest.Monke
         {
             "peer_id": 12345,
             "random_id": 0,
-            "message": "🎟️ Купон • 7777",
+            "message": "🎟️ Купон • PROMO-2026-7777",
             "attachment": "photo10_20_abc",
         }
     ]
@@ -300,7 +300,7 @@ async def test_send_coupon_qr_message_does_not_raise_when_attachment_send_fails(
         response=VkAdapterResponse(
             text="Карточка купона",
             coupon_qr_payload="PROMO-2026-7777",
-            coupon_qr_caption="🎟️ Купон • 7777",
+            coupon_qr_caption="🎟️ Купон • PROMO-2026-7777",
         ),
     )
 

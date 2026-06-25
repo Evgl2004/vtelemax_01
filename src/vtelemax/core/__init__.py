@@ -23,6 +23,7 @@ from .coupon_content import (
     build_coupons_list_view,
     build_coupons_root_view,
     coupon_tail4,
+    coupon_tail6,
     is_coupon_delivery_text,
     is_coupon_visible_for_guest,
 )
@@ -216,6 +217,7 @@ __all__ = [
     "build_coupons_list_view",
     "build_coupons_root_view",
     "coupon_tail4",
+    "coupon_tail6",
     "is_coupon_delivery_text",
     "is_coupon_visible_for_guest",
     "IdentityRepository",
