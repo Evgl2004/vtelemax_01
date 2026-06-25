@@ -11,6 +11,7 @@ from vtelemax.core import (
     MenuButtonContract,
     OpenSupportTicketSummary,
     PersonSupportTicketSummary,
+    BUTTON_BACK_TO_MAIN,
     BUTTON_PROFILE_EDIT_CANCEL,
     build_about_screen,
     build_balance_screen,
@@ -135,13 +136,13 @@ class MaxGuestMenuAdapter:
         max_buttons = [_to_max_button(button) for button in screen.buttons]
         # Порядок кнопок из guest_content:
         # 0: Баланс, 1: Виртуальная карта, 2: Доставка, 3: Мне только спросить,
-        # 4: Вакансии, 5: Обратная связь, 6: Бизнес-ланч, 7: Бронь стола, 8: Профиль
+        # 4: Купоны, 5: Обратная связь, 6: Бизнес-ланч, 7: Бронь стола, 8: Профиль
         rows: list[tuple[MaxButton, ...]] = [
             (max_buttons[0], max_buttons[1]),                     # Баланс | Виртуальная карта
             (max_buttons[3],),                                   # Мне только спросить
             (max_buttons[5],),                                   # Обратная связь
             (max_buttons[6], max_buttons[7]),                     # Бизнес-ланч | Бронь стола
-            (max_buttons[2], max_buttons[4]),                     # Доставка | Вакансии
+            (max_buttons[2], max_buttons[4]),                     # Доставка | Купоны
             (max_buttons[8],),                                   # Профиль
         ]
         return MaxScreen(screen_id=screen.screen_id, text=screen.text, rows=tuple(rows))
@@ -392,8 +393,8 @@ class MaxGuestMenuAdapter:
         rows.append(
             (
                 MaxButton(
-                    label=BUTTON_PROFILE_EDIT_CANCEL,
-                    payload=build_max_payload(GuestMenuAction.PROFILE),
+                    label=BUTTON_BACK_TO_MAIN,
+                    payload=build_max_payload(GuestMenuAction.BACK_TO_MAIN),
                 ),
             )
         )

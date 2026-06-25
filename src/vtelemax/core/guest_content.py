@@ -344,7 +344,7 @@ def build_main_menu_screen(user_name: str = "Гость") -> MenuScreenContract:
             MenuButtonContract(action=GuestMenuAction.VIRTUAL_CARD, label=BUTTON_VIRTUAL_CARD),
             MenuButtonContract(action=GuestMenuAction.DELIVERY, label=BUTTON_DELIVERY),
             MenuButtonContract(action=GuestMenuAction.SUPPORT_QUESTION, label=BUTTON_SUPPORT_QUESTION),
-            MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
+            MenuButtonContract(action=GuestMenuAction.COUPONS, label=BUTTON_COUPONS),
             MenuButtonContract(
                 action=GuestMenuAction.SUPPORT_FEEDBACK,
                 label=BUTTON_SUPPORT_FEEDBACK,
@@ -552,7 +552,7 @@ def build_vacancies_screen() -> MenuScreenContract:
             "бренда Тюмени – переходи по ссылке и оставляй заявку!\n\n"
             "👉 https://team.sobolevalliance.su/vacancy"
         ),
-        buttons=(MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),),
+        buttons=(MenuButtonContract(action=GuestMenuAction.PROFILE, label=BUTTON_PROFILE_EDIT_CANCEL),),
         parse_mode="markdown",
     )
 
@@ -739,7 +739,7 @@ def build_profile_screen(
     buttons.extend(
         [
             MenuButtonContract(action=GuestMenuAction.PROFILE_EDIT, label=BUTTON_PROFILE_EDIT),
-            MenuButtonContract(action=GuestMenuAction.COUPONS, label=BUTTON_COUPONS),
+            MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
             MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
         ]
     )

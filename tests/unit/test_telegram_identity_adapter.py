@@ -711,7 +711,7 @@ def test_telegram_support_screen_marks_has_tickets_when_user_has_ticket() -> Non
 
 
 def test_telegram_adapter_returns_vacancies_screen_for_vacancies_action() -> None:
-    """Проверяет экран вакансий по кнопке главного меню."""
+    """Проверяет экран вакансий по кнопке профиля."""
 
     repository = InMemoryIdentityRepository()
     registration_use_case = RegisterOrAttachAccountTransactionalUseCase(

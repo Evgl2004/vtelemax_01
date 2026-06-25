@@ -37,6 +37,7 @@ class TestBuildDefaultLegacyBroadcastMessage:
         assert "🪪 Карта" in text
         assert "🚚 Доставка" in text
         assert "❓ Мне только спросить" in text
+        assert "🎟️ Купоны" in text
         assert "👤 Профиль" in text
 
 
@@ -234,4 +235,3 @@ class TestSendLegacyBroadcast:
         assert result.forbidden_errors == 1
         assert result.sent_messages == 0
         assert result.failed_messages == 1
-

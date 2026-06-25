@@ -38,9 +38,9 @@ def test_max_main_menu_contains_expected_first_buttons() -> None:
     # Строка 3: Бизнес-ланч | Бронь стола
     assert screen.rows[3][0].label == "🍽️ Бизнес-ланч"
     assert screen.rows[3][1].label == "🪑 Бронь стола"
-    # Строка 4: Доставка | Вакансии
+    # Строка 4: Доставка | Купоны
     assert screen.rows[4][0].label == "🚚 Доставка"
-    assert screen.rows[4][1].label == "💼 Вакансии"
+    assert screen.rows[4][1].label == "🎟️ Купоны"
     # Строка 5: Профиль
     assert screen.rows[5][0].label == "👤 Профиль"
 
@@ -146,8 +146,8 @@ def test_max_coupon_screens_use_dynamic_payloads_and_back_buttons() -> None:
     assert root.screen_id == "coupons_root"
     assert root.rows[0][0].payload == "coupon_scope:global"
     assert root.rows[1][0].payload == "coupon_scope:bnYW5p"
-    assert root.rows[-1][0].label == "🔙 Назад в профиль"
-    assert root.rows[-1][0].payload == GuestMenuAction.PROFILE.value
+    assert root.rows[-1][0].label == "🔙 Назад в меню"
+    assert root.rows[-1][0].payload == GuestMenuAction.BACK_TO_MAIN.value
 
     assert coupon_list.screen_id == "coupon_list"
     assert coupon_list.rows[0][0].payload == "coupon_show:22222222222242228222222222222222"

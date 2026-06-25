@@ -14,6 +14,7 @@ from vtelemax.core import (
     build_support_feedback_screen,
     build_support_menu_screen,
     resolve_guest_menu_action,
+    build_vacancies_screen,
 )
 
 
@@ -27,9 +28,10 @@ def test_main_menu_screen_contains_prototype_buttons() -> None:
     assert "🪪 Карта" in labels
     assert "🚚 Доставка" in labels
     assert "❓ Мне только спросить" in labels
-    assert "💼 Вакансии" in labels
+    assert "🎟️ Купоны" in labels
     assert "✍️ Оставить отзыв" in labels
     assert "👤 Профиль" in labels
+    assert "💼 Вакансии" not in labels
 
 
 def test_support_menu_screen_includes_my_tickets_only_when_requested() -> None:
@@ -120,6 +122,8 @@ def test_profile_screen_shows_enable_notifications_button_when_declined() -> Non
 
     assert actions[0] == GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE
     assert GuestMenuAction.PROFILE_EDIT in actions
+    assert GuestMenuAction.VACANCIES in actions
+    assert GuestMenuAction.COUPONS not in actions
     assert GuestMenuAction.BACK_TO_MAIN in actions
 
 
@@ -175,6 +179,16 @@ def test_delivery_screen_contains_expected_links() -> None:
     ]
     assert screen.buttons[4].action == GuestMenuAction.BACK_TO_MAIN
     assert screen.buttons[4].url is None
+
+
+def test_vacancies_screen_returns_to_profile_after_menu_swap() -> None:
+    """Проверяет возврат из вакансий в профиль после переноса пункта меню."""
+
+    screen = build_vacancies_screen()
+
+    assert screen.screen_id == "vacancies"
+    assert screen.buttons[0].action == GuestMenuAction.PROFILE
+    assert screen.buttons[0].label == "🔙 Назад в профиль"
 
 
 def test_help_screen_does_not_mention_menu_command() -> None:

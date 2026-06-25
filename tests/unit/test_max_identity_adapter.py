@@ -680,7 +680,8 @@ def test_max_adapter_returns_empty_coupon_screen(monkeypatch) -> None:
     assert response.screen is not None
     assert response.screen.screen_id == "coupons_root"
     assert len(response.screen.rows) == 1
-    assert response.screen.rows[0][0].label == "🔙 Назад в профиль"
+    assert response.screen.rows[0][0].label == "🔙 Назад в меню"
+    assert response.screen.rows[0][0].payload == "back_to_main"
     assert "активных купонов нет" in response.text
 
 

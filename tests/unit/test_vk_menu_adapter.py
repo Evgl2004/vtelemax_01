@@ -42,10 +42,10 @@ def test_vk_main_menu_contains_expected_first_buttons() -> None:
     assert len(screen.rows[3]) == 2
     assert screen.rows[3][0].label == "🍽️ Бизнес-ланч"
     assert screen.rows[3][1].label == "🪑 Бронь стола"
-    # Пятая строка: доставка и вакансии (две кнопки)
+    # Пятая строка: доставка и купоны (две кнопки)
     assert len(screen.rows[4]) == 2
     assert screen.rows[4][0].label == "🚚 Доставка"
-    assert screen.rows[4][1].label == "💼 Вакансии"
+    assert screen.rows[4][1].label == "🎟️ Купоны"
     # Шестая строка: профиль (одна кнопка)
     assert len(screen.rows[5]) == 1
     assert screen.rows[5][0].label == "👤 Профиль"
@@ -216,8 +216,8 @@ def test_vk_coupon_screens_use_dynamic_payloads_and_back_buttons() -> None:
     assert root.screen_id == "coupons_root"
     assert root.rows[0][0].payload == {"cmd": "coupon_scope:global"}
     assert root.rows[1][0].payload == {"cmd": "coupon_scope:bnYW5p"}
-    assert root.rows[-1][0].label == "🔙 Назад в профиль"
-    assert root.rows[-1][0].payload == {"cmd": GuestMenuAction.PROFILE.value}
+    assert root.rows[-1][0].label == "🔙 Назад в меню"
+    assert root.rows[-1][0].payload == {"cmd": GuestMenuAction.BACK_TO_MAIN.value}
 
     assert coupon_list.screen_id == "coupon_list"
     assert coupon_list.rows[0][0].payload == {"cmd": "coupon_show:22222222222242228222222222222222"}

@@ -11,6 +11,7 @@ from vtelemax.core import (
     MenuButtonContract,
     OpenSupportTicketSummary,
     PersonSupportTicketSummary,
+    BUTTON_BACK_TO_MAIN,
     BUTTON_BACK_TO_SUPPORT,
     BUTTON_PROFILE_EDIT_CANCEL,
     BUTTON_VK_MINIAPP_VERIFY_CHECK,
@@ -187,13 +188,13 @@ class VkGuestMenuAdapter:
         # и логическому объединению кнопок поддержки.
         # Порядок кнопок из guest_content:
         # 0: Баланс, 1: Виртуальная карта, 2: Доставка, 3: Мне только спросить,
-        # 4: Вакансии, 5: Обратная связь, 6: Бизнес-ланч, 7: Бронь стола, 8: Профиль
+        # 4: Купоны, 5: Обратная связь, 6: Бизнес-ланч, 7: Бронь стола, 8: Профиль
         rows: list[tuple[VkButton, ...]] = [
             (vk_buttons[0], vk_buttons[1]),                     # Баланс | Виртуальная карта
             (vk_buttons[3],),                                   # Мне только спросить
             (vk_buttons[5],),                                   # Обратная связь
             (vk_buttons[6], vk_buttons[7]),                     # Бизнес-ланч | Бронь стола
-            (vk_buttons[2], vk_buttons[4]),                     # Доставка | Вакансии
+            (vk_buttons[2], vk_buttons[4]),                     # Доставка | Купоны
             (vk_buttons[8],),                                   # Профиль
         ]
         return VkScreen(screen_id=screen.screen_id, text=screen.text, rows=tuple(rows))
@@ -484,8 +485,8 @@ class VkGuestMenuAdapter:
         rows.append(
             (
                 VkButton(
-                    label=BUTTON_PROFILE_EDIT_CANCEL,
-                    payload=build_vk_payload(GuestMenuAction.PROFILE),
+                    label=BUTTON_BACK_TO_MAIN,
+                    payload=build_vk_payload(GuestMenuAction.BACK_TO_MAIN),
                 ),
             )
         )

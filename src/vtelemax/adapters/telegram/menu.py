@@ -203,10 +203,10 @@ def build_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=BUTTON_BUSINESS_LUNCH, callback_data=_action_callback(GuestMenuAction.BUSINESS_LUNCH)),
                 InlineKeyboardButton(text=BUTTON_TABLE_BOOKING, callback_data=_action_callback(GuestMenuAction.TABLE_BOOKING)),
             ],
-            # Строка 5: Доставка | Вакансии
+            # Строка 5: Доставка | Купоны
             [
                 InlineKeyboardButton(text=BUTTON_DELIVERY, callback_data=_action_callback(GuestMenuAction.DELIVERY)),
-                InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES)),
+                InlineKeyboardButton(text=BUTTON_COUPONS, callback_data=_action_callback(GuestMenuAction.COUPONS)),
             ],
             # Строка 6: Профиль
             [InlineKeyboardButton(text=BUTTON_PROFILE, callback_data=_action_callback(GuestMenuAction.PROFILE))],
@@ -391,7 +391,7 @@ def build_profile_inline_keyboard(*, notifications_allowed: bool) -> InlineKeybo
     rows.extend(
         [
             [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT, callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT))],
-            [InlineKeyboardButton(text=BUTTON_COUPONS, callback_data=_action_callback(GuestMenuAction.COUPONS))],
+            [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
             [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))],
         ]
     )
@@ -420,7 +420,7 @@ def build_coupons_root_inline_keyboard(*, scope_buttons: tuple[tuple[str, str], 
         for callback_data, label in scope_buttons
     ]
     rows.append(
-        [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT_CANCEL, callback_data=_action_callback(GuestMenuAction.PROFILE))]
+        [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -562,7 +562,7 @@ def build_main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BUTTON_VIRTUAL_CARD)],
             [KeyboardButton(text=BUTTON_DELIVERY)],
             [KeyboardButton(text=BUTTON_SUPPORT_QUESTION)],
-            [KeyboardButton(text=BUTTON_VACANCIES)],
+            [KeyboardButton(text=BUTTON_COUPONS)],
             [KeyboardButton(text=BUTTON_SUPPORT_FEEDBACK)],
             [KeyboardButton(text=BUTTON_PROFILE)],
         ],

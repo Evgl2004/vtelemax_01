@@ -191,13 +191,13 @@ def test_build_main_menu_keyboard_contains_support_question_and_feedback_link() 
     assert row4[1].text == "🪑 Бронь стола"
     assert row4[1].callback_data == GuestMenuAction.TABLE_BOOKING.value
     
-    # Строка 5: Доставка | Вакансии (2 кнопки)
+    # Строка 5: Доставка | Купоны (2 кнопки)
     row5 = keyboard.inline_keyboard[4]
     assert len(row5) == 2
     assert row5[0].text == "🚚 Доставка"
     assert row5[0].callback_data == GuestMenuAction.DELIVERY.value
-    assert row5[1].text == "💼 Вакансии"
-    assert row5[1].callback_data == GuestMenuAction.VACANCIES.value
+    assert row5[1].text == "🎟️ Купоны"
+    assert row5[1].callback_data == GuestMenuAction.COUPONS.value
     
     # Строка 6: Профиль (1 кнопка)
     row6 = keyboard.inline_keyboard[5]
@@ -297,8 +297,8 @@ def test_build_coupon_keyboards_use_expected_callbacks() -> None:
 
     assert root_keyboard.inline_keyboard[0][0].callback_data == "coupon_scope:global"
     assert root_keyboard.inline_keyboard[1][0].callback_data == "coupon_scope:bnYW5p"
-    assert root_keyboard.inline_keyboard[-1][0].text == "🔙 Назад в профиль"
-    assert root_keyboard.inline_keyboard[-1][0].callback_data == GuestMenuAction.PROFILE.value
+    assert root_keyboard.inline_keyboard[-1][0].text == "🔙 Назад в меню"
+    assert root_keyboard.inline_keyboard[-1][0].callback_data == GuestMenuAction.BACK_TO_MAIN.value
 
     assert list_keyboard.inline_keyboard[0][0].callback_data == "coupon_show:22222222222242228222222222222222"
     assert list_keyboard.inline_keyboard[-1][0].text == "🔙 Назад к купонам"
