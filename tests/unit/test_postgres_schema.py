@@ -93,6 +93,12 @@ def test_person_coupons_has_valid_until_column() -> None:
     assert "valid_until" in PersonCouponRow.__table__.columns
 
 
+def test_person_coupons_has_coupon_title_column() -> None:
+    """Проверяет наличие пользовательского названия купона из SAGUR."""
+
+    assert "coupon_title" in PersonCouponRow.__table__.columns
+
+
 def test_foreign_keys_point_to_persons_table() -> None:
     """Проверяет внешние ключи `phones` и `platform_accounts` на `persons`."""
 

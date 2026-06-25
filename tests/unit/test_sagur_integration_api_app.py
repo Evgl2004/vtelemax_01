@@ -638,6 +638,7 @@ async def test_coupons_events_handler_accepts_batch_and_returns_results(
                     event_id=first_event_id,
                     person_id=first_person_id,
                     coupon_code="BATCH-0001",
+                    coupon_title="Купон на сет «Канпети»",
                 ),
                 _coupon_batch_item(
                     event_id=second_event_id,
@@ -670,6 +671,7 @@ async def test_coupons_events_handler_accepts_batch_and_returns_results(
 
     assert [coupon.coupon_code for coupon in first_coupons] == ["BATCH-0001"]
     assert [coupon.coupon_code for coupon in second_coupons] == ["BATCH-0002"]
+    assert first_coupons[0].coupon_title == "Купон на сет «Канпети»"
     assert _as_aware_utc(first_coupons[0].valid_until) == datetime(
         2026,
         5,
@@ -1056,6 +1058,7 @@ def _coupon_batch_item(
     status: str = "reserved",
     venue_code: str | None = "nani",
     valid_until: str | None = "2026-05-18T23:59:59+05:00",
+    coupon_title: str | None = None,
     meta: dict[str, object] | None = None,
 ) -> dict[str, object]:
     item: dict[str, object] = {
@@ -1074,6 +1077,8 @@ def _coupon_batch_item(
         item["venue_code"] = venue_code
     if valid_until is not None and status in {"reserved", "sent"}:
         item["valid_until"] = valid_until
+    if coupon_title is not None:
+        item["coupon_title"] = coupon_title
     if meta is not None:
         item["meta"] = meta
     return item

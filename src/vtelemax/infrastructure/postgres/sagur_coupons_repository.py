@@ -64,6 +64,7 @@ class IncomingCouponPayload:
     phone_e164: str | None
     coupon_series: str
     coupon_code: str
+    coupon_title: str | None
     venue_code: str
     venue_name: str | None
     promo_text: str | None
@@ -106,6 +107,7 @@ class IncomingCouponPayload:
             phone_e164=_s(payload.get("phone_e164")),
             coupon_series=coupon_series,
             coupon_code=coupon_code,
+            coupon_title=_s(payload.get("coupon_title")),
             venue_code=venue_code,
             venue_name=_s(payload.get("venue_name")),
             promo_text=_s(payload.get("promo_text")),
@@ -135,6 +137,7 @@ class CouponUiItem:
     person_id: UUID
     coupon_series: str
     coupon_code: str
+    coupon_title: str | None
     campaign_id: str | None
     venue_code: str
     venue_name: str | None
@@ -246,6 +249,7 @@ class SQLAlchemySagurCouponsRepository:
                     person_id=payload.person_id,
                     coupon_series=payload.coupon_series,
                     coupon_code=payload.coupon_code,
+                    coupon_title=payload.coupon_title,
                     campaign_id=payload.campaign_id,
                     venue_code=venue_code,
                     venue_name=payload.venue_name,
@@ -259,6 +263,8 @@ class SQLAlchemySagurCouponsRepository:
             return ApplyCouponEventResult(deduplicated=False, coupon_id=coupon_id)
 
         existing_coupon.campaign_id = payload.campaign_id
+        if payload.coupon_title is not None:
+            existing_coupon.coupon_title = payload.coupon_title
         existing_coupon.venue_code = venue_code
         existing_coupon.venue_name = payload.venue_name
         existing_coupon.promo_text = payload.promo_text
@@ -361,6 +367,7 @@ def _to_coupon_ui_item(row: PersonCouponRow) -> CouponUiItem:
         person_id=row.person_id,
         coupon_series=row.coupon_series,
         coupon_code=row.coupon_code,
+        coupon_title=row.coupon_title,
         campaign_id=row.campaign_id,
         venue_code=row.venue_code,
         venue_name=row.venue_name,

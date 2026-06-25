@@ -446,6 +446,7 @@ class PersonCouponRow(Base):
     )
     coupon_series: Mapped[str] = mapped_column(String(64), nullable=False)
     coupon_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    coupon_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     campaign_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     venue_code: Mapped[str] = mapped_column(
         String(64),

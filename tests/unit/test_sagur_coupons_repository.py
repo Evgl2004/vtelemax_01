@@ -334,9 +334,96 @@ def test_assignments_store_valid_until_and_status_update_preserves_it_when_missi
         )
         session.commit()
 
+    row = _person_coupon_rows(session, coupon_code=coupon_code)[0]
+    assert row.status == "used"
+    assert _as_aware_utc(row.valid_until) == expected_valid_until
+
+
+def test_coupon_title_is_stored_updated_and_not_erased_by_missing_status_update() -> None:
+    """Проверяет безопасное хранение пользовательского названия купона из SAGUR."""
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    session_factory = build_session_factory(engine)
+    person_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    coupon_code = "TITLE-2026-0001"
+    now = datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc)
+
+    with session_factory() as session:
+        session.add(PersonRow(person_id=person_id))
+        session.commit()
+
+        repository = SQLAlchemySagurCouponsRepository(session)
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="assignments",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(person_id),
+                "coupon_series": "SER-TITLE",
+                "coupon_code": coupon_code,
+                "coupon_title": "  Купон на сет «Канпети»  ",
+                "venue_code": "susami",
+                "venue_name": "Сами Сусами",
+                "status": "reserved",
+            },
+        )
+        session.commit()
+
         row = _person_coupon_rows(session, coupon_code=coupon_code)[0]
-        assert row.status == "used"
-        assert _as_aware_utc(row.valid_until) == expected_valid_until
+        assert row.coupon_title == "Купон на сет «Канпети»"
+        coupons = repository.list_visible_coupons(person_id=person_id, venue_code="susami")
+        assert coupons[0].coupon_title == "Купон на сет «Канпети»"
+
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="status_update",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(person_id),
+                "coupon_series": "SER-TITLE",
+                "coupon_code": coupon_code,
+                "status": "sent",
+            },
+        )
+        session.commit()
+
+        row = _person_coupon_rows(session, coupon_code=coupon_code)[0]
+        assert row.coupon_title == "Купон на сет «Канпети»"
+
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="status_update",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(person_id),
+                "coupon_series": "SER-TITLE",
+                "coupon_code": coupon_code,
+                "coupon_title": "",
+                "status": "sent",
+            },
+        )
+        session.commit()
+
+        row = _person_coupon_rows(session, coupon_code=coupon_code)[0]
+        assert row.coupon_title == "Купон на сет «Канпети»"
+
+        repository.apply_event(
+            event_id=uuid4(),
+            direction="status_update",
+            sent_at=now,
+            payload_raw={
+                "person_id": str(person_id),
+                "coupon_series": "SER-TITLE",
+                "coupon_code": coupon_code,
+                "coupon_title": "Новое название купона",
+                "status": "sent",
+            },
+        )
+        session.commit()
+
+        row = _person_coupon_rows(session, coupon_code=coupon_code)[0]
+        assert row.coupon_title == "Новое название купона"
 
 
 def test_assignments_rejects_reuse_of_used_coupon_without_release() -> None:

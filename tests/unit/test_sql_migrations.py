@@ -139,6 +139,15 @@ def test_migration_0016_adds_coupon_valid_until_column() -> None:
     assert "TIMESTAMPTZ" in upper
 
 
+def test_migration_0017_adds_coupon_title_column() -> None:
+    migration_file = _PROJECT_ROOT / "migrations" / "sql" / "0017_sagur_coupons_title.sql"
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "ADD COLUMN IF NOT EXISTS COUPON_TITLE" in upper
+    assert "VARCHAR(255)" in upper
+
+
 def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
     """Проверяет, что миграция применяется один раз и не выполняется повторно."""
 
