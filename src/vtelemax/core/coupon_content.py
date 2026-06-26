@@ -212,7 +212,7 @@ def build_coupons_list_view(
     return CouponsListView(
         text=(
             f"🎟️ {title}\n\n"
-            "Выберите купон. Если названия нет, в списке показываем последние 6 символов кода, "
+            "Выберите купон. Для удобства рядом с названием показываем последние 6 символов кода, "
             "а полный QR отправим после открытия."
         ),
         items=items,
@@ -349,6 +349,8 @@ def _build_coupon_list_item(coupon: CouponItemLike) -> CouponListItemView:
 def _resolve_coupon_display_title(coupon: CouponItemLike, *, coupon_tail6: str) -> str:
     title = str(getattr(coupon, "coupon_title", "") or "").strip()
     if title:
+        if coupon_tail6:
+            return f"{title} • {coupon_tail6}"
         return title
     return f"🎟️ Купон • {coupon_tail6}"
 

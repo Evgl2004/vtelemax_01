@@ -181,8 +181,8 @@ def test_coupons_list_view_uses_coupon_title_when_present() -> None:
     )
 
     assert view.is_empty is False
-    assert view.items[0].label == "Купон на сет «Канпети»"
-    assert view.items[0].display_title == "Купон на сет «Канпети»"
+    assert view.items[0].label == "Купон на сет «Канпети» • 5P0B4C"
+    assert view.items[0].display_title == "Купон на сет «Канпети» • 5P0B4C"
 
 
 def test_coupons_list_view_returns_empty_when_all_coupons_inactive() -> None:
