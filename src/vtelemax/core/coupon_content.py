@@ -21,6 +21,12 @@ COUPON_INACTIVE_STATUSES = frozenset(
     {"used", "used_after_campaign", "expired", "canceled", "error"}
 )
 _LOCAL_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
+_COUPON_VENUE_EMOJI_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("грузинка", "nani", "gruzinka"), "💃"),
+    (("сами сусами", "сусами", "susami", "sami"), "🍷"),
+    (("чина", "china"), "🍜"),
+    (("узбечка", "uzbechka"), "☀️"),
+)
 
 
 class CouponVenueLike(Protocol):
@@ -110,6 +116,16 @@ def is_coupon_visible_for_guest(*, status: str, is_visible: bool) -> bool:
     return bool(is_visible) and normalized_status in COUPON_ACTIVE_STATUSES
 
 
+def _resolve_coupon_venue_emoji(*, venue_code: str, venue_name: str) -> str:
+    """Подбирает emoji заведения для корневого меню купонов."""
+
+    search_text = f"{venue_name} {venue_code}".strip().lower()
+    for aliases, emoji in _COUPON_VENUE_EMOJI_RULES:
+        if any(alias in search_text for alias in aliases):
+            return emoji
+    return "🏠"
+
+
 def build_coupons_root_view(
     *,
     global_count: int,
@@ -136,12 +152,13 @@ def build_coupons_root_view(
         if coupons_count <= 0 or not venue_code or venue_code == GLOBAL_COUPON_VENUE_CODE:
             continue
         venue_name = str(getattr(venue, "venue_name", "") or venue_code).strip() or venue_code
+        venue_emoji = _resolve_coupon_venue_emoji(venue_code=venue_code, venue_name=venue_name)
         scopes.append(
             CouponScopeView(
                 scope_key=venue_code,
                 venue_code=venue_code,
                 title=venue_name,
-                label=f"🏠 {venue_name} ({coupons_count})",
+                label=f"{venue_emoji} {venue_name} ({coupons_count})",
                 coupons_count=coupons_count,
             )
         )

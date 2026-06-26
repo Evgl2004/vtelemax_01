@@ -134,7 +134,7 @@ def test_max_coupon_screens_use_dynamic_payloads_and_back_buttons() -> None:
         text="root",
         scope_buttons=(
             (build_coupon_scope_payload("global"), "🎟️ Общие (1)"),
-            (build_coupon_scope_payload("bnYW5p"), "🏠 Грузинка Нани (2)"),
+            (build_coupon_scope_payload("bnYW5p"), "💃 Грузинка Нани (2)"),
         ),
     )
     coupon_list = adapter.build_coupons_list_screen(

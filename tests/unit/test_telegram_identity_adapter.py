@@ -386,7 +386,7 @@ def test_telegram_adapter_builds_coupon_root_and_scope(monkeypatch) -> None:
     assert root.status == "coupons_root"
     assert len(root.coupon_scope_buttons) == 2
     assert root.coupon_scope_buttons[0][1] == "🎟️ Общие (1)"
-    assert root.coupon_scope_buttons[1][1] == "🏠 Грузинка Нани (1)"
+    assert root.coupon_scope_buttons[1][1] == "💃 Грузинка Нани (1)"
 
     venue_callback = root.coupon_scope_buttons[1][0]
     coupon_list = adapter.handle_menu_action(telegram_user_id=1001, action_text=venue_callback)

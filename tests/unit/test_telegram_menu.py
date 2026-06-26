@@ -287,7 +287,7 @@ def test_build_coupon_keyboards_use_expected_callbacks() -> None:
     root_keyboard = build_coupons_root_inline_keyboard(
         scope_buttons=(
             (build_coupon_scope_callback("global"), "🎟️ Общие (1)"),
-            (build_coupon_scope_callback("bnYW5p"), "🏠 Грузинка Нани (2)"),
+            (build_coupon_scope_callback("bnYW5p"), "💃 Грузинка Нани (2)"),
         )
     )
     list_keyboard = build_coupons_list_inline_keyboard(

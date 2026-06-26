@@ -627,7 +627,7 @@ def test_max_adapter_builds_coupon_root_scope_and_card(monkeypatch) -> None:
     assert root.screen is not None
     assert root.screen.screen_id == "coupons_root"
     assert root.screen.rows[0][0].label == "🎟️ Общие (1)"
-    assert root.screen.rows[1][0].label == "🏠 Грузинка Нани (1)"
+    assert root.screen.rows[1][0].label == "💃 Грузинка Нани (1)"
 
     venue_payload = root.screen.rows[1][0].payload
     coupon_list = adapter.handle_incoming(max_user_id=1001, text="", payload=venue_payload)

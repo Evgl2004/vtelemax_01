@@ -85,7 +85,7 @@ def test_coupons_root_view_shows_global_only_when_global_coupons_exist() -> None
     assert view.is_empty is False
     assert [scope.scope_key for scope in view.scopes] == [GLOBAL_COUPON_SCOPE_KEY, "nani"]
     assert view.scopes[0].label == "🎟️ Общие (2)"
-    assert view.scopes[1].label == "🏠 Грузинка Нани (3)"
+    assert view.scopes[1].label == "💃 Грузинка Нани (3)"
 
 
 def test_coupons_root_view_hides_global_when_only_venues_have_coupons() -> None:
@@ -99,7 +99,29 @@ def test_coupons_root_view_hides_global_when_only_venues_have_coupons() -> None:
     assert view.is_empty is False
     assert len(view.scopes) == 1
     assert view.scopes[0].scope_key == "susami"
+    assert view.scopes[0].label == "🍷 Сами Сусами (1)"
     assert "Общие" not in view.scopes[0].label
+
+
+def test_coupons_root_view_uses_known_venue_emojis_and_house_fallback() -> None:
+    """Проверяет emoji заведений в корневом меню купонов."""
+
+    view = build_coupons_root_view(
+        global_count=0,
+        venues=(
+            _Venue(venue_code="susami", venue_name="Сами Сусами", coupons_count=1),
+            _Venue(venue_code="china", venue_name="Чина", coupons_count=1),
+            _Venue(venue_code="uzbechka", venue_name="Узбечка", coupons_count=1),
+            _Venue(venue_code="unknown", venue_name="Новое место", coupons_count=1),
+        ),
+    )
+
+    assert [scope.label for scope in view.scopes] == [
+        "🍷 Сами Сусами (1)",
+        "🍜 Чина (1)",
+        "☀️ Узбечка (1)",
+        "🏠 Новое место (1)",
+    ]
 
 
 def test_coupons_root_view_returns_clear_empty_screen() -> None:
