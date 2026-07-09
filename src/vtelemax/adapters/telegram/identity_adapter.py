@@ -63,6 +63,8 @@ from vtelemax.core import (
     PersonSupportTicketSummary,
     PersonTicketsPageResult,
     PlatformName,
+    RegistrationOrigin,
+    SagurRegistrationContext,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
     IdentityConflictError,
@@ -102,6 +104,7 @@ from vtelemax.core import (
     parse_birth_date,
     resolve_guest_menu_action,
 )
+from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
 from vtelemax.infrastructure.postgres.sagur_coupons_repository import SQLAlchemySagurCouponsRepository
 
 from .menu import (
@@ -247,6 +250,7 @@ class TelegramIdentityAdapter:
         virtual_card_use_case: GetVirtualCardUseCase | None = None,
         loyalty_gateway: LoyaltyGateway | None = None,
         enqueue_profile_sync_use_case: EnqueueProfileSyncTransactionalUseCase | None = None,
+        sagur_registration_finalization_service: SagurRegistrationFinalizationService | None = None,
         coupon_session_factory: sessionmaker[Session] | None = None,
     ) -> None:
         self._logger = logger.bind(platform="telegram", component="identity_adapter")
@@ -272,6 +276,7 @@ class TelegramIdentityAdapter:
         self._virtual_card_use_case = virtual_card_use_case
         self._loyalty_gateway = loyalty_gateway
         self._enqueue_profile_sync_use_case = enqueue_profile_sync_use_case
+        self._sagur_registration_finalization_service = sagur_registration_finalization_service
         self._coupon_session_factory = coupon_session_factory
         self._coupon_scope_context_by_user_id: dict[int, dict[str, tuple[str, str]]] = {}
 
@@ -735,6 +740,9 @@ class TelegramIdentityAdapter:
             # Определяем, давал ли пользователь согласие с правилами для Telegram
             rules_accepted = True if draft.rules_accepted_at is not None else None
             rules_accepted_at = draft.rules_accepted_at
+            registration_origin: RegistrationOrigin = (
+                "legacy_upgrade" if draft.is_legacy_upgrade else "new_registration"
+            )
             try:
                 person = self._registration_use_case.execute(
                     RegisterOrAttachAccountCommand(
@@ -773,6 +781,8 @@ class TelegramIdentityAdapter:
                 telegram_user_id=telegram_user_id,
                 phone_e164=person.phone_e164,
                 first_name=draft.first_name_input or "Гость",
+                person_id=person.person_id,
+                registration_origin=registration_origin,
             )
 
         if onboarding_state == OnboardingState.WAITING_IIKO_SYNC:
@@ -803,6 +813,7 @@ class TelegramIdentityAdapter:
                 telegram_user_id=telegram_user_id,
                 phone_e164=draft.phone_e164,
                 first_name=draft.first_name_input or "Гость",
+                registration_origin="legacy_upgrade" if draft.is_legacy_upgrade else "new_registration",
             )
 
         if onboarding_state == OnboardingState.WAITING_LEGACY_PHONE:
@@ -3729,12 +3740,18 @@ class TelegramIdentityAdapter:
         telegram_user_id: int,
         phone_e164: str,
         first_name: str,
+        person_id: UUID | None = None,
+        registration_origin: RegistrationOrigin = "new_registration",
     ) -> TelegramMenuActionResult:
         """Выполняет синхронизацию с iiko и завершает onboarding только при успехе."""
 
-        registration_card_numbers = self._sync_registration_with_loyalty(
+        profile = self._build_loyalty_upsert_profile(telegram_user_id=telegram_user_id)
+        registration_card_numbers = self._sync_registration_with_loyalty_for_registration(
+            telegram_user_id=telegram_user_id,
             phone_e164=phone_e164,
-            profile=self._build_loyalty_upsert_profile(telegram_user_id=telegram_user_id),
+            profile=profile,
+            person_id=person_id,
+            registration_origin=registration_origin,
         )
         if not registration_card_numbers and self._virtual_card_use_case is not None:
             retry_screen = build_iiko_sync_retry_screen()
@@ -3786,6 +3803,53 @@ class TelegramIdentityAdapter:
             return ()
 
         result = self._virtual_card_use_case.execute(phone_e164=phone_e164, profile=profile)
+        if result.status == "virtual_card":
+            method_logger.info(
+                "Синхронизация с iiko завершена успешно. cards={cards_count}.",
+                cards_count=len(result.card_numbers),
+            )
+            return result.card_numbers
+
+        method_logger.warning(
+            "Синхронизация с iiko завершилась без карт. status={status}.",
+            status=result.status,
+        )
+        return ()
+
+    def _sync_registration_with_loyalty_for_registration(
+        self,
+        *,
+        telegram_user_id: int,
+        phone_e164: str,
+        profile: LoyaltyCustomerUpsertData | None,
+        person_id: UUID | None,
+        registration_origin: RegistrationOrigin,
+    ) -> tuple[str, ...]:
+        """Запускает финальную iikoCard-синхронизацию с ведением SAGUR-регистра."""
+
+        if self._sagur_registration_finalization_service is None:
+            return self._sync_registration_with_loyalty(phone_e164=phone_e164, profile=profile)
+
+        resolved_person_id = person_id
+        if resolved_person_id is None:
+            person = self._person_lookup_use_case.execute(
+                GetPersonByAccountCommand(platform="telegram", external_id=str(telegram_user_id))
+            )
+            resolved_person_id = None if person is None else person.person_id
+        if resolved_person_id is None:
+            return self._sync_registration_with_loyalty(phone_e164=phone_e164, profile=profile)
+
+        result = self._sagur_registration_finalization_service.execute(
+            context=SagurRegistrationContext(
+                person_id=resolved_person_id,
+                platform="telegram",
+                external_id=str(telegram_user_id),
+                phone_e164=phone_e164,
+                registration_origin=registration_origin,
+            ),
+            profile=profile,
+        )
+        method_logger = self._logger.bind(stage="sync_registration_with_loyalty")
         if result.status == "virtual_card":
             method_logger.info(
                 "Синхронизация с iiko завершена успешно. cards={cards_count}.",

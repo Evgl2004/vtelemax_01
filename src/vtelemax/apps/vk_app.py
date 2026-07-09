@@ -8,6 +8,7 @@ from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 from vkbottle.bot import Bot
 
+from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
 from vtelemax.adapters.vk import VkIdentityAdapter, register_vk_guest_handlers
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
@@ -217,6 +218,22 @@ def build_vk_phone_verification_gateway(
     )
 
 
+def build_sagur_registration_finalization_service(
+    session_factory: sessionmaker[Session],
+    virtual_card_use_case: GetVirtualCardUseCase | None,
+    settings: AppSettings,
+) -> SagurRegistrationFinalizationService | None:
+    """Собирает сервис постановки исходящего события регистрации SAGUR."""
+
+    if not settings.sagur_registration_events_enabled or virtual_card_use_case is None:
+        return None
+    return SagurRegistrationFinalizationService(
+        session_factory=session_factory,
+        virtual_card_use_case=virtual_card_use_case,
+        recovery_first_delay_seconds=settings.sagur_registration_events_recovery_first_delay_seconds,
+    )
+
+
 def build_bot(settings: AppSettings) -> Bot:
     """Создает и конфигурирует экземпляр VK-бота."""
 
@@ -241,6 +258,11 @@ def build_bot(settings: AppSettings) -> Bot:
         if settings.profile_sync_enabled and iiko_gateway is not None
         else None
     )
+    sagur_registration_finalization_service = build_sagur_registration_finalization_service(
+        session_factory,
+        virtual_card_use_case,
+        settings,
+    )
     adapter = VkIdentityAdapter(
         registration_use_case,
         lookup_use_case,
@@ -261,6 +283,7 @@ def build_bot(settings: AppSettings) -> Bot:
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
         enqueue_profile_sync_use_case=enqueue_profile_sync_use_case,
+        sagur_registration_finalization_service=sagur_registration_finalization_service,
         coupon_session_factory=session_factory,
     )
 

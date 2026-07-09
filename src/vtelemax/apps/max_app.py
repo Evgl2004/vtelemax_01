@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
+from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
 from vtelemax.adapters.max import MaxIdentityAdapter, register_max_guest_handlers
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
@@ -209,6 +210,22 @@ def _import_maxapi_runtime() -> tuple[type[Any], type[Any], type[Any]]:
     return Bot, Dispatcher, Router
 
 
+def build_sagur_registration_finalization_service(
+    session_factory: sessionmaker[Session],
+    virtual_card_use_case: GetVirtualCardUseCase | None,
+    settings: AppSettings,
+) -> SagurRegistrationFinalizationService | None:
+    """Собирает сервис постановки исходящего события регистрации SAGUR."""
+
+    if not settings.sagur_registration_events_enabled or virtual_card_use_case is None:
+        return None
+    return SagurRegistrationFinalizationService(
+        session_factory=session_factory,
+        virtual_card_use_case=virtual_card_use_case,
+        recovery_first_delay_seconds=settings.sagur_registration_events_recovery_first_delay_seconds,
+    )
+
+
 def build_dispatcher(settings: AppSettings) -> Any:
     """Собирает Dispatcher MAX-бота с подключенным маршрутом идентификации."""
 
@@ -234,6 +251,11 @@ def build_dispatcher(settings: AppSettings) -> Any:
         if settings.profile_sync_enabled and iiko_gateway is not None
         else None
     )
+    sagur_registration_finalization_service = build_sagur_registration_finalization_service(
+        session_factory,
+        virtual_card_use_case,
+        settings,
+    )
     adapter = MaxIdentityAdapter(
         registration_use_case,
         lookup_use_case,
@@ -250,6 +272,7 @@ def build_dispatcher(settings: AppSettings) -> Any:
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
         enqueue_profile_sync_use_case=enqueue_profile_sync_use_case,
+        sagur_registration_finalization_service=sagur_registration_finalization_service,
         coupon_session_factory=session_factory,
     )
 

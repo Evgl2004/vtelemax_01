@@ -11,6 +11,7 @@ from aiogram.enums import ParseMode
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
+from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
 from vtelemax.adapters.telegram import TelegramIdentityAdapter, build_telegram_identity_router
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
@@ -200,6 +201,22 @@ def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     )
 
 
+def build_sagur_registration_finalization_service(
+    session_factory: sessionmaker[Session],
+    virtual_card_use_case: GetVirtualCardUseCase | None,
+    settings: AppSettings,
+) -> SagurRegistrationFinalizationService | None:
+    """Собирает сервис постановки исходящего события регистрации SAGUR."""
+
+    if not settings.sagur_registration_events_enabled or virtual_card_use_case is None:
+        return None
+    return SagurRegistrationFinalizationService(
+        session_factory=session_factory,
+        virtual_card_use_case=virtual_card_use_case,
+        recovery_first_delay_seconds=settings.sagur_registration_events_recovery_first_delay_seconds,
+    )
+
+
 def build_dispatcher(settings: AppSettings) -> Dispatcher:
     """Собирает Dispatcher Telegram-бота с подключенным маршрутом идентификации."""
 
@@ -223,6 +240,11 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
         if settings.profile_sync_enabled and iiko_gateway is not None
         else None
     )
+    sagur_registration_finalization_service = build_sagur_registration_finalization_service(
+        session_factory,
+        virtual_card_use_case,
+        settings,
+    )
     identity_adapter = TelegramIdentityAdapter(
         registration_use_case,
         person_lookup_use_case,
@@ -239,6 +261,7 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
         virtual_card_use_case=virtual_card_use_case,
         loyalty_gateway=iiko_gateway,
         enqueue_profile_sync_use_case=enqueue_profile_sync_use_case,
+        sagur_registration_finalization_service=sagur_registration_finalization_service,
         coupon_session_factory=session_factory,
     )
 
