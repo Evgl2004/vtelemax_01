@@ -15,6 +15,7 @@ from vtelemax.infrastructure.postgres.schema import (
     PersonRow,
     PhoneRow,
     PlatformAccountRow,
+    SagurGuestRegistrationEventRow,
     SupportMessageRow,
     SupportTicketRow,
 )
@@ -29,6 +30,7 @@ def test_metadata_contains_strict_identity_tables() -> None:
         "person_platform_states",
         "phones",
         "platform_accounts",
+        "sagur_guest_registration_events",
         "support_tickets",
         "support_messages",
     }.issubset(table_names)
@@ -97,6 +99,24 @@ def test_person_coupons_has_coupon_title_column() -> None:
     """Проверяет наличие пользовательского названия купона из SAGUR."""
 
     assert "coupon_title" in PersonCouponRow.__table__.columns
+
+
+def test_sagur_guest_registration_events_constraints_are_strict() -> None:
+    """Проверяет ограничения единого регистра исходящих событий регистрации SAGUR."""
+
+    check_constraints = {
+        constraint.name
+        for constraint in SagurGuestRegistrationEventRow.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    index_names = {index.name for index in SagurGuestRegistrationEventRow.__table__.indexes}
+
+    assert "ck_sagur_guest_registration_events_platform_allowed" in check_constraints
+    assert "ck_sagur_guest_registration_events_origin_allowed" in check_constraints
+    assert "ck_sagur_guest_registration_events_iiko_status_allowed" in check_constraints
+    assert "ck_sagur_guest_registration_events_sagur_status_allowed" in check_constraints
+    assert "uq_sagur_guest_registration_events_event_id" in index_names
+    assert "uq_sagur_guest_registration_events_active_context" in index_names
 
 
 def test_foreign_keys_point_to_persons_table() -> None:

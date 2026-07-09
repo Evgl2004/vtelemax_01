@@ -24,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     JSON,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -346,6 +347,139 @@ class ProfileSyncQueueRow(Base):
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
     payload_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SagurGuestRegistrationEventRow(Base):
+    """Единый исходящий регистр события регистрации гостя vtelemax -> SAGUR."""
+
+    __tablename__ = "sagur_guest_registration_events"
+    __table_args__ = (
+        CheckConstraint(
+            "platform IN ('telegram', 'vk', 'max')",
+            name="ck_sagur_guest_registration_events_platform_allowed",
+        ),
+        CheckConstraint(
+            "registration_origin IN ('new_registration', 'legacy_upgrade')",
+            name="ck_sagur_guest_registration_events_origin_allowed",
+        ),
+        CheckConstraint(
+            "iiko_status IN ("
+            "'lookup_started', 'create_started', 'created', 'existing', 'result_unknown', "
+            "'not_required', 'manual_review', 'failed_terminal'"
+            ")",
+            name="ck_sagur_guest_registration_events_iiko_status_allowed",
+        ),
+        CheckConstraint(
+            "sagur_status IN ("
+            "'not_ready', 'pending', 'processing', 'sent', 'retry_scheduled', 'conflict', "
+            "'not_required', 'manual_review', 'failed_terminal'"
+            ")",
+            name="ck_sagur_guest_registration_events_sagur_status_allowed",
+        ),
+        CheckConstraint(
+            "attempts >= 0",
+            name="ck_sagur_guest_registration_events_attempts_non_negative",
+        ),
+        CheckConstraint(
+            "recovery_attempts >= 0",
+            name="ck_sagur_guest_registration_events_recovery_attempts_non_negative",
+        ),
+        CheckConstraint(
+            "event_id IS NULL OR length(event_id) <= 128",
+            name="ck_sagur_guest_registration_events_event_id_len",
+        ),
+        CheckConstraint(
+            "request_id IS NULL OR length(request_id) <= 128",
+            name="ck_sagur_guest_registration_events_request_id_len",
+        ),
+        Index(
+            "ix_sagur_guest_registration_events_sagur_next_attempt",
+            "sagur_status",
+            "next_attempt_at",
+        ),
+        Index(
+            "ix_sagur_guest_registration_events_iiko_next_attempt",
+            "iiko_status",
+            "next_attempt_at",
+        ),
+        Index("ix_sagur_guest_registration_events_person_id", "person_id"),
+        Index(
+            "uq_sagur_guest_registration_events_event_id",
+            "event_id",
+            unique=True,
+            postgresql_where=text("event_id IS NOT NULL"),
+            sqlite_where=text("event_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_sagur_guest_registration_events_active_context",
+            "person_id",
+            "platform",
+            "external_id",
+            "registration_origin",
+            unique=True,
+            postgresql_where=text(
+                "sagur_status NOT IN "
+                "('sent', 'conflict', 'not_required', 'manual_review', 'failed_terminal')"
+            ),
+            sqlite_where=text(
+                "sagur_status NOT IN "
+                "('sent', 'conflict', 'not_required', 'manual_review', 'failed_terminal')"
+            ),
+        ),
+    )
+
+    record_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    person_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("persons.person_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    phone_e164: Mapped[str] = mapped_column(String(16), nullable=False)
+    registration_origin: Mapped[str] = mapped_column(String(32), nullable=False)
+    iiko_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    sagur_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_new_customer: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    existing_customer_found: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    event_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        server_default=text("'guest_registered'"),
+    )
+    payload_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    payload_body: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
+    recovery_attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lookup_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lookup_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    create_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    iiko_response_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recovery_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_error_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -1,10 +1,10 @@
-"""Application entrypoints package.
+"""Пакет точек входа приложений.
 
-This package contains startup modules for bots and operational services:
+В пакете лежат startup-модули ботов и сервисных процессов:
 
-1. `telegram_app` - Telegram bot process.
-2. `vk_app` - VK bot process.
-3. `max_app` - MAX bot process.
-4. `sagur_integration_api_app` - read-only integration API for SAGUR.
+1. `telegram_app` - процесс Telegram-бота.
+2. `vk_app` - процесс VK-бота.
+3. `max_app` - процесс MAX-бота.
+4. `sagur_integration_api_app` - read-only integration API для SAGUR.
+5. `sagur_registration_events_worker_app` - worker исходящих событий регистрации SAGUR.
 """
-

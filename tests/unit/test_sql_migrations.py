@@ -148,6 +148,19 @@ def test_migration_0017_adds_coupon_title_column() -> None:
     assert "VARCHAR(255)" in upper
 
 
+def test_migration_0018_creates_sagur_guest_registration_events_registry() -> None:
+    migration_file = _PROJECT_ROOT / "migrations" / "sql" / "0018_sagur_guest_registration_events.sql"
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "CREATE TABLE IF NOT EXISTS SAGUR_GUEST_REGISTRATION_EVENTS" in upper
+    assert "CUSTOMER_ID VARCHAR(128)" in upper
+    assert "PAYLOAD_BODY BYTEA" in upper
+    assert "RESULT_UNKNOWN" in upper
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS UQ_SAGUR_GUEST_REGISTRATION_EVENTS_EVENT_ID" in upper
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS UQ_SAGUR_GUEST_REGISTRATION_EVENTS_ACTIVE_CONTEXT" in upper
+
+
 def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
     """Проверяет, что миграция применяется один раз и не выполняется повторно."""
 
