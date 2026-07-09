@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Protocol
 
 from loguru import logger
 
@@ -41,6 +42,51 @@ class LoyaltyMenuResult:
     parse_mode: str | None = None
     card_numbers: tuple[str, ...] = ()
     diagnostic_context: str | None = None
+    customer_id: str | None = None
+    created_new_customer: bool = False
+    existing_customer_found: bool = False
+
+
+class LoyaltyRegistrationObserver(Protocol):
+    """Наблюдатель финальной регистрации для фиксации фактов iikoCard в outbox."""
+
+    def mark_lookup_failed(self, error: LoyaltyGatewayError) -> None:
+        """Фиксирует ошибку поиска гостя iikoCard до попытки создания."""
+
+    def mark_existing_customer(self, customer_id: str) -> None:
+        """Фиксирует найденного существующего гостя iikoCard."""
+
+    def mark_create_started(self) -> None:
+        """Фиксирует начало создания гостя iikoCard."""
+
+    def mark_created_customer(self, customer_id: str) -> None:
+        """Фиксирует успешное создание гостя iikoCard."""
+
+    def mark_create_result_unknown(self, error: LoyaltyGatewayError) -> None:
+        """Фиксирует неизвестный результат создания гостя iikoCard."""
+
+    def mark_create_failed_terminal(self, error: LoyaltyGatewayError) -> None:
+        """Фиксирует финальную ошибку создания гостя iikoCard."""
+
+
+def _notify_registration_observer(
+    observer: LoyaltyRegistrationObserver | None,
+    method_name: str,
+    *args: object,
+) -> None:
+    """Вызывает наблюдатель, не ломая пользовательский сценарий ошибкой учета."""
+
+    if observer is None:
+        return
+    try:
+        method = getattr(observer, method_name)
+        method(*args)
+    except Exception as error:  # noqa: BLE001
+        logger.bind(component="loyalty_use_case", stage="registration_observer").warning(
+            "Не удалось зафиксировать факт iikoCard для SAGUR-регистра. method={method}, error={error}.",
+            method=method_name,
+            error=error,
+        )
 
 
 def _phone_hash(phone_e164: str) -> str:
@@ -131,6 +177,7 @@ class GetVirtualCardUseCase:
         *,
         phone_e164: str,
         profile: LoyaltyCustomerUpsertData | None = None,
+        registration_observer: LoyaltyRegistrationObserver | None = None,
     ) -> LoyaltyMenuResult:
         """Возвращает список карт, при необходимости создает/обновляет клиента и выпускает карту."""
 
@@ -140,16 +187,32 @@ class GetVirtualCardUseCase:
 
         try:
             customer = self._loyalty_gateway.get_customer_info(normalized_phone)
-        except LoyaltyGatewayError:
+        except LoyaltyGatewayError as error:
+            _notify_registration_observer(registration_observer, "mark_lookup_failed", error)
             return LoyaltyMenuResult(status="virtual_card_error", message=_VIRTUAL_CARD_UNAVAILABLE_TEXT)
 
+        created_new_customer = False
+        existing_customer_found = False
         if customer is None:
             try:
+                _notify_registration_observer(registration_observer, "mark_create_started")
                 registered = self._loyalty_gateway.register_customer(
                     normalized_phone,
                     profile=profile,
                 )
             except LoyaltyGatewayError as error:
+                if getattr(error, "is_transient", None) is False:
+                    _notify_registration_observer(
+                        registration_observer,
+                        "mark_create_failed_terminal",
+                        error,
+                    )
+                else:
+                    _notify_registration_observer(
+                        registration_observer,
+                        "mark_create_result_unknown",
+                        error,
+                    )
                 return LoyaltyMenuResult(
                     status="virtual_card_error",
                     message=(
@@ -160,9 +223,21 @@ class GetVirtualCardUseCase:
                     ),
                 )
             customer_id = registered.customer_id
+            created_new_customer = True
+            _notify_registration_observer(
+                registration_observer,
+                "mark_created_customer",
+                customer_id,
+            )
             cards: tuple[LoyaltyCard, ...] = ()
         else:
             customer_id = customer.customer_id
+            existing_customer_found = True
+            _notify_registration_observer(
+                registration_observer,
+                "mark_existing_customer",
+                customer_id,
+            )
             cards = customer.cards
             if profile is not None:
                 try:
@@ -215,6 +290,9 @@ class GetVirtualCardUseCase:
             message=self._format_virtual_cards_message(cards),
             parse_mode="markdown",
             card_numbers=tuple(card.number for card in cards if card.number),
+            customer_id=customer_id,
+            created_new_customer=created_new_customer,
+            existing_customer_found=existing_customer_found,
         )
 
     @staticmethod

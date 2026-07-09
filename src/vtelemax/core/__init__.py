@@ -129,6 +129,7 @@ from .loyalty_use_cases import (
     GetLoyaltyBalanceUseCase,
     GetVirtualCardUseCase,
     LoyaltyMenuResult,
+    LoyaltyRegistrationObserver,
 )
 from .menu_contract import GuestMenuAction, MenuButtonContract, MenuScreenContract
 from .models import (
@@ -145,6 +146,15 @@ from .phone import normalize_phone
 from .profile_validation import normalize_email, normalize_person_name, parse_birth_date
 from .ports import IdentityRepository, IdentityUnitOfWork
 from .profile_sync_models import ProfileSyncStatus, ProfileSyncTask
+from .sagur_registration_models import (
+    SAGUR_GUEST_REGISTERED_EVENT_TYPE,
+    RegistrationOrigin,
+    SagurRegistrationContext,
+    SagurRegistrationDeliveryStatus,
+    SagurRegistrationEventTask,
+    SagurRegistrationIikoStatus,
+    SagurRegistrationRecoveryTask,
+)
 from .profile_sync_use_cases import (
     EnqueueProfileSyncCommand,
     EnqueueProfileSyncTransactionalUseCase,
@@ -236,6 +246,7 @@ __all__ = [
     "GetLoyaltyBalanceUseCase",
     "GetVirtualCardUseCase",
     "LoyaltyMenuResult",
+    "LoyaltyRegistrationObserver",
     "GuestMenuAction",
     "MenuButtonContract",
     "MenuScreenContract",
@@ -369,6 +380,13 @@ __all__ = [
     "UpdateModeratorMessageDeliveryStatusTransactionalUseCase",
     "ProfileSyncStatus",
     "ProfileSyncTask",
+    "SAGUR_GUEST_REGISTERED_EVENT_TYPE",
+    "RegistrationOrigin",
+    "SagurRegistrationContext",
+    "SagurRegistrationDeliveryStatus",
+    "SagurRegistrationEventTask",
+    "SagurRegistrationIikoStatus",
+    "SagurRegistrationRecoveryTask",
     "EnqueueProfileSyncCommand",
     "EnqueueProfileSyncTransactionalUseCase",
     "PullPendingProfileSyncTasksTransactionalUseCase",

@@ -73,6 +73,31 @@ class FakeLoyaltyGateway(LoyaltyGateway):
         return self._behavior.issue_result
 
 
+class _RegistrationObserverSpy:
+    """Фиксирует вызовы наблюдателя регистрации iikoCard."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str | None]] = []
+
+    def mark_lookup_failed(self, error: LoyaltyGatewayError) -> None:
+        self.events.append(("lookup_failed", error.reason_code))
+
+    def mark_existing_customer(self, customer_id: str) -> None:
+        self.events.append(("existing", customer_id))
+
+    def mark_create_started(self) -> None:
+        self.events.append(("create_started", None))
+
+    def mark_created_customer(self, customer_id: str) -> None:
+        self.events.append(("created", customer_id))
+
+    def mark_create_result_unknown(self, error: LoyaltyGatewayError) -> None:
+        self.events.append(("create_result_unknown", error.reason_code))
+
+    def mark_create_failed_terminal(self, error: LoyaltyGatewayError) -> None:
+        self.events.append(("create_failed_terminal", error.reason_code))
+
+
 def test_balance_use_case_returns_balance_screen_when_customer_found() -> None:
     """Проверяет успешный сценарий получения бонусного баланса."""
 
@@ -157,6 +182,9 @@ def test_virtual_card_use_case_returns_existing_cards_without_issue() -> None:
     assert result.status == "virtual_card"
     assert "79123456789_20260325" in result.message
     assert result.card_numbers == ("79123456789_20260325",)
+    assert result.customer_id == "cust-1"
+    assert result.existing_customer_found is True
+    assert result.created_new_customer is False
     assert gateway.register_calls == 0
     assert gateway.issue_calls == 0
 
@@ -191,8 +219,73 @@ def test_virtual_card_use_case_registers_and_issues_card_for_new_customer() -> N
     assert result.status == "virtual_card"
     assert "79123456789_20260325" in result.message
     assert result.card_numbers == ("79123456789_20260325",)
+    assert result.customer_id == "cust-2"
+    assert result.created_new_customer is True
+    assert result.existing_customer_found is False
     assert gateway.register_calls == 1
     assert gateway.issue_calls == 1
+
+
+def test_virtual_card_use_case_notifies_registration_observer_for_new_customer() -> None:
+    """Проверяет факты iikoCard для регистра SAGUR при создании нового гостя."""
+
+    gateway = FakeLoyaltyGateway(
+        _GatewayBehavior(
+            customer_sequence=[
+                None,
+                LoyaltyCustomer(customer_id="cust-created", balance=0.0, cards=()),
+            ],
+            register_result=LoyaltyRegisterCustomerResult(
+                customer_id="cust-created",
+                message="registered",
+            ),
+            issue_result=LoyaltyIssueCardResult(
+                card_number="card-created",
+                message="issued",
+            ),
+        )
+    )
+    observer = _RegistrationObserverSpy()
+    use_case = GetVirtualCardUseCase(gateway)
+
+    result = use_case.execute(
+        phone_e164="+79123456789",
+        registration_observer=observer,
+    )
+
+    assert result.status == "virtual_card"
+    assert observer.events == [
+        ("create_started", None),
+        ("created", "cust-created"),
+    ]
+
+
+def test_virtual_card_use_case_marks_unknown_create_result_for_transient_error() -> None:
+    """Проверяет, что тайм-аут создания фиксируется как неизвестный результат."""
+
+    gateway = FakeLoyaltyGateway(
+        _GatewayBehavior(
+            customer_sequence=[None],
+            register_error=LoyaltyGatewayError(
+                "timeout",
+                reason_code="timeout",
+                is_transient=True,
+            ),
+        )
+    )
+    observer = _RegistrationObserverSpy()
+    use_case = GetVirtualCardUseCase(gateway)
+
+    result = use_case.execute(
+        phone_e164="+79123456789",
+        registration_observer=observer,
+    )
+
+    assert result.status == "virtual_card_error"
+    assert observer.events == [
+        ("create_started", None),
+        ("create_result_unknown", "timeout"),
+    ]
 
 
 def test_virtual_card_use_case_passes_profile_to_register_on_create() -> None:

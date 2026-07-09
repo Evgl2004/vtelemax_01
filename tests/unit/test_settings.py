@@ -108,6 +108,52 @@ def test_settings_reads_profile_sync_worker_values() -> None:
     assert settings.profile_sync_max_attempts == 7
 
 
+def test_settings_reads_sagur_registration_events_values() -> None:
+    """Проверяет настройки исходящих событий регистрации SAGUR."""
+
+    settings = AppSettings(
+        SAGUR_REGISTRATION_EVENTS_ENABLED=True,
+        SAGUR_REGISTRATION_EVENTS_ENDPOINT="https://example.test/registration-events",
+        VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET="registration-secret",
+        VTELEMAX_SYNC_HMAC_SECRET="fallback-secret",
+        SAGUR_REGISTRATION_EVENTS_TIMEOUT_SECONDS=3.5,
+        SAGUR_REGISTRATION_EVENTS_INTERVAL_SECONDS=90,
+        SAGUR_REGISTRATION_EVENTS_BATCH_LIMIT=7,
+        SAGUR_REGISTRATION_EVENTS_MAX_ATTEMPTS=4,
+        SAGUR_REGISTRATION_EVENTS_RECOVERY_ENABLED=True,
+        SAGUR_REGISTRATION_EVENTS_RECOVERY_INTERVAL_SECONDS=600,
+        SAGUR_REGISTRATION_EVENTS_RECOVERY_BATCH_LIMIT=3,
+        SAGUR_REGISTRATION_EVENTS_RECOVERY_MAX_ATTEMPTS=2,
+        SAGUR_REGISTRATION_EVENTS_RECOVERY_FIRST_DELAY_SECONDS=45,
+        SAGUR_REGISTRATION_EVENTS_LOCK_TIMEOUT_SECONDS=180,
+    )
+
+    assert settings.sagur_registration_events_enabled is True
+    assert settings.sagur_registration_events_endpoint == "https://example.test/registration-events"
+    assert settings.sagur_registration_events_hmac_secret == "registration-secret"
+    assert settings.sagur_registration_events_timeout_seconds == 3.5
+    assert settings.sagur_registration_events_interval_seconds == 90
+    assert settings.sagur_registration_events_batch_limit == 7
+    assert settings.sagur_registration_events_max_attempts == 4
+    assert settings.sagur_registration_events_recovery_enabled is True
+    assert settings.sagur_registration_events_recovery_interval_seconds == 600
+    assert settings.sagur_registration_events_recovery_batch_limit == 3
+    assert settings.sagur_registration_events_recovery_max_attempts == 2
+    assert settings.sagur_registration_events_recovery_first_delay_seconds == 45
+    assert settings.sagur_registration_events_lock_timeout_seconds == 180
+
+
+def test_settings_uses_shared_vtelemax_secret_as_sagur_registration_fallback() -> None:
+    """Проверяет fallback исходящего HMAC-секрета регистрации на общий ключ."""
+
+    settings = AppSettings(
+        VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET=" ",
+        VTELEMAX_SYNC_HMAC_SECRET="fallback-secret",
+    )
+
+    assert settings.sagur_registration_events_hmac_secret == "fallback-secret"
+
+
 def test_settings_rejects_non_positive_profile_sync_interval() -> None:
     """Checks validation of profile sync interval."""
 
@@ -123,6 +169,19 @@ def test_settings_rejects_non_positive_profile_sync_batch_limit_and_attempts() -
 
     with pytest.raises(ValidationError):
         AppSettings(PROFILE_SYNC_MAX_ATTEMPTS=0)
+
+
+def test_settings_rejects_non_positive_sagur_registration_values() -> None:
+    """Проверяет валидацию лимитов и интервалов SAGUR registration worker."""
+
+    with pytest.raises(ValidationError):
+        AppSettings(SAGUR_REGISTRATION_EVENTS_INTERVAL_SECONDS=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(SAGUR_REGISTRATION_EVENTS_BATCH_LIMIT=0)
+
+    with pytest.raises(ValidationError):
+        AppSettings(SAGUR_REGISTRATION_EVENTS_RECOVERY_MAX_ATTEMPTS=0)
 
 
 def test_settings_reads_max_contact_hash_flags() -> None:

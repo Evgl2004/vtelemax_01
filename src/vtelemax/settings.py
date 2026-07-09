@@ -137,6 +137,71 @@ class AppSettings(BaseSettings):
         default=False,
         alias="SAGUR_INCLUDE_VK_PENDING_VERIFICATION",
     )
+    sagur_registration_events_enabled: bool = Field(
+        default=False,
+        alias="SAGUR_REGISTRATION_EVENTS_ENABLED",
+    )
+    sagur_registration_events_endpoint: str = Field(
+        default="https://sagur.24vds.ru/internal/integration/v1/vtelemax/registration-events",
+        alias="SAGUR_REGISTRATION_EVENTS_ENDPOINT",
+    )
+    vtelemax_registration_callback_hmac_secret: str = Field(
+        default="",
+        alias="VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET",
+    )
+    vtelemax_sync_hmac_secret: str = Field(
+        default="",
+        alias="VTELEMAX_SYNC_HMAC_SECRET",
+    )
+    sagur_registration_events_timeout_seconds: float = Field(
+        default=5.0,
+        alias="SAGUR_REGISTRATION_EVENTS_TIMEOUT_SECONDS",
+        gt=0,
+    )
+    sagur_registration_events_interval_seconds: float = Field(
+        default=60.0,
+        alias="SAGUR_REGISTRATION_EVENTS_INTERVAL_SECONDS",
+        gt=0,
+    )
+    sagur_registration_events_batch_limit: int = Field(
+        default=20,
+        alias="SAGUR_REGISTRATION_EVENTS_BATCH_LIMIT",
+        gt=0,
+    )
+    sagur_registration_events_max_attempts: int = Field(
+        default=8,
+        alias="SAGUR_REGISTRATION_EVENTS_MAX_ATTEMPTS",
+        gt=0,
+    )
+    sagur_registration_events_recovery_enabled: bool = Field(
+        default=True,
+        alias="SAGUR_REGISTRATION_EVENTS_RECOVERY_ENABLED",
+    )
+    sagur_registration_events_recovery_interval_seconds: float = Field(
+        default=300.0,
+        alias="SAGUR_REGISTRATION_EVENTS_RECOVERY_INTERVAL_SECONDS",
+        gt=0,
+    )
+    sagur_registration_events_recovery_batch_limit: int = Field(
+        default=10,
+        alias="SAGUR_REGISTRATION_EVENTS_RECOVERY_BATCH_LIMIT",
+        gt=0,
+    )
+    sagur_registration_events_recovery_max_attempts: int = Field(
+        default=3,
+        alias="SAGUR_REGISTRATION_EVENTS_RECOVERY_MAX_ATTEMPTS",
+        gt=0,
+    )
+    sagur_registration_events_recovery_first_delay_seconds: int = Field(
+        default=120,
+        alias="SAGUR_REGISTRATION_EVENTS_RECOVERY_FIRST_DELAY_SECONDS",
+        gt=0,
+    )
+    sagur_registration_events_lock_timeout_seconds: int = Field(
+        default=300,
+        alias="SAGUR_REGISTRATION_EVENTS_LOCK_TIMEOUT_SECONDS",
+        gt=0,
+    )
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
     max_contact_strict_hash_enabled: bool = Field(
@@ -215,3 +280,12 @@ class AppSettings(BaseSettings):
         """Показывает, включена ли интеграция с iiko для разделов лояльности."""
 
         return bool(self.iiko_api_key.strip() and self.iiko_org_id.strip())
+
+    @property
+    def sagur_registration_events_hmac_secret(self) -> str:
+        """Возвращает исходящий HMAC-секрет регистрации с fallback на общий ключ."""
+
+        specific_secret = self.vtelemax_registration_callback_hmac_secret.strip()
+        if specific_secret:
+            return specific_secret
+        return self.vtelemax_sync_hmac_secret.strip()
