@@ -115,7 +115,6 @@ def test_settings_reads_sagur_registration_events_values() -> None:
         SAGUR_REGISTRATION_EVENTS_ENABLED=True,
         SAGUR_REGISTRATION_EVENTS_ENDPOINT="https://example.test/registration-events",
         VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET="registration-secret",
-        VTELEMAX_SYNC_HMAC_SECRET="fallback-secret",
         SAGUR_REGISTRATION_EVENTS_TIMEOUT_SECONDS=3.5,
         SAGUR_REGISTRATION_EVENTS_INTERVAL_SECONDS=90,
         SAGUR_REGISTRATION_EVENTS_BATCH_LIMIT=7,
@@ -143,15 +142,14 @@ def test_settings_reads_sagur_registration_events_values() -> None:
     assert settings.sagur_registration_events_lock_timeout_seconds == 180
 
 
-def test_settings_uses_shared_vtelemax_secret_as_sagur_registration_fallback() -> None:
-    """Проверяет fallback исходящего HMAC-секрета регистрации на общий ключ."""
+def test_settings_returns_empty_sagur_registration_secret_when_not_configured() -> None:
+    """Проверяет, что для регистрации используется только отдельный HMAC-секрет."""
 
     settings = AppSettings(
         VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET=" ",
-        VTELEMAX_SYNC_HMAC_SECRET="fallback-secret",
     )
 
-    assert settings.sagur_registration_events_hmac_secret == "fallback-secret"
+    assert settings.sagur_registration_events_hmac_secret == ""
 
 
 def test_settings_rejects_non_positive_profile_sync_interval() -> None:

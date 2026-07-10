@@ -149,10 +149,6 @@ class AppSettings(BaseSettings):
         default="",
         alias="VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET",
     )
-    vtelemax_sync_hmac_secret: str = Field(
-        default="",
-        alias="VTELEMAX_SYNC_HMAC_SECRET",
-    )
     sagur_registration_events_timeout_seconds: float = Field(
         default=5.0,
         alias="SAGUR_REGISTRATION_EVENTS_TIMEOUT_SECONDS",
@@ -283,9 +279,6 @@ class AppSettings(BaseSettings):
 
     @property
     def sagur_registration_events_hmac_secret(self) -> str:
-        """Возвращает исходящий HMAC-секрет регистрации с fallback на общий ключ."""
+        """Возвращает HMAC-секрет исходящего события регистрации SAGUR."""
 
-        specific_secret = self.vtelemax_registration_callback_hmac_secret.strip()
-        if specific_secret:
-            return specific_secret
-        return self.vtelemax_sync_hmac_secret.strip()
+        return self.vtelemax_registration_callback_hmac_secret.strip()
