@@ -81,7 +81,7 @@ async def run_sagur_registration_events_worker(settings: AppSettings | None = No
     if not hmac_secret:
         app_logger.warning(
             "SAGUR registration worker запущен без HMAC-секрета. "
-            "Укажите VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET."
+            "Укажите VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET или SAGUR_INTEGRATION_HMAC_SECRET."
         )
         await _wait_for_shutdown_signal(component="sagur_registration_events_worker_app")
         return

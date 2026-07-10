@@ -114,6 +114,7 @@ def test_settings_reads_sagur_registration_events_values() -> None:
     settings = AppSettings(
         SAGUR_REGISTRATION_EVENTS_ENABLED=True,
         SAGUR_REGISTRATION_EVENTS_ENDPOINT="https://example.test/registration-events",
+        SAGUR_INTEGRATION_HMAC_SECRET="shared-secret",
         VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET="registration-secret",
         SAGUR_REGISTRATION_EVENTS_TIMEOUT_SECONDS=3.5,
         SAGUR_REGISTRATION_EVENTS_INTERVAL_SECONDS=90,
@@ -142,10 +143,22 @@ def test_settings_reads_sagur_registration_events_values() -> None:
     assert settings.sagur_registration_events_lock_timeout_seconds == 180
 
 
-def test_settings_returns_empty_sagur_registration_secret_when_not_configured() -> None:
-    """Проверяет, что для регистрации используется только отдельный HMAC-секрет."""
+def test_settings_uses_sagur_integration_secret_for_registration_events_when_dedicated_secret_empty() -> None:
+    """Проверяет общий HMAC-секрет SAGUR для welcome-callback при пустом отдельном секрете."""
 
     settings = AppSettings(
+        SAGUR_INTEGRATION_HMAC_SECRET=" shared-secret ",
+        VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET=" ",
+    )
+
+    assert settings.sagur_registration_events_hmac_secret == "shared-secret"
+
+
+def test_settings_returns_empty_sagur_registration_secret_when_not_configured() -> None:
+    """Проверяет пустой HMAC-секрет регистрации, когда оба источника не настроены."""
+
+    settings = AppSettings(
+        SAGUR_INTEGRATION_HMAC_SECRET=" ",
         VTELEMAX_REGISTRATION_CALLBACK_HMAC_SECRET=" ",
     )
 

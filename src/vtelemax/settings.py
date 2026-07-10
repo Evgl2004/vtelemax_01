@@ -281,4 +281,7 @@ class AppSettings(BaseSettings):
     def sagur_registration_events_hmac_secret(self) -> str:
         """Возвращает HMAC-секрет исходящего события регистрации SAGUR."""
 
-        return self.vtelemax_registration_callback_hmac_secret.strip()
+        dedicated_secret = self.vtelemax_registration_callback_hmac_secret.strip()
+        if dedicated_secret:
+            return dedicated_secret
+        return self.sagur_integration_hmac_secret.strip()
