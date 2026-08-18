@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
@@ -279,9 +280,13 @@ async def run_telegram_bot(settings: AppSettings | None = None) -> None:
     app_logger.info("Инициализация Telegram-бота. ENV={env}.", env=app_settings.env)
     app_settings.validate_telegram_ready()
 
+    telegram_session = AiohttpSession(
+        proxy=app_settings.telegram_proxy_url.strip() or None,
+    )
     bot = Bot(
         token=app_settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        session=telegram_session,
     )
     dispatcher = build_dispatcher(app_settings)
     app_logger.info("Запуск polling Telegram-бота.")

@@ -105,6 +105,7 @@ def _build_telegram_runtime(settings: AppSettings) -> WorkerRuntime:
     try:
         from aiogram import Bot
         from aiogram.client.default import DefaultBotProperties
+        from aiogram.client.session.aiohttp import AiohttpSession
         from aiogram.enums import ParseMode
     except ImportError as exc:  # pragma: no cover - защитный runtime-кейс
         raise RuntimeError(
@@ -113,9 +114,13 @@ def _build_telegram_runtime(settings: AppSettings) -> WorkerRuntime:
 
     from vtelemax.adapters.telegram.router import build_telegram_pending_delivery_sender
 
+    telegram_session = AiohttpSession(
+        proxy=settings.telegram_proxy_url.strip() or None,
+    )
     bot = Bot(
         token=settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        session=telegram_session,
     )
     sender = build_telegram_pending_delivery_sender(bot)
 

@@ -32,6 +32,14 @@ def test_settings_validate_telegram_ready_raises_for_empty_token() -> None:
         settings.validate_telegram_ready()
 
 
+def test_settings_reads_telegram_proxy_url() -> None:
+    """Проверяет чтение адреса Telegram-прокси из переменной окружения."""
+
+    settings = AppSettings(TELEGRAM_PROXY_URL="http://xray-telegram:10809")
+
+    assert settings.telegram_proxy_url == "http://xray-telegram:10809"
+
+
 def test_settings_validate_vk_ready_raises_for_empty_token() -> None:
     """Проверяет обязательность токена VK для запуска бота."""
 

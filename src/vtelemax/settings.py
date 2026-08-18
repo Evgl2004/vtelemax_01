@@ -42,6 +42,7 @@ class AppSettings(BaseSettings):
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_bot_username: str = Field(default="", alias="TELEGRAM_BOT_USERNAME")
+    telegram_proxy_url: str = Field(default="", alias="TELEGRAM_PROXY_URL")
     vk_bot_token: str = Field(default="", alias="VK_BOT_TOKEN")
     vk_group_id: int = Field(default=0, alias="VK_GROUP_ID")
     vk_phone_verification_miniapp_enabled: bool = Field(

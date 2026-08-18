@@ -48,3 +48,44 @@ def test_build_runtime_for_platform_rejects_unknown_platform() -> None:
 
     with pytest.raises(ValueError):
         worker_app.build_runtime_for_platform(AppSettings(), platform="other")  # type: ignore[arg-type]
+
+
+def test_build_telegram_runtime_uses_configured_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проверяет передачу Telegram-прокси в сессию delivery worker."""
+
+    import aiogram
+    from aiogram.client.session import aiohttp as aiohttp_session_module
+    from vtelemax.adapters.telegram import router as telegram_router
+
+    captured: dict[str, object] = {}
+
+    class FakeSession:
+        def __init__(self, *, proxy: str | None) -> None:
+            captured["proxy"] = proxy
+
+        async def close(self) -> None:
+            return None
+
+    class FakeBot:
+        def __init__(self, *, token: str, default: object, session: FakeSession) -> None:
+            captured["token"] = token
+            captured["session"] = session
+            self.session = session
+
+    def fake_build_sender(bot: FakeBot):  # noqa: ANN202
+        captured["bot"] = bot
+        return _dummy_sender
+
+    monkeypatch.setattr(aiogram, "Bot", FakeBot)
+    monkeypatch.setattr(aiohttp_session_module, "AiohttpSession", FakeSession)
+    monkeypatch.setattr(telegram_router, "build_telegram_pending_delivery_sender", fake_build_sender)
+
+    runtime = worker_app._build_telegram_runtime(
+        AppSettings(
+            TELEGRAM_BOT_TOKEN="dummy-token",
+            TELEGRAM_PROXY_URL="http://xray-telegram:10809",
+        )
+    )
+
+    assert captured["proxy"] == "http://xray-telegram:10809"
+    assert runtime.sender is _dummy_sender
