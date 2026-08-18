@@ -1,6 +1,19 @@
 name: vtelemax
 
 services:
+  xray-telegram:
+    image: ghcr.io/xtls/xray-core:26.3.27
+    volumes:
+      - /etc/vtelemax/xray-telegram:/usr/local/etc/xray:ro
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/xray", "run", "-test", "-confdir", "/usr/local/etc/xray"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   postgres:
     image: postgres:16-alpine
     container_name: vtelemax-postgres
@@ -42,9 +55,12 @@ services:
     env_file:
       - .env
     environment:
+      TELEGRAM_PROXY_URL: http://xray-telegram:10809
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
     depends_on:
+      xray-telegram:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       db-migrator:
@@ -185,9 +201,12 @@ services:
     env_file:
       - .env
     environment:
+      TELEGRAM_PROXY_URL: http://xray-telegram:10809
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
     depends_on:
+      xray-telegram:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       db-migrator:
