@@ -2719,6 +2719,32 @@ class VkIdentityAdapter:
                 return normalized
         return "Гость"
 
+    def handle_sagur_navigation(self, vk_user_id: int, action: str) -> VkAdapterResponse:
+        """Открывает новый экран по навигационной кнопке рассылки SAGUR.
+
+        Метод отменяет только ожидаемый текст вопроса либо ответа поддержке.
+        Тикет и его история не изменяются, остальные состояния диалога не
+        сбрасываются.
+        """
+
+        if action not in {"m", "c"}:
+            raise ValueError("Навигационное действие SAGUR должно быть 'm' или 'c'.")
+
+        if self._state_by_user_id.get(vk_user_id) in {
+            _STATE_WAITING_SUPPORT_QUESTION,
+            _STATE_WAITING_SUPPORT_REPLY,
+        }:
+            self._state_by_user_id.pop(vk_user_id, None)
+            self._reply_ticket_id_by_user_id.pop(vk_user_id, None)
+
+        if action == "c":
+            return self._render_coupons_root_screen(vk_user_id=vk_user_id)
+
+        screen = self._menu_adapter.build_main_menu_screen(
+            user_name=self._resolve_menu_user_name(vk_user_id=vk_user_id)
+        )
+        return VkAdapterResponse(text=screen.text, screen=screen)
+
     def _handle_action(self, vk_user_id: int, action: GuestMenuAction) -> VkAdapterResponse:
         """Обрабатывает пункт меню для зарегистрированного пользователя."""
 

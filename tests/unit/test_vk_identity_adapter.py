@@ -8,6 +8,8 @@ from types import TracebackType
 from unittest.mock import patch
 from uuid import UUID
 
+import pytest
+
 from vtelemax.adapters.vk import VkIdentityAdapter
 from vtelemax.adapters.vk import identity_adapter as vk_identity_module
 from vtelemax.infrastructure import VkPhoneVerificationGatewayError, VkPhoneVerificationStatus
@@ -1172,6 +1174,60 @@ def test_vk_support_question_activates_question_input_when_no_tickets() -> None:
     assert "введите ваш вопрос" in result.text.lower()
     assert result.screen is not None
     assert result.screen.screen_id == "support_question"
+
+
+def test_vk_sagur_menu_navigation_cancels_pending_support_question() -> None:
+    """Проверяет отмену ожидаемого вопроса и создание нового главного меню."""
+
+    adapter = _build_adapter()
+    _complete_vk_registration(adapter, vk_user_id=1301)
+    adapter.handle_incoming(
+        vk_user_id=1301,
+        text="❓ Мне только спросить",
+        payload=None,
+    )
+
+    response = adapter.handle_sagur_navigation(vk_user_id=1301, action="m")
+
+    assert 1301 not in adapter._state_by_user_id
+    assert 1301 not in adapter._reply_ticket_id_by_user_id
+    assert response.screen is not None
+    assert response.screen.screen_id == "main_menu"
+
+
+def test_vk_sagur_navigation_clears_reply_but_preserves_other_state() -> None:
+    """Проверяет точную границу очистки состояния поддержки VK."""
+
+    adapter = _build_adapter()
+    ticket_id = UUID("aaaaaaaa-0000-4000-8000-000000000012")
+    adapter._state_by_user_id[1302] = "waiting_support_reply"
+    adapter._reply_ticket_id_by_user_id[1302] = ticket_id
+
+    adapter.handle_sagur_navigation(vk_user_id=1302, action="m")
+
+    assert 1302 not in adapter._state_by_user_id
+    assert 1302 not in adapter._reply_ticket_id_by_user_id
+
+    adapter._state_by_user_id[1302] = "profile_edit_choice"
+    adapter._reply_ticket_id_by_user_id[1302] = ticket_id
+
+    adapter.handle_sagur_navigation(vk_user_id=1302, action="m")
+
+    assert adapter._state_by_user_id[1302] == "profile_edit_choice"
+    assert adapter._reply_ticket_id_by_user_id[1302] == ticket_id
+
+
+def test_vk_sagur_coupon_navigation_and_invalid_action_are_explicit() -> None:
+    """Проверяет маршрут купонов и отказ от действий вне `m/c`."""
+
+    adapter = _build_adapter()
+
+    coupons = adapter.handle_sagur_navigation(vk_user_id=1303, action="c")
+
+    assert coupons.screen is not None
+    assert coupons.screen.screen_id == "profile_not_found"
+    with pytest.raises(ValueError, match="'m' или 'c'"):
+        adapter.handle_sagur_navigation(vk_user_id=1303, action="l")
 
 
 def test_vk_support_back_does_not_create_ticket_while_waiting_question() -> None:

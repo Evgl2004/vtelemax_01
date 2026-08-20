@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from vkbottle.bot import Bot
 
 from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
+from vtelemax.adapters.sagur_message_interactions import SagurMessageInteractionService
 from vtelemax.adapters.vk import VkIdentityAdapter, register_vk_guest_handlers
+from vtelemax.adapters.vk.sagur_message_interactions import (
+    register_vk_sagur_message_interactions,
+)
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketTransactionalUseCase,
@@ -288,6 +292,12 @@ def build_bot(settings: AppSettings) -> Bot:
     )
 
     bot = Bot(settings.vk_bot_token)
+    register_vk_sagur_message_interactions(
+        bot,
+        service=SagurMessageInteractionService(session_factory),
+        identity_adapter=adapter,
+        configured_group_id=settings.vk_group_id,
+    )
     register_vk_guest_handlers(bot, adapter)
     return bot
 
