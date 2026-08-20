@@ -11,12 +11,14 @@ from .schema import (
     ProfileSyncQueueRow,
     SagurCouponEventRow,
     SagurGuestRegistrationEventRow,
+    SagurMessageInteractionEventRow,
     SupportMessageRow,
     SupportTicketRow,
     VkPhoneVerificationSessionRow,
 )
 from .sagur_coupons_repository import CouponAlreadyAssignedError, SQLAlchemySagurCouponsRepository
 from .sagur_registration_events_repository import SQLAlchemySagurRegistrationEventsRepository
+from .sagur_message_interactions_repository import SQLAlchemySagurMessageInteractionsRepository
 from .session import build_engine, build_session_factory
 from .sagur_recipients_repository import SQLAlchemySagurRecipientsRepository
 from .support_repository import SQLAlchemySupportRepository
@@ -32,6 +34,7 @@ __all__ = [
     "ProfileSyncQueueRow",
     "SagurCouponEventRow",
     "SagurGuestRegistrationEventRow",
+    "SagurMessageInteractionEventRow",
     "SupportTicketRow",
     "SupportMessageRow",
     "VkPhoneVerificationSessionRow",
@@ -40,6 +43,7 @@ __all__ = [
     "SQLAlchemySagurRecipientsRepository",
     "SQLAlchemySagurCouponsRepository",
     "SQLAlchemySagurRegistrationEventsRepository",
+    "SQLAlchemySagurMessageInteractionsRepository",
     "CouponAlreadyAssignedError",
     "SQLAlchemyIdentityUnitOfWork",
     "build_engine",

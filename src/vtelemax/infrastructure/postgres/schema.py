@@ -17,6 +17,7 @@ from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -480,6 +481,109 @@ class SagurGuestRegistrationEventRow(Base):
     recovery_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_error_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SagurMessageInteractionEventRow(Base):
+    """Факт нажатия кнопки SAGUR и текущее состояние его обработки."""
+
+    __tablename__ = "sagur_message_interaction_events"
+    __table_args__ = (
+        CheckConstraint(
+            "platform IN ('telegram', 'vk', 'max')",
+            name="ck_sagur_message_interaction_events_platform_allowed",
+        ),
+        CheckConstraint(
+            "interaction_id > 0",
+            name="ck_sagur_message_interaction_events_interaction_id_positive",
+        ),
+        CheckConstraint(
+            "action IN ('l', 'd', 'm', 'c')",
+            name="ck_sagur_message_interaction_events_action_allowed",
+        ),
+        CheckConstraint(
+            "delivery_status IN ('pending', 'processing', 'retry_scheduled', "
+            "'delivered', 'blocked')",
+            name="ck_sagur_message_interaction_events_delivery_status_allowed",
+        ),
+        CheckConstraint(
+            "user_action_status IN ('pending', 'succeeded', 'failed')",
+            name="ck_sagur_message_interaction_events_user_action_status_allowed",
+        ),
+        CheckConstraint(
+            "delivery_attempts >= 0",
+            name="ck_sagur_message_interaction_events_attempts_non_negative",
+        ),
+        UniqueConstraint(
+            "platform",
+            "bot_scope",
+            "platform_callback_id",
+            name="uq_sagur_message_interaction_events_platform_callback",
+        ),
+        Index(
+            "ix_sagur_message_interaction_events_due",
+            "next_attempt_at",
+            "occurred_at",
+            postgresql_where=text("delivery_status IN ('pending', 'retry_scheduled')"),
+            sqlite_where=text("delivery_status IN ('pending', 'retry_scheduled')"),
+        ),
+        Index(
+            "ix_sagur_message_interaction_events_processing",
+            "locked_at",
+            postgresql_where=text("delivery_status = 'processing'"),
+            sqlite_where=text("delivery_status = 'processing'"),
+        ),
+        Index(
+            "ix_sagur_message_interaction_events_interaction_id",
+            "interaction_id",
+        ),
+    )
+
+    event_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    bot_scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    platform_callback_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    interaction_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    action: Mapped[str] = mapped_column(String(1), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=text("'pending'"),
+    )
+    delivery_attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_result: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    delivery_error_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    user_action_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=text("'pending'"),
+    )
+    user_action_attempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    user_action_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    user_action_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    user_action_error_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

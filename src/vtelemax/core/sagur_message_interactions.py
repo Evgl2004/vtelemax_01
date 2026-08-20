@@ -11,7 +11,10 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 from typing import Any
+from uuid import UUID
 
 
 SAGUR_INTERACTION_PAYLOAD_KEYS = frozenset({"t", "v", "i", "a"})
@@ -37,6 +40,24 @@ class SagurButtonPayloadError(ValueError):
         self.code = code
 
 
+class SagurMessageInteractionDeliveryStatus(str, Enum):
+    """Состояние доставки локального события в SAGUR."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    RETRY_SCHEDULED = "retry_scheduled"
+    DELIVERED = "delivered"
+    BLOCKED = "blocked"
+
+
+class SagurMessageInteractionUserActionStatus(str, Enum):
+    """Состояние пользовательского действия после долговечной фиксации."""
+
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class SagurButtonPayload:
     """Проверенные данные одной кнопки интерактивного сообщения SAGUR.
@@ -59,6 +80,53 @@ class SagurButtonPayload:
             if action in {"m", "c"}:
                 return action
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class SagurMessageInteractionIngress:
+    """Неизменяемые данные нового обратного вызова платформы."""
+
+    platform: str
+    bot_scope: str
+    platform_callback_id: str
+    interaction_id: int
+    action: str
+    provider_message_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SagurMessageInteractionEvent:
+    """Локально сохранённый факт нажатия, готовый к доставке в SAGUR."""
+
+    event_id: UUID
+    platform: str
+    bot_scope: str
+    platform_callback_id: str
+    interaction_id: int
+    action: str
+    occurred_at: datetime
+    provider_message_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SagurMessageInteractionInsertResult:
+    """Результат атомарной вставки по составному платформенному ключу."""
+
+    event: SagurMessageInteractionEvent
+    created: bool
+    immutable_fields_match: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SagurMessageInteractionDeliveryTask:
+    """Событие, выбранное активной очередью для одной HTTP-попытки."""
+
+    event_id: UUID
+    interaction_id: int
+    action: str
+    occurred_at: datetime
+    provider_message_id: str | None
+    delivery_attempts: int
 
 
 def _json_object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

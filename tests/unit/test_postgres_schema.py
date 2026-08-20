@@ -16,6 +16,7 @@ from vtelemax.infrastructure.postgres.schema import (
     PhoneRow,
     PlatformAccountRow,
     SagurGuestRegistrationEventRow,
+    SagurMessageInteractionEventRow,
     SupportMessageRow,
     SupportTicketRow,
 )
@@ -31,6 +32,7 @@ def test_metadata_contains_strict_identity_tables() -> None:
         "phones",
         "platform_accounts",
         "sagur_guest_registration_events",
+        "sagur_message_interaction_events",
         "support_tickets",
         "support_messages",
     }.issubset(table_names)
@@ -117,6 +119,40 @@ def test_sagur_guest_registration_events_constraints_are_strict() -> None:
     assert "ck_sagur_guest_registration_events_sagur_status_allowed" in check_constraints
     assert "uq_sagur_guest_registration_events_event_id" in index_names
     assert "uq_sagur_guest_registration_events_active_context" in index_names
+
+
+def test_sagur_message_interaction_events_constraints_and_hot_indexes_are_strict() -> None:
+    """Проверяет ограничения факта нажатия и частичные индексы активной очереди."""
+
+    check_constraints = {
+        constraint.name
+        for constraint in SagurMessageInteractionEventRow.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    unique_constraints = {
+        constraint.name
+        for constraint in SagurMessageInteractionEventRow.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    indexes = {index.name: index for index in SagurMessageInteractionEventRow.__table__.indexes}
+
+    assert {
+        "ck_sagur_message_interaction_events_platform_allowed",
+        "ck_sagur_message_interaction_events_interaction_id_positive",
+        "ck_sagur_message_interaction_events_action_allowed",
+        "ck_sagur_message_interaction_events_delivery_status_allowed",
+        "ck_sagur_message_interaction_events_user_action_status_allowed",
+        "ck_sagur_message_interaction_events_attempts_non_negative",
+    }.issubset(check_constraints)
+    assert "uq_sagur_message_interaction_events_platform_callback" in unique_constraints
+    assert "ix_sagur_message_interaction_events_due" in indexes
+    assert "ix_sagur_message_interaction_events_processing" in indexes
+    assert indexes["ix_sagur_message_interaction_events_due"].dialect_options["postgresql"][
+        "where"
+    ] is not None
+    assert indexes["ix_sagur_message_interaction_events_processing"].dialect_options[
+        "postgresql"
+    ]["where"] is not None
 
 
 def test_foreign_keys_point_to_persons_table() -> None:

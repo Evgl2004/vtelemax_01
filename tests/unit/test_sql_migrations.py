@@ -161,6 +161,24 @@ def test_migration_0018_creates_sagur_guest_registration_events_registry() -> No
     assert "CREATE UNIQUE INDEX IF NOT EXISTS UQ_SAGUR_GUEST_REGISTRATION_EVENTS_ACTIVE_CONTEXT" in upper
 
 
+def test_migration_0019_creates_sagur_message_interaction_events_registry() -> None:
+    """Проверяет однотабличное хранение и частичные индексы активной очереди."""
+
+    migration_file = (
+        _PROJECT_ROOT / "migrations" / "sql" / "0019_sagur_message_interaction_events.sql"
+    )
+    content = migration_file.read_text(encoding="utf-8")
+    upper = content.upper()
+
+    assert "CREATE TABLE IF NOT EXISTS SAGUR_MESSAGE_INTERACTION_EVENTS" in upper
+    assert "INTERACTION_ID BIGINT NOT NULL" in upper
+    assert "UNIQUE (PLATFORM, BOT_SCOPE, PLATFORM_CALLBACK_ID)" in upper
+    assert "USER_ACTION_STATUS VARCHAR(32)" in upper
+    assert "DELIVERY_STATUS VARCHAR(32)" in upper
+    assert "WHERE DELIVERY_STATUS IN ('PENDING', 'RETRY_SCHEDULED')" in upper
+    assert "WHERE DELIVERY_STATUS = 'PROCESSING'" in upper
+
+
 def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
     """Проверяет, что миграция применяется один раз и не выполняется повторно."""
 
