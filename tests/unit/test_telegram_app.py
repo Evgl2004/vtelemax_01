@@ -8,6 +8,19 @@ from vtelemax.apps import telegram_app
 from vtelemax.settings import AppSettings
 
 
+def test_dispatcher_registers_sagur_router_before_generic_callbacks() -> None:
+    """Проверяет приоритет служебного JSON SAGUR над общим меню Telegram."""
+
+    dispatcher = telegram_app.build_dispatcher(
+        AppSettings(TELEGRAM_BOT_TOKEN="123456:TEST_TOKEN_FOR_LOCAL_UNIT_TEST")
+    )
+
+    assert [router.name for router in dispatcher.sub_routers[:2]] == [
+        "telegram_sagur_message_interactions",
+        "telegram_identity",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_run_telegram_bot_uses_configured_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Проверяет передачу Telegram-прокси в polling-сессию бота."""

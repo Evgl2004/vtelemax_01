@@ -13,7 +13,12 @@ from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
 from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
+from vtelemax.adapters.sagur_message_interactions import SagurMessageInteractionService
 from vtelemax.adapters.telegram import TelegramIdentityAdapter, build_telegram_identity_router
+from vtelemax.adapters.telegram.sagur_message_interactions import (
+    build_telegram_bot_scope,
+    build_telegram_sagur_interaction_router,
+)
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketTransactionalUseCase,
@@ -267,6 +272,16 @@ def build_dispatcher(settings: AppSettings) -> Dispatcher:
     )
 
     dispatcher = Dispatcher()
+    dispatcher.include_router(
+        build_telegram_sagur_interaction_router(
+            service=SagurMessageInteractionService(session_factory),
+            identity_adapter=identity_adapter,
+            bot_scope=build_telegram_bot_scope(
+                token=settings.telegram_bot_token,
+                username=settings.telegram_bot_username,
+            ),
+        )
+    )
     dispatcher.include_router(build_telegram_identity_router(identity_adapter))
     return dispatcher
 

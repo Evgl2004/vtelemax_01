@@ -7,6 +7,8 @@ from datetime import date, datetime, timezone
 from types import TracebackType
 from uuid import UUID
 
+import pytest
+
 from vtelemax.adapters.telegram import TelegramIdentityAdapter
 from vtelemax.adapters.telegram import identity_adapter as telegram_identity_module
 from vtelemax.adapters.telegram.identity_adapter import TelegramRegistrationResult
@@ -1083,6 +1085,103 @@ def test_telegram_support_question_activates_question_input_when_no_tickets() ->
     assert result.status == "support_question_input"
     assert "в разработке" not in result.message.lower()
     assert "введите ваш вопрос" in result.message.lower() or "задайте вопрос" in result.message.lower()
+
+
+def test_sagur_menu_navigation_cancels_only_pending_support_question() -> None:
+    """Проверяет отмену ожидаемого текста вопроса без создания обращения."""
+
+    repository = InMemoryIdentityRepository()
+    support_repository = InMemorySupportRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    def support_uow_factory() -> InMemorySupportUnitOfWork:
+        return InMemorySupportUnitOfWork(repository, support_repository)
+
+    create_ticket_use_case = CreateSupportTicketTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    list_person_tickets_use_case = ListPersonSupportTicketsTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    get_person_tickets_page_use_case = GetPersonTicketsPageTransactionalUseCase(
+        unit_of_work_factory=support_uow_factory
+    )
+    adapter = TelegramIdentityAdapter(
+        registration_use_case,
+        lookup_use_case,
+        create_support_ticket_use_case=create_ticket_use_case,
+        list_person_tickets_use_case=list_person_tickets_use_case,
+        get_person_tickets_page_use_case=get_person_tickets_page_use_case,
+    )
+    adapter.register_contact(telegram_user_id=1301, raw_phone="+79125551301")
+    adapter.handle_menu_action(telegram_user_id=1301, action_text="❓ Мне только спросить")
+
+    result = adapter.handle_sagur_navigation(telegram_user_id=1301, action="m")
+    following_text = adapter.handle_menu_action(
+        telegram_user_id=1301,
+        action_text="Этот текст не должен стать обращением",
+    )
+    tickets = list_person_tickets_use_case.execute(
+        platform="telegram",
+        external_id="1301",
+        limit=10,
+    )
+
+    assert result.status == "menu"
+    assert following_text.status == "unknown_action"
+    assert tickets == ()
+
+
+def test_sagur_navigation_clears_reply_context_but_preserves_other_dialog_state() -> None:
+    """Проверяет точную границу очистки локального состояния поддержки."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+    ticket_id = UUID("aaaaaaaa-0000-4000-8000-000000000002")
+    adapter._dialog_state_by_user_id[1302] = "waiting_support_reply"
+    adapter._reply_ticket_id_by_user_id[1302] = ticket_id
+
+    adapter.handle_sagur_navigation(telegram_user_id=1302, action="m")
+
+    assert 1302 not in adapter._dialog_state_by_user_id
+    assert 1302 not in adapter._reply_ticket_id_by_user_id
+
+    adapter._dialog_state_by_user_id[1302] = "profile_edit_choice"
+    adapter._reply_ticket_id_by_user_id[1302] = ticket_id
+
+    adapter.handle_sagur_navigation(telegram_user_id=1302, action="m")
+
+    assert adapter._dialog_state_by_user_id[1302] == "profile_edit_choice"
+    assert adapter._reply_ticket_id_by_user_id[1302] == ticket_id
+
+
+def test_sagur_coupon_navigation_and_invalid_action_are_explicit() -> None:
+    """Проверяет маршрутизацию `c` и отклонение действий вне `m/c`."""
+
+    repository = InMemoryIdentityRepository()
+    registration_use_case = RegisterOrAttachAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    lookup_use_case = GetPersonByAccountTransactionalUseCase(
+        unit_of_work_factory=lambda: InMemoryIdentityUnitOfWork(repository)
+    )
+    adapter = TelegramIdentityAdapter(registration_use_case, lookup_use_case)
+
+    coupons = adapter.handle_sagur_navigation(telegram_user_id=1303, action="c")
+
+    assert coupons.status == "not_registered"
+    with pytest.raises(ValueError, match="'m' или 'c'"):
+        adapter.handle_sagur_navigation(telegram_user_id=1303, action="l")
 
 
 def test_telegram_support_back_does_not_create_ticket_while_waiting_question() -> None:

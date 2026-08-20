@@ -644,6 +644,39 @@ class TelegramIdentityAdapter:
 
         return build_main_menu_screen(user_name=user_name).text
 
+    def handle_sagur_navigation(
+        self,
+        telegram_user_id: int,
+        action: str,
+    ) -> TelegramMenuActionResult:
+        """Открывает новый экран по навигационной кнопке рассылки SAGUR.
+
+        Навигация отменяет только ожидающий текст вопроса или ответа службе
+        поддержки. Само обращение и его история не изменяются. Другие
+        состояния диалога не сбрасываются, поскольку кнопка рассылки не должна
+        вмешиваться в независимые сценарии профиля и модерации.
+        """
+
+        if action not in {"m", "c"}:
+            raise ValueError("Навигационное действие SAGUR должно быть 'm' или 'c'.")
+
+        if self._dialog_state_by_user_id.get(telegram_user_id) in {
+            _STATE_WAITING_SUPPORT_QUESTION,
+            _STATE_WAITING_SUPPORT_REPLY,
+        }:
+            self._dialog_state_by_user_id.pop(telegram_user_id, None)
+            self._reply_ticket_id_by_user_id.pop(telegram_user_id, None)
+
+        if action == "c":
+            return self._render_coupons_root_screen(telegram_user_id=telegram_user_id)
+
+        return TelegramMenuActionResult(
+            status="menu",
+            message=self.build_menu_overview_message(
+                user_name=self._resolve_menu_user_name(telegram_user_id=telegram_user_id)
+            ),
+        )
+
     def handle_menu_action(self, telegram_user_id: int, action_text: str) -> TelegramMenuActionResult:
         """Обрабатывает текстовые действия главного меню Telegram."""
 
