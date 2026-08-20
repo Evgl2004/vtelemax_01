@@ -9,31 +9,35 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
-from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
 from vtelemax.adapters.max import MaxIdentityAdapter, register_max_guest_handlers
+from vtelemax.adapters.max.sagur_message_interactions import (
+    build_max_sagur_interaction_router,
+)
+from vtelemax.adapters.sagur_message_interactions import SagurMessageInteractionService
+from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
 from vtelemax.core import (
     AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketTransactionalUseCase,
     EnqueueProfileSyncTransactionalUseCase,
-    GetPersonByAccountTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
-    GetVirtualCardUseCase,
-    ListOpenSupportTicketsTransactionalUseCase,
-    ListPersonSupportTicketsTransactionalUseCase,
+    GetPersonByAccountTransactionalUseCase,
     GetPersonTicketsPageTransactionalUseCase,
     GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
+    GetVirtualCardUseCase,
+    ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
     RegisterOrAttachAccountTransactionalUseCase,
     RouteModeratorReplyTransactionalUseCase,
     SetSupportTicketStatusTransactionalUseCase,
 )
+from vtelemax.infrastructure import IikoLoyaltyGateway, configure_logging
 from vtelemax.infrastructure.postgres import (
     Base,
     SQLAlchemyIdentityUnitOfWork,
     build_engine,
     build_session_factory,
 )
-from vtelemax.infrastructure import IikoLoyaltyGateway, configure_logging
 from vtelemax.settings import AppSettings
 
 
@@ -285,7 +289,14 @@ def build_dispatcher(settings: AppSettings) -> Any:
         max_contact_strict_hash_enabled=settings.max_contact_strict_hash_enabled,
         max_contact_hash_shadow_mode_enabled=settings.max_contact_hash_shadow_mode_enabled,
     )
-    dispatcher.include_routers(router)
+    dispatcher.include_routers(
+        build_max_sagur_interaction_router(
+            service=SagurMessageInteractionService(session_factory),
+            identity_adapter=adapter,
+            configured_username=settings.max_bot_username,
+        ),
+        router,
+    )
     return dispatcher
 
 

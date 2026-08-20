@@ -14,46 +14,47 @@ from zoneinfo import ZoneInfo
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
+from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
 from vtelemax.core import (
-    AddGuestMessageToTicketCommand,
-    AddGuestMessageToTicketTransactionalUseCase,
     BUTTON_ACCEPT_RULES,
+    BUTTON_MY_TICKETS,
     BUTTON_RETRY_IIKO_SYNC,
     BUTTON_SEND_PHONE,
-    BUTTON_MY_TICKETS,
     GLOBAL_COUPON_VENUE_CODE,
+    SUPPORTED_PLATFORMS,
+    AddGuestMessageToTicketCommand,
+    AddGuestMessageToTicketTransactionalUseCase,
     CreateSupportTicketCommand,
     CreateSupportTicketTransactionalUseCase,
     EnqueueProfileSyncCommand,
     EnqueueProfileSyncTransactionalUseCase,
     GetLoyaltyBalanceUseCase,
-    GetPersonTicketsPageTransactionalUseCase,
-    LoyaltyCustomerUpsertData,
-    LoyaltyGateway,
-    LoyaltyGatewayError,
     GetPersonByAccountCommand,
     GetPersonByAccountTransactionalUseCase,
-    ListOpenSupportTicketsTransactionalUseCase,
-    ListPersonSupportTicketsTransactionalUseCase,
+    GetPersonTicketsPageTransactionalUseCase,
     GetSupportTicketConversationTransactionalUseCase,
     GetSupportTicketDetailsTransactionalUseCase,
     GetVirtualCardUseCase,
     GuestMenuAction,
     IdentityConflictError,
+    ListOpenSupportTicketsTransactionalUseCase,
+    ListPersonSupportTicketsTransactionalUseCase,
+    LoyaltyCustomerUpsertData,
+    LoyaltyGateway,
+    LoyaltyGatewayError,
     ModeratorReplyCommand,
     OnboardingFlowService,
     OnboardingState,
     PersonSupportTicketSummary,
     PersonTicketsPageResult,
     PlatformName,
-    RegistrationOrigin,
-    SagurRegistrationContext,
     RegisterOrAttachAccountCommand,
     RegisterOrAttachAccountTransactionalUseCase,
+    RegistrationOrigin,
     RouteModeratorReplyTransactionalUseCase,
+    SagurRegistrationContext,
     SetSupportTicketStatusCommand,
     SetSupportTicketStatusTransactionalUseCase,
-    SUPPORTED_PLATFORMS,
     SupportTicketStatus,
     build_coupon_card_view_for_markup,
     build_coupons_list_view,
@@ -64,9 +65,14 @@ from vtelemax.core import (
     parse_birth_date,
     resolve_guest_menu_action,
 )
-from vtelemax.adapters.sagur_registration_events import SagurRegistrationFinalizationService
+from vtelemax.infrastructure.postgres.sagur_coupons_repository import (
+    SQLAlchemySagurCouponsRepository,
+)
 
 from .menu_adapter import (
+    COUPON_SCOPE_GLOBAL_TOKEN,
+    COUPON_SCOPE_PREFIX,
+    COUPON_SHOW_PREFIX,
     MOD_CLOSE_PREFIX,
     MOD_LIST_PREFIX,
     MOD_MAIN_CALLBACK,
@@ -76,17 +82,13 @@ from .menu_adapter import (
     MOD_PHONE_SHOW_PREFIX,
     MOD_REPLY_PREFIX,
     MOD_TICKET_PREFIX,
-    COUPON_SCOPE_GLOBAL_TOKEN,
-    COUPON_SCOPE_PREFIX,
-    COUPON_SHOW_PREFIX,
     MaxButton,
     MaxGuestMenuAdapter,
     MaxScreen,
     build_coupon_scope_payload,
     build_coupon_show_payload,
 )
-from .payloads import resolve_action_from_max_payload, build_max_payload
-from vtelemax.infrastructure.postgres.sagur_coupons_repository import SQLAlchemySagurCouponsRepository
+from .payloads import build_max_payload, resolve_action_from_max_payload
 
 # Префиксы callback'ов пагинации тикетов (аналогично Telegram и VK)
 USER_TICKETS_PREV_PAGE_PREFIX = "user_tickets_prev_"
@@ -2616,6 +2618,33 @@ class MaxIdentityAdapter:
             if normalized:
                 return normalized
         return "Гость"
+
+    def handle_sagur_navigation(self, max_user_id: int, action: str) -> MaxAdapterResponse:
+        """Открывает новый экран по навигационной кнопке рассылки SAGUR.
+
+        Навигация отменяет только ожидающий текст вопроса или ответа службе
+        поддержки. Само обращение и его история не изменяются. Другие
+        состояния диалога не сбрасываются, поскольку кнопка рассылки не должна
+        вмешиваться в независимые сценарии профиля и модерации.
+        """
+
+        if action not in {"m", "c"}:
+            raise ValueError("Навигационное действие SAGUR должно быть 'm' или 'c'.")
+
+        if self._state_by_user_id.get(max_user_id) in {
+            _STATE_WAITING_SUPPORT_QUESTION,
+            _STATE_WAITING_SUPPORT_REPLY,
+        }:
+            self._state_by_user_id.pop(max_user_id, None)
+            self._reply_ticket_id_by_user_id.pop(max_user_id, None)
+
+        if action == "c":
+            return self._render_coupons_root_screen(max_user_id=max_user_id)
+
+        screen = self._menu_adapter.build_main_menu_screen(
+            user_name=self._resolve_menu_user_name(max_user_id=max_user_id)
+        )
+        return MaxAdapterResponse(text=screen.text, screen=screen)
 
     def _handle_action(self, max_user_id: int, action: GuestMenuAction) -> MaxAdapterResponse:
         """Обрабатывает пункт меню для зарегистрированного пользователя."""
