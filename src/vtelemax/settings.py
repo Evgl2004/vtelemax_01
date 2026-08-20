@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -199,6 +199,57 @@ class AppSettings(BaseSettings):
         alias="SAGUR_REGISTRATION_EVENTS_LOCK_TIMEOUT_SECONDS",
         gt=0,
     )
+    sagur_message_interaction_sync_enabled: bool = Field(
+        default=False,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_ENABLED",
+    )
+    sagur_message_interaction_sync_base_url: str = Field(
+        default="https://sagur.24vds.ru",
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_BASE_URL",
+    )
+    sagur_message_interaction_sync_endpoint: str = Field(
+        default="/internal/integration/v1/vtelemax/message-interactions/events",
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_ENDPOINT",
+    )
+    sagur_message_interaction_sync_hmac_secret: str = Field(
+        default="",
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_HMAC_SECRET",
+    )
+    sagur_message_interaction_sync_require_https: bool = Field(
+        default=True,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_REQUIRE_HTTPS",
+    )
+    sagur_message_interaction_sync_batch_size: int = Field(
+        default=100,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_BATCH_SIZE",
+        gt=0,
+        le=100,
+    )
+    sagur_message_interaction_sync_schedule_minutes: float = Field(
+        default=5.0,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_SCHEDULE_MINUTES",
+        gt=0,
+    )
+    sagur_message_interaction_sync_http_timeout_seconds: float = Field(
+        default=20.0,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_HTTP_TIMEOUT_SECONDS",
+        gt=0,
+    )
+    sagur_message_interaction_sync_retry_base_seconds: float = Field(
+        default=30.0,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_BASE_SECONDS",
+        gt=0,
+    )
+    sagur_message_interaction_sync_retry_max_seconds: float = Field(
+        default=3600.0,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_MAX_SECONDS",
+        gt=0,
+    )
+    sagur_message_interaction_sync_lock_timeout_seconds: int = Field(
+        default=300,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_LOCK_TIMEOUT_SECONDS",
+        gt=0,
+    )
     max_bot_token: str = Field(default="", alias="MAX_BOT_TOKEN")
     max_bot_username: str = Field(default="", alias="MAX_BOT_USERNAME")
     max_contact_strict_hash_enabled: bool = Field(
@@ -264,13 +315,17 @@ class AppSettings(BaseSettings):
         """Проверяет, что настройки достаточны для запуска VK-бота."""
 
         if not self.vk_bot_token.strip():
-            raise ValueError("Не задан VK_BOT_TOKEN. Укажите токен в .env или переменной окружения.")
+            raise ValueError(
+                "Не задан VK_BOT_TOKEN. Укажите токен в .env или переменной окружения."
+            )
 
     def validate_max_ready(self) -> None:
         """Проверяет, что настройки достаточны для запуска MAX-бота."""
 
         if not self.max_bot_token.strip():
-            raise ValueError("Не задан MAX_BOT_TOKEN. Укажите токен в .env или переменной окружения.")
+            raise ValueError(
+                "Не задан MAX_BOT_TOKEN. Укажите токен в .env или переменной окружения."
+            )
 
     @property
     def is_iiko_configured(self) -> bool:
@@ -286,3 +341,26 @@ class AppSettings(BaseSettings):
         if dedicated_secret:
             return dedicated_secret
         return self.sagur_integration_hmac_secret.strip()
+
+    @property
+    def sagur_message_interactions_hmac_secret(self) -> str:
+        """Возвращает отдельный либо общий HMAC-секрет доставки нажатий."""
+
+        dedicated_secret = self.sagur_message_interaction_sync_hmac_secret.strip()
+        if dedicated_secret:
+            return dedicated_secret
+        return self.sagur_integration_hmac_secret.strip()
+
+    @model_validator(mode="after")
+    def validate_sagur_message_interaction_retry_range(self) -> AppSettings:
+        """Проверяет логический порядок границ экспоненциального повтора."""
+
+        if (
+            self.sagur_message_interaction_sync_retry_max_seconds
+            < self.sagur_message_interaction_sync_retry_base_seconds
+        ):
+            raise ValueError(
+                "SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_MAX_SECONDS не может быть меньше "
+                "SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_BASE_SECONDS."
+            )
+        return self

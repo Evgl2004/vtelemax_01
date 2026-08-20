@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
-import hmac
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from urllib.parse import urlsplit
 
 import aiohttp
 from loguru import logger
@@ -29,6 +26,12 @@ from vtelemax.core import (
 )
 from vtelemax.infrastructure.postgres.sagur_registration_events_repository import (
     SQLAlchemySagurRegistrationEventsRepository,
+)
+
+from .vtelemax_outbound_hmac import (
+    build_vtelemax_outbound_canonical_string,
+    build_vtelemax_outbound_signature,
+    canonical_request_path,
 )
 
 _REGISTRATION_ENDPOINT_PATH = "/internal/integration/v1/vtelemax/registration-events"
@@ -222,7 +225,9 @@ class SagurRegistrationHttpClient:
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(self.endpoint, data=task.payload_body, headers=headers) as response:
+                async with session.post(
+                    self.endpoint, data=task.payload_body, headers=headers
+                ) as response:
                     data = await _read_json_response(response)
                     return _classify_sagur_response(response.status, data)
         except (TimeoutError, aiohttp.ClientError) as error:
@@ -385,7 +390,9 @@ class SagurRegistrationRecoveryProcessor:
                     task.phone_e164,
                 )
             except LoyaltyGatewayError as error:
-                if self._schedule_recovery(task, error_code=_loyalty_error_code(error), error_text=str(error)):
+                if self._schedule_recovery(
+                    task, error_code=_loyalty_error_code(error), error_text=str(error)
+                ):
                     retry_count += 1
                 else:
                     manual_count += 1
@@ -496,7 +503,9 @@ class PeriodicSagurRegistrationEventsWorker:
     async def run_forever(self) -> None:
         """Запускает периодический цикл до сигнала остановки."""
 
-        worker_logger = logger.bind(component="sagur_registration_events_worker", stage="run_forever")
+        worker_logger = logger.bind(
+            component="sagur_registration_events_worker", stage="run_forever"
+        )
         worker_logger.info(
             "SAGUR registration worker запущен. interval={interval}s, limit={limit}.",
             interval=self.interval_seconds,
@@ -536,7 +545,9 @@ class PeriodicSagurRegistrationEventsWorker:
         self._stop_event.set()
 
     async def _process_once_internal(self) -> tuple[int, int, int, int]:
-        worker_logger = logger.bind(component="sagur_registration_events_worker", stage="process_once")
+        worker_logger = logger.bind(
+            component="sagur_registration_events_worker", stage="process_once"
+        )
         try:
             result = await self.delivery_processor.process_once(limit=self.batch_limit)
             await self._maybe_run_recovery()
@@ -584,8 +595,12 @@ def build_vtelemax_registration_canonical_string(
 ) -> str:
     """Собирает каноническую строку подписи vtelemax -> SAGUR."""
 
-    body_hash = hashlib.sha256(payload_body).hexdigest()
-    return "\n".join((method.upper(), path, timestamp, body_hash))
+    return build_vtelemax_outbound_canonical_string(
+        method=method,
+        path=path,
+        timestamp=timestamp,
+        payload_body=payload_body,
+    )
 
 
 def build_vtelemax_registration_signature(
@@ -598,17 +613,13 @@ def build_vtelemax_registration_signature(
 ) -> str:
     """Считает HMAC-SHA256 подпись исходящего события регистрации."""
 
-    canonical = build_vtelemax_registration_canonical_string(
+    return build_vtelemax_outbound_signature(
+        secret=secret,
         method=method,
         path=path,
         timestamp=timestamp,
         payload_body=payload_body,
     )
-    return hmac.new(
-        secret.encode("utf-8"),
-        canonical.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
 
 
 async def _read_json_response(response: aiohttp.ClientResponse) -> dict[str, object]:
@@ -655,11 +666,7 @@ def _classify_sagur_response(
 
 
 def _canonical_path(endpoint: str) -> str:
-    parsed = urlsplit(endpoint)
-    path = parsed.path or _REGISTRATION_ENDPOINT_PATH
-    if parsed.query:
-        return f"{path}?{parsed.query}"
-    return path
+    return canonical_request_path(endpoint, default_path=_REGISTRATION_ENDPOINT_PATH)
 
 
 def _delivery_next_attempt(attempts: int) -> datetime:

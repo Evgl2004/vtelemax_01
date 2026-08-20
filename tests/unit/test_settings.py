@@ -20,7 +20,10 @@ def test_settings_builds_postgres_dsn() -> None:
         TELEGRAM_BOT_TOKEN="dummy-token",
     )
 
-    assert settings.postgres_sqlalchemy_dsn == "postgresql+psycopg://postgres:1234@localhost:5433/postgres"
+    assert (
+        settings.postgres_sqlalchemy_dsn
+        == "postgresql+psycopg://postgres:1234@localhost:5433/postgres"
+    )
 
 
 def test_settings_validate_telegram_ready_raises_for_empty_token() -> None:
@@ -56,6 +59,20 @@ def test_settings_validate_max_ready_raises_for_empty_token() -> None:
 
     with pytest.raises(ValueError):
         settings.validate_max_ready()
+
+
+def test_settings_platform_readiness_accepts_all_configured_tokens() -> None:
+    """Проверяет положительные ветви готовности трёх платформ."""
+
+    settings = AppSettings(
+        TELEGRAM_BOT_TOKEN="telegram-token",
+        VK_BOT_TOKEN="vk-token",
+        MAX_BOT_TOKEN="max-token",
+    )
+
+    settings.validate_telegram_ready()
+    settings.validate_vk_ready()
+    settings.validate_max_ready()
 
 
 def test_settings_detects_iiko_configuration_enabled() -> None:
@@ -151,7 +168,9 @@ def test_settings_reads_sagur_registration_events_values() -> None:
     assert settings.sagur_registration_events_lock_timeout_seconds == 180
 
 
-def test_settings_uses_sagur_integration_secret_for_registration_events_when_dedicated_secret_empty() -> None:
+def test_settings_uses_sagur_integration_secret_for_registration_events_when_dedicated_secret_empty() -> (
+    None
+):
     """Проверяет общий HMAC-секрет SAGUR для welcome-callback при пустом отдельном секрете."""
 
     settings = AppSettings(
@@ -171,6 +190,69 @@ def test_settings_returns_empty_sagur_registration_secret_when_not_configured() 
     )
 
     assert settings.sagur_registration_events_hmac_secret == ""
+
+
+def test_settings_reads_sagur_message_interaction_delivery_values() -> None:
+    """Проверяет отдельные настройки пакетной доставки нажатий SAGUR."""
+
+    settings = AppSettings(
+        SAGUR_MESSAGE_INTERACTION_SYNC_ENABLED=True,
+        SAGUR_MESSAGE_INTERACTION_SYNC_BASE_URL="https://example.test",
+        SAGUR_MESSAGE_INTERACTION_SYNC_ENDPOINT="/events",
+        SAGUR_MESSAGE_INTERACTION_SYNC_HMAC_SECRET=" interaction-secret ",
+        SAGUR_MESSAGE_INTERACTION_SYNC_REQUIRE_HTTPS=True,
+        SAGUR_MESSAGE_INTERACTION_SYNC_BATCH_SIZE=42,
+        SAGUR_MESSAGE_INTERACTION_SYNC_SCHEDULE_MINUTES=2.5,
+        SAGUR_MESSAGE_INTERACTION_SYNC_HTTP_TIMEOUT_SECONDS=19,
+        SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_BASE_SECONDS=20,
+        SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_MAX_SECONDS=900,
+        SAGUR_MESSAGE_INTERACTION_SYNC_LOCK_TIMEOUT_SECONDS=180,
+    )
+
+    assert settings.sagur_message_interaction_sync_enabled is True
+    assert settings.sagur_message_interaction_sync_base_url == "https://example.test"
+    assert settings.sagur_message_interaction_sync_endpoint == "/events"
+    assert settings.sagur_message_interactions_hmac_secret == "interaction-secret"
+    assert settings.sagur_message_interaction_sync_batch_size == 42
+    assert settings.sagur_message_interaction_sync_schedule_minutes == 2.5
+    assert settings.sagur_message_interaction_sync_http_timeout_seconds == 19
+    assert settings.sagur_message_interaction_sync_retry_base_seconds == 20
+    assert settings.sagur_message_interaction_sync_retry_max_seconds == 900
+    assert settings.sagur_message_interaction_sync_lock_timeout_seconds == 180
+
+
+def test_settings_uses_common_hmac_secret_for_message_interactions() -> None:
+    """Пустой отдельный секрет использует согласованный общий секрет SAGUR."""
+
+    settings = AppSettings(
+        SAGUR_MESSAGE_INTERACTION_SYNC_HMAC_SECRET=" ",
+        SAGUR_INTEGRATION_HMAC_SECRET=" shared-secret ",
+    )
+
+    assert settings.sagur_message_interactions_hmac_secret == "shared-secret"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"SAGUR_MESSAGE_INTERACTION_SYNC_BATCH_SIZE": 0},
+        {"SAGUR_MESSAGE_INTERACTION_SYNC_BATCH_SIZE": 101},
+        {"SAGUR_MESSAGE_INTERACTION_SYNC_SCHEDULE_MINUTES": 0},
+        {"SAGUR_MESSAGE_INTERACTION_SYNC_HTTP_TIMEOUT_SECONDS": 0},
+        {
+            "SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_BASE_SECONDS": 60,
+            "SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_MAX_SECONDS": 30,
+        },
+        {"SAGUR_MESSAGE_INTERACTION_SYNC_LOCK_TIMEOUT_SECONDS": 0},
+    ],
+)
+def test_settings_rejects_invalid_message_interaction_delivery_values(
+    values: dict[str, object],
+) -> None:
+    """Отклоняет опасные пределы работника до его запуска."""
+
+    with pytest.raises(ValidationError):
+        AppSettings(**values)
 
 
 def test_settings_rejects_non_positive_profile_sync_interval() -> None:
