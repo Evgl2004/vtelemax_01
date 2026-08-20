@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 
@@ -30,10 +31,19 @@ _VERSION_2_ACTION_SETS: dict[str, tuple[str, str, str]] = {
     "dlc": ("l", "d", "c"),
     "cld": ("l", "d", "c"),
 }
+_ButtonT = TypeVar("_ButtonT")
 
 
 class SagurButtonPayloadError(ValueError):
     """Полезная нагрузка заявляет тип SAGUR, но нарушает его контракт."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class SagurMessageKeyboardError(ValueError):
+    """Фактическая клавиатура не позволяет безопасно удалить только оценки."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -222,3 +232,68 @@ def parse_sagur_button_payload(
         action=action_value[0],
         button_actions=button_actions,
     )
+
+
+def remove_sagur_rating_buttons_from_rows(
+    rows: Sequence[Sequence[_ButtonT]],
+    *,
+    clicked_payload: SagurButtonPayload,
+    payload_getter: Callable[[_ButtonT], str | Mapping[str, Any] | None],
+) -> tuple[tuple[_ButtonT, ...], ...]:
+    """Удаляет ``l/d`` одного сообщения, сохраняя все остальные кнопки.
+
+    Функция работает только с фактически прочитанными рядами платформы и
+    возвращает прежние объекты кнопок. Текст, стиль, ссылка и иные неизвестные
+    поля поэтому не реконструируются. Изменение разрешается лишь когда найден
+    полный и непротиворечивый набор ``l+d+m`` либо ``l+d+c`` одного
+    ``interaction_id``.
+    """
+
+    if clicked_payload.action not in {"l", "d"}:
+        raise SagurMessageKeyboardError("rating_action_required")
+
+    matching_buttons: list[tuple[int, int, SagurButtonPayload]] = []
+    for row_index, row in enumerate(rows):
+        for button_index, button in enumerate(row):
+            payload = parse_sagur_button_payload(payload_getter(button))
+            if payload is not None and payload.interaction_id == clicked_payload.interaction_id:
+                matching_buttons.append((row_index, button_index, payload))
+
+    if len(matching_buttons) != 3:
+        raise SagurMessageKeyboardError("interaction_button_count_invalid")
+
+    matched_payloads = tuple(item[2] for item in matching_buttons)
+    observed_actions = tuple(payload.action for payload in matched_payloads)
+    observed_action_set = frozenset(observed_actions)
+    if len(observed_action_set) != 3 or observed_action_set not in {
+        frozenset({"l", "d", "m"}),
+        frozenset({"l", "d", "c"}),
+    }:
+        raise SagurMessageKeyboardError("interaction_button_set_invalid")
+
+    if clicked_payload.version == 2:
+        expected_actions = frozenset(clicked_payload.button_actions)
+        if observed_action_set != expected_actions or any(
+            payload.version != 2
+            or frozenset(payload.button_actions) != expected_actions
+            for payload in matched_payloads
+        ):
+            raise SagurMessageKeyboardError("interaction_button_contract_mismatch")
+    elif any(payload.version != 1 for payload in matched_payloads):
+        raise SagurMessageKeyboardError("interaction_button_contract_mismatch")
+
+    rating_positions = {
+        (row_index, button_index)
+        for row_index, button_index, payload in matching_buttons
+        if payload.action in {"l", "d"}
+    }
+    updated_rows: list[tuple[_ButtonT, ...]] = []
+    for row_index, row in enumerate(rows):
+        updated_row = tuple(
+            button
+            for button_index, button in enumerate(row)
+            if (row_index, button_index) not in rating_positions
+        )
+        if updated_row:
+            updated_rows.append(updated_row)
+    return tuple(updated_rows)

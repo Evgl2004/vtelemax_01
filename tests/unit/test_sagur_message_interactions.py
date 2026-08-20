@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -11,7 +12,9 @@ from vtelemax.core.sagur_message_interactions import (
     SAGUR_INTERACTION_ID_MAX,
     SagurButtonPayload,
     SagurButtonPayloadError,
+    SagurMessageKeyboardError,
     parse_sagur_button_payload,
+    remove_sagur_rating_buttons_from_rows,
 )
 
 
@@ -152,3 +155,119 @@ def test_maximum_version_2_payload_fits_telegram_limit(action: str) -> None:
 
     assert len(raw_payload.encode("utf-8")) <= 64
     assert parse_sagur_button_payload(raw_payload, max_bytes=64) is not None
+
+
+@dataclass(frozen=True)
+class _Button:
+    label: str
+    payload: str | None
+    style: str = "обычный"
+
+
+def _button(action: str, *, version: int = 1, interaction_id: int = 123456) -> _Button:
+    return _Button(
+        label=action,
+        payload=_payload(version=version, interaction_id=interaction_id, action=action),
+        style=f"стиль-{action}",
+    )
+
+
+def _parsed(action: str, *, version: int = 1) -> SagurButtonPayload:
+    payload = parse_sagur_button_payload(_payload(version=version, action=action))
+    assert payload is not None
+    return payload
+
+
+def test_rating_removal_preserves_navigation_unrelated_buttons_rows_and_objects() -> None:
+    like = _button("l")
+    dislike = _button("d")
+    menu = _button("m")
+    unrelated = _Button(label="Сайт", payload=None, style="ссылка")
+    rows = ((unrelated,), (like, dislike), (menu,))
+
+    result = remove_sagur_rating_buttons_from_rows(
+        rows,
+        clicked_payload=_parsed("l"),
+        payload_getter=lambda button: button.payload,
+    )
+
+    assert result == ((unrelated,), (menu,))
+    assert result[0][0] is unrelated
+    assert result[1][0] is menu
+
+
+@pytest.mark.parametrize(("rating_action", "navigation_action"), [("ldm", "mld"), ("dlc", "cld")])
+def test_version_2_rating_removal_checks_full_semantic_set(
+    rating_action: str,
+    navigation_action: str,
+) -> None:
+    navigation = _button(navigation_action, version=2)
+    rows = (
+        (_button("ldm" if navigation_action == "mld" else "ldc", version=2),),
+        (_button("dlm" if navigation_action == "mld" else "dlc", version=2),),
+        (navigation,),
+    )
+
+    result = remove_sagur_rating_buttons_from_rows(
+        rows,
+        clicked_payload=_parsed(rating_action, version=2),
+        payload_getter=lambda button: button.payload,
+    )
+
+    assert result == ((navigation,),)
+
+
+@pytest.mark.parametrize(
+    ("rows", "clicked", "error_code"),
+    [
+        (((_button("l"), _button("d")), (_button("m"),)), _parsed("m"), "rating_action_required"),
+        (((_button("l"),), (_button("m"),)), _parsed("l"), "interaction_button_count_invalid"),
+        (
+            ((_button("l"), _button("d")), (_button("m"), _button("c"))),
+            _parsed("l"),
+            "interaction_button_count_invalid",
+        ),
+        (
+            ((_button("l"), _button("l")), (_button("m"),)),
+            _parsed("l"),
+            "interaction_button_set_invalid",
+        ),
+        (
+            ((_button("l"), _button("d")), (_button("mld", version=2),)),
+            _parsed("l"),
+            "interaction_button_contract_mismatch",
+        ),
+        (
+            (
+                (_button("ldm", version=2), _button("dlc", version=2)),
+                (_button("mld", version=2),),
+            ),
+            _parsed("ldm", version=2),
+            "interaction_button_contract_mismatch",
+        ),
+    ],
+)
+def test_rating_removal_rejects_unsafe_keyboard(
+    rows: tuple[tuple[_Button, ...], ...],
+    clicked: SagurButtonPayload,
+    error_code: str,
+) -> None:
+    with pytest.raises(SagurMessageKeyboardError) as error:
+        remove_sagur_rating_buttons_from_rows(
+            rows,
+            clicked_payload=clicked,
+            payload_getter=lambda button: button.payload,
+        )
+
+    assert error.value.code == error_code
+
+
+def test_rating_removal_propagates_invalid_sagur_button_payload() -> None:
+    invalid = _Button("сломано", '{"t":"si","v":2,"i":123456,"a":"xyz"}')
+
+    with pytest.raises(SagurButtonPayloadError):
+        remove_sagur_rating_buttons_from_rows(
+            ((invalid, _button("d")), (_button("m"),)),
+            clicked_payload=_parsed("l"),
+            payload_getter=lambda button: button.payload,
+        )
