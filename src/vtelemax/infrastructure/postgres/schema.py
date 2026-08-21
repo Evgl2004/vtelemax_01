@@ -524,6 +524,46 @@ class SagurMessageInteractionEventRow(Base):
             "delivery_attempts >= 0",
             name="ck_sagur_message_interaction_events_attempts_non_negative",
         ),
+        CheckConstraint(
+            "((delivery_status = 'pending' AND delivery_attempts = 0) OR "
+            "(delivery_status <> 'pending' AND delivery_attempts > 0))",
+            name="ck_sagur_message_interaction_events_attempts_consistent",
+        ),
+        CheckConstraint(
+            "((delivery_status = 'processing' AND locked_at IS NOT NULL AND "
+            "delivery_lease_id IS NOT NULL) OR "
+            "(delivery_status <> 'processing' AND locked_at IS NULL AND "
+            "delivery_lease_id IS NULL))",
+            name="ck_sagur_message_interaction_events_processing_lease_consistent",
+        ),
+        CheckConstraint(
+            "((delivery_status = 'delivered' AND delivered_at IS NOT NULL AND "
+            "delivery_result IS NOT NULL AND "
+            "delivery_result IN ('accepted', 'duplicate', 'rating_already_recorded') AND "
+            "delivery_error_code IS NULL AND delivery_error_text IS NULL) OR "
+            "(delivery_status <> 'delivered' AND delivered_at IS NULL AND "
+            "delivery_result IS NULL))",
+            name="ck_sagur_message_interaction_events_delivery_completion_consistent",
+        ),
+        CheckConstraint(
+            "(delivery_status NOT IN ('retry_scheduled', 'blocked') OR "
+            "(delivery_error_code IS NOT NULL AND length(delivery_error_code) > 0))",
+            name="ck_sagur_message_interaction_events_delivery_error_consistent",
+        ),
+        CheckConstraint(
+            "((user_action_status = 'pending' AND user_action_attempted_at IS NULL AND "
+            "user_action_finished_at IS NULL AND user_action_error_code IS NULL AND "
+            "user_action_error_text IS NULL) OR "
+            "(user_action_status = 'succeeded' AND user_action_attempted_at IS NOT NULL AND "
+            "user_action_finished_at IS NOT NULL AND "
+            "user_action_finished_at >= user_action_attempted_at AND "
+            "user_action_error_code IS NULL AND user_action_error_text IS NULL) OR "
+            "(user_action_status = 'failed' AND user_action_attempted_at IS NOT NULL AND "
+            "user_action_finished_at IS NOT NULL AND "
+            "user_action_finished_at >= user_action_attempted_at AND "
+            "user_action_error_code IS NOT NULL AND length(user_action_error_code) > 0))",
+            name="ck_sagur_message_interaction_events_user_action_consistent",
+        ),
         UniqueConstraint(
             "platform",
             "bot_scope",

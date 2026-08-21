@@ -9,6 +9,7 @@ from uuid import UUID
 
 import pytest
 from sqlalchemy import create_engine, event, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from vtelemax.core.sagur_message_interactions import SagurMessageInteractionIngress
@@ -340,6 +341,7 @@ def test_stale_processing_is_released_but_fresh_lock_is_preserved() -> None:
     assert stale.next_attempt_at == _NOW.replace(tzinfo=None)
     assert stale.locked_at is None
     assert stale.delivery_lease_id is None
+    assert stale.delivery_error_code == "processing_timeout"
     assert fresh.delivery_status == "processing"
     assert fresh.delivery_lease_id == _LEASE_IDS[0]
 
@@ -386,6 +388,39 @@ def test_late_result_from_released_lease_cannot_overwrite_new_attempt() -> None:
     session.refresh(row)
     assert row.delivery_status == "delivered"
     assert row.delivery_lease_id is None
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param(
+            {"delivery_status": "processing", "delivery_attempts": 1},
+            id="processing_without_lease",
+        ),
+        pytest.param(
+            {"delivery_status": "delivered", "delivery_attempts": 1},
+            id="delivered_without_result",
+        ),
+        pytest.param(
+            {"user_action_status": "succeeded"},
+            id="succeeded_without_timestamps",
+        ),
+    ],
+)
+def test_database_rejects_inconsistent_interaction_state(values: dict[str, object]) -> None:
+    """Проверяет, что несогласованный статус нельзя сохранить в обход репозитория."""
+
+    session, repository = _build_repository()
+    event_id = _record(repository)
+    session.commit()
+    row = session.get(SagurMessageInteractionEventRow, event_id)
+    assert row is not None
+    for field_name, value in values.items():
+        setattr(row, field_name, value)
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
 
 
 def test_naive_clock_is_interpreted_as_utc() -> None:

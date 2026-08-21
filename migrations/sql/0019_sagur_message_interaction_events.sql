@@ -37,6 +37,63 @@ CREATE TABLE IF NOT EXISTS sagur_message_interaction_events (
         CHECK (user_action_status IN ('pending', 'succeeded', 'failed')),
     CONSTRAINT ck_sagur_message_interaction_events_attempts_non_negative
         CHECK (delivery_attempts >= 0),
+    CONSTRAINT ck_sagur_message_interaction_events_attempts_consistent
+        CHECK (
+            (delivery_status = 'pending' AND delivery_attempts = 0)
+            OR (delivery_status <> 'pending' AND delivery_attempts > 0)
+        ),
+    CONSTRAINT ck_sagur_message_interaction_events_processing_lease_consistent
+        CHECK (
+            (delivery_status = 'processing' AND locked_at IS NOT NULL AND delivery_lease_id IS NOT NULL)
+            OR (delivery_status <> 'processing' AND locked_at IS NULL AND delivery_lease_id IS NULL)
+        ),
+    CONSTRAINT ck_sagur_message_interaction_events_delivery_completion_consistent
+        CHECK (
+            (
+                delivery_status = 'delivered'
+                AND delivered_at IS NOT NULL
+                AND delivery_result IS NOT NULL
+                AND delivery_result IN ('accepted', 'duplicate', 'rating_already_recorded')
+                AND delivery_error_code IS NULL
+                AND delivery_error_text IS NULL
+            )
+            OR (
+                delivery_status <> 'delivered'
+                AND delivered_at IS NULL
+                AND delivery_result IS NULL
+            )
+        ),
+    CONSTRAINT ck_sagur_message_interaction_events_delivery_error_consistent
+        CHECK (
+            delivery_status NOT IN ('retry_scheduled', 'blocked')
+            OR (delivery_error_code IS NOT NULL AND length(delivery_error_code) > 0)
+        ),
+    CONSTRAINT ck_sagur_message_interaction_events_user_action_consistent
+        CHECK (
+            (
+                user_action_status = 'pending'
+                AND user_action_attempted_at IS NULL
+                AND user_action_finished_at IS NULL
+                AND user_action_error_code IS NULL
+                AND user_action_error_text IS NULL
+            )
+            OR (
+                user_action_status = 'succeeded'
+                AND user_action_attempted_at IS NOT NULL
+                AND user_action_finished_at IS NOT NULL
+                AND user_action_finished_at >= user_action_attempted_at
+                AND user_action_error_code IS NULL
+                AND user_action_error_text IS NULL
+            )
+            OR (
+                user_action_status = 'failed'
+                AND user_action_attempted_at IS NOT NULL
+                AND user_action_finished_at IS NOT NULL
+                AND user_action_finished_at >= user_action_attempted_at
+                AND user_action_error_code IS NOT NULL
+                AND length(user_action_error_code) > 0
+            )
+        ),
     CONSTRAINT uq_sagur_message_interaction_events_platform_callback
         UNIQUE (platform, bot_scope, platform_callback_id)
 );

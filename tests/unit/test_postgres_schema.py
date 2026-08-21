@@ -143,6 +143,11 @@ def test_sagur_message_interaction_events_constraints_and_hot_indexes_are_strict
         "ck_sagur_message_interaction_events_delivery_status_allowed",
         "ck_sagur_message_interaction_events_user_action_status_allowed",
         "ck_sagur_message_interaction_events_attempts_non_negative",
+        "ck_sagur_message_interaction_events_attempts_consistent",
+        "ck_sagur_message_interaction_events_processing_lease_consistent",
+        "ck_sagur_message_interaction_events_delivery_completion_consistent",
+        "ck_sagur_message_interaction_events_delivery_error_consistent",
+        "ck_sagur_message_interaction_events_user_action_consistent",
     }.issubset(check_constraints)
     assert "uq_sagur_message_interaction_events_platform_callback" in unique_constraints
     assert set(indexes) == {

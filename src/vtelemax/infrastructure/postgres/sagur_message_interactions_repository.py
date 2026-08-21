@@ -312,6 +312,8 @@ class SQLAlchemySagurMessageInteractionsRepository:
                 next_attempt_at=now,
                 locked_at=None,
                 delivery_lease_id=None,
+                delivery_error_code="processing_timeout",
+                delivery_error_text="Истекло время владения попыткой доставки.",
                 updated_at=now,
             )
         )
