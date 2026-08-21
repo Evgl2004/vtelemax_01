@@ -47,6 +47,3 @@ CREATE INDEX IF NOT EXISTS ix_sagur_message_interaction_events_due
 CREATE INDEX IF NOT EXISTS ix_sagur_message_interaction_events_processing
     ON sagur_message_interaction_events(locked_at)
     WHERE delivery_status = 'processing';
-
-CREATE INDEX IF NOT EXISTS ix_sagur_message_interaction_events_interaction_id
-    ON sagur_message_interaction_events(interaction_id);

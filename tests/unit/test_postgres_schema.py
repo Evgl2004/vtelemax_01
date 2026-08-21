@@ -145,8 +145,10 @@ def test_sagur_message_interaction_events_constraints_and_hot_indexes_are_strict
         "ck_sagur_message_interaction_events_attempts_non_negative",
     }.issubset(check_constraints)
     assert "uq_sagur_message_interaction_events_platform_callback" in unique_constraints
-    assert "ix_sagur_message_interaction_events_due" in indexes
-    assert "ix_sagur_message_interaction_events_processing" in indexes
+    assert set(indexes) == {
+        "ix_sagur_message_interaction_events_due",
+        "ix_sagur_message_interaction_events_processing",
+    }
     assert indexes["ix_sagur_message_interaction_events_due"].dialect_options["postgresql"][
         "where"
     ] is not None

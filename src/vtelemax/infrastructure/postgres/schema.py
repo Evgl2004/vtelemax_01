@@ -543,10 +543,6 @@ class SagurMessageInteractionEventRow(Base):
             postgresql_where=text("delivery_status = 'processing'"),
             sqlite_where=text("delivery_status = 'processing'"),
         ),
-        Index(
-            "ix_sagur_message_interaction_events_interaction_id",
-            "interaction_id",
-        ),
     )
 
     event_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)

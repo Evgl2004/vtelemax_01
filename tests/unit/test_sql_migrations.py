@@ -177,6 +177,9 @@ def test_migration_0019_creates_sagur_message_interaction_events_registry() -> N
     assert "DELIVERY_STATUS VARCHAR(32)" in upper
     assert "WHERE DELIVERY_STATUS IN ('PENDING', 'RETRY_SCHEDULED')" in upper
     assert "WHERE DELIVERY_STATUS = 'PROCESSING'" in upper
+    assert (
+        "CREATE INDEX IF NOT EXISTS IX_SAGUR_MESSAGE_INTERACTION_EVENTS_INTERACTION_ID" not in upper
+    )
 
 
 def test_apply_migrations_tracks_applied_files_and_skips_reapply(tmp_path: Path) -> None:
