@@ -67,7 +67,9 @@ class SagurMessageInteractionService:
                 event_id,
                 attempted_at=attempted_at,
             ):
-                raise SagurMessageInteractionStorageError("Событие пользовательского действия не найдено.")
+                raise SagurMessageInteractionStorageError(
+                    "Событие пользовательского действия не найдено."
+                )
             session.commit()
 
     def mark_user_action_failed(
@@ -88,7 +90,9 @@ class SagurMessageInteractionService:
                 error_code=error_code,
                 error_text=error_text,
             ):
-                raise SagurMessageInteractionStorageError("Событие пользовательского действия не найдено.")
+                raise SagurMessageInteractionStorageError(
+                    "Событие пользовательского действия не найдено."
+                )
             session.commit()
 
 

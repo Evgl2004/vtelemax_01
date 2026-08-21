@@ -27,9 +27,7 @@ from .schema import SagurMessageInteractionEventRow
 
 
 _SUPPORTED_PLATFORMS = frozenset({"telegram", "vk", "max"})
-_SUCCESSFUL_DELIVERY_RESULTS = frozenset(
-    {"accepted", "duplicate", "rating_already_recorded"}
-)
+_SUCCESSFUL_DELIVERY_RESULTS = frozenset({"accepted", "duplicate", "rating_already_recorded"})
 _MAX_ERROR_TEXT_LENGTH = 2_000
 
 
@@ -373,8 +371,7 @@ class SQLAlchemySagurMessageInteractionsRepository:
         statement = select(SagurMessageInteractionEventRow).where(
             SagurMessageInteractionEventRow.platform == ingress.platform,
             SagurMessageInteractionEventRow.bot_scope == ingress.bot_scope,
-            SagurMessageInteractionEventRow.platform_callback_id
-            == ingress.platform_callback_id,
+            SagurMessageInteractionEventRow.platform_callback_id == ingress.platform_callback_id,
         )
         return self._session.execute(statement).scalars().one_or_none()
 

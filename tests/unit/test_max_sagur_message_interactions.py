@@ -353,9 +353,7 @@ def test_bot_scope_uses_bot_profile_sender_or_username_in_order() -> None:
     assert build_max_bot_scope(event) == "bot_id:777"  # type: ignore[arg-type]
 
     event.message.sender = SimpleNamespace(user_id=777, is_bot=False)
-    assert build_max_bot_scope(event, configured_username="@Sa_Bal_Bot") == (
-        "username:sa_bal_bot"
-    )  # type: ignore[arg-type]
+    assert build_max_bot_scope(event, configured_username="@Sa_Bal_Bot") == ("username:sa_bal_bot")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="область"):
         build_max_bot_scope(event)  # type: ignore[arg-type]
 

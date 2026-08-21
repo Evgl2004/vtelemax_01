@@ -221,9 +221,7 @@ async def _perform_rating_action(
         _extract_field(source_message, "keyboard"),
         clicked_payload=payload,
     )
-    attachment_value = build_vk_attachment_value(
-        _extract_field(source_message, "attachments")
-    )
+    attachment_value = build_vk_attachment_value(_extract_field(source_message, "attachments"))
     kwargs: dict[str, Any] = {
         "message": text,
         "keyboard": json.dumps(updated_keyboard, ensure_ascii=False, separators=(",", ":")),
@@ -302,7 +300,9 @@ async def handle_vk_sagur_interaction(
         stage="callback_received",
     )
     if sagur_payload_error is not None or sagur_payload is None:
-        error_code = sagur_payload_error.code if sagur_payload_error is not None else "payload_missing"
+        error_code = (
+            sagur_payload_error.code if sagur_payload_error is not None else "payload_missing"
+        )
         event_logger.warning(
             "Отклонены некорректные служебные данные SAGUR; error_code={error_code}.",
             error_code=error_code,
@@ -330,9 +330,7 @@ async def handle_vk_sagur_interaction(
                 interaction_id=sagur_payload.interaction_id,
                 action=sagur_payload.action,
                 provider_message_id=(
-                    str(conversation_message_id)
-                    if conversation_message_id is not None
-                    else None
+                    str(conversation_message_id) if conversation_message_id is not None else None
                 ),
             )
         )
@@ -379,9 +377,7 @@ async def handle_vk_sagur_interaction(
         attempted_at=attempted_at,
         action=service.mark_user_action_succeeded,
     )
-    event_logger.bind(stage="user_action_succeeded").info(
-        "Пользовательское действие VK выполнено."
-    )
+    event_logger.bind(stage="user_action_succeeded").info("Пользовательское действие VK выполнено.")
 
 
 class VkSagurInteractionRule(ABCRule[MessageEvent]):

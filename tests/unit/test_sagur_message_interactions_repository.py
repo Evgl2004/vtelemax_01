@@ -293,11 +293,14 @@ def test_active_queue_observation_excludes_completed_history() -> None:
     oldest_active.occurred_at = (_NOW - timedelta(hours=1)).replace(tzinfo=None)
     newest_active.occurred_at = (_NOW - timedelta(minutes=5)).replace(tzinfo=None)
     delivered.occurred_at = (_NOW - timedelta(days=30)).replace(tzinfo=None)
-    assert repository.mark_processing(
-        [delivered_id],
-        lease_id=_LEASE_IDS[0],
-        now_utc=_NOW,
-    ) == 1
+    assert (
+        repository.mark_processing(
+            [delivered_id],
+            lease_id=_LEASE_IDS[0],
+            now_utc=_NOW,
+        )
+        == 1
+    )
     assert repository.mark_delivered(
         delivered_id,
         lease_id=_LEASE_IDS[0],
@@ -400,11 +403,14 @@ def test_late_result_from_released_lease_cannot_overwrite_new_attempt() -> None:
     session.commit()
 
     assert repository.release_stale_processing(lock_timeout_seconds=60, now_utc=_NOW) == 1
-    assert repository.mark_processing(
-        [event_id],
-        lease_id=_LEASE_IDS[1],
-        now_utc=_NOW,
-    ) == 1
+    assert (
+        repository.mark_processing(
+            [event_id],
+            lease_id=_LEASE_IDS[1],
+            now_utc=_NOW,
+        )
+        == 1
+    )
     session.commit()
 
     assert not repository.mark_delivered(

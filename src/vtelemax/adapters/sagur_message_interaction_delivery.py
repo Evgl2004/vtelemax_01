@@ -286,8 +286,7 @@ class SagurMessageInteractionHttpClient:
                 http_status=None,
                 error_code="response_too_large",
                 error_text=(
-                    "Ответ SAGUR превысил локальный предел "
-                    f"{self.max_response_bytes} байт."
+                    f"Ответ SAGUR превысил локальный предел {self.max_response_bytes} байт."
                 ),
             )
         except (TimeoutError, aiohttp.ClientError) as error:
@@ -686,8 +685,7 @@ def _oldest_event_age_seconds(
     if now.tzinfo is None or observation.oldest_occurred_at.tzinfo is None:
         raise ValueError("Дата-время наблюдения за очередью должно содержать часовой пояс.")
     age_seconds = (
-        now.astimezone(timezone.utc)
-        - observation.oldest_occurred_at.astimezone(timezone.utc)
+        now.astimezone(timezone.utc) - observation.oldest_occurred_at.astimezone(timezone.utc)
     ).total_seconds()
     return max(int(age_seconds), 0)
 

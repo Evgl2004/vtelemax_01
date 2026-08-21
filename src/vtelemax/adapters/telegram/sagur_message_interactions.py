@@ -89,7 +89,9 @@ async def _answer_safely(
     return True
 
 
-def _navigation_markup(status: str, coupon_scope_buttons: tuple[tuple[str, str], ...]) -> InlineKeyboardMarkup | None:
+def _navigation_markup(
+    status: str, coupon_scope_buttons: tuple[tuple[str, str], ...]
+) -> InlineKeyboardMarkup | None:
     """Строит клавиатуру нового навигационного экрана без изменения исходного сообщения."""
 
     if status == "menu":
@@ -161,8 +163,7 @@ def _mark_user_action_safely(
             component="sagur_message_interactions",
             stage="user_action_state",
         ).exception(
-            "Не удалось сохранить состояние пользовательского действия; "
-            "error_type={error_type}.",
+            "Не удалось сохранить состояние пользовательского действия; error_type={error_type}.",
             error_type=type(error).__name__,
         )
 
@@ -186,7 +187,9 @@ async def handle_telegram_sagur_interaction(
         stage="callback_received",
     )
     if sagur_payload_error is not None or sagur_payload is None:
-        error_code = sagur_payload_error.code if sagur_payload_error is not None else "payload_missing"
+        error_code = (
+            sagur_payload_error.code if sagur_payload_error is not None else "payload_missing"
+        )
         event_logger.warning(
             "Отклонены некорректные служебные данные SAGUR; error_code={error_code}.",
             error_code=error_code,

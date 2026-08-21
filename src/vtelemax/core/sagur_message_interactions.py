@@ -218,9 +218,7 @@ def parse_sagur_button_payload(
 
     if type(version) is not int or version not in {1, 2}:
         raise SagurButtonPayloadError("payload_version_invalid")
-    if type(interaction_id) is not int or not (
-        1 <= interaction_id <= SAGUR_INTERACTION_ID_MAX
-    ):
+    if type(interaction_id) is not int or not (1 <= interaction_id <= SAGUR_INTERACTION_ID_MAX):
         raise SagurButtonPayloadError("interaction_id_invalid")
     if not isinstance(action_value, str):
         raise SagurButtonPayloadError("payload_action_invalid")
@@ -282,8 +280,7 @@ def remove_sagur_rating_buttons_from_rows(
     if clicked_payload.version == 2:
         expected_actions = frozenset(clicked_payload.button_actions)
         if observed_action_set != expected_actions or any(
-            payload.version != 2
-            or frozenset(payload.button_actions) != expected_actions
+            payload.version != 2 or frozenset(payload.button_actions) != expected_actions
             for payload in matched_payloads
         ):
             raise SagurMessageKeyboardError("interaction_button_contract_mismatch")

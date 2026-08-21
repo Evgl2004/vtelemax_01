@@ -461,7 +461,9 @@ async def test_uneditable_rating_is_recorded_as_failed_user_action(with_message:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failed_method", [AnswerCallbackQuery, EditMessageReplyMarkup, SendMessage])
+@pytest.mark.parametrize(
+    "failed_method", [AnswerCallbackQuery, EditMessageReplyMarkup, SendMessage]
+)
 async def test_platform_errors_do_not_escape_handler_and_are_recorded(
     failed_method: type[TelegramMethod[Any]],
 ) -> None:

@@ -293,7 +293,9 @@ async def handle_max_sagur_interaction(
         stage="callback_received",
     )
     if sagur_payload_error is not None or sagur_payload is None:
-        error_code = sagur_payload_error.code if sagur_payload_error is not None else "payload_missing"
+        error_code = (
+            sagur_payload_error.code if sagur_payload_error is not None else "payload_missing"
+        )
         event_logger.warning(
             "Отклонены некорректные служебные данные SAGUR; error_code={error_code}.",
             error_code=error_code,
@@ -328,7 +330,9 @@ async def handle_max_sagur_interaction(
             )
         )
     except (SagurMessageInteractionStorageError, ValueError):
-        event_logger.exception("Нажатие MAX не сохранено; пользовательское действие не выполняется.")
+        event_logger.exception(
+            "Нажатие MAX не сохранено; пользовательское действие не выполняется."
+        )
         await _answer_safely(
             event,
             notification="Не удалось сохранить нажатие. Повторите попытку.",

@@ -361,9 +361,7 @@ async def test_rating_order_is_record_answer_fetch_edit_and_mark() -> None:
     source_message = SimpleNamespace(
         text="Сообщение с фото",
         keyboard=_keyboard(),
-        attachments=[
-            {"type": "photo", "photo": {"owner_id": -1, "id": 2, "access_key": "key"}}
-        ],
+        attachments=[{"type": "photo", "photo": {"owner_id": -1, "id": 2, "access_key": "key"}}],
     )
     event = _FakeEvent(payload=_payload("l"), timeline=timeline, source_message=source_message)
     service = _Service(timeline)
