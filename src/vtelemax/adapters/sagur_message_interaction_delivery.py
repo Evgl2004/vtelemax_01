@@ -39,6 +39,7 @@ SAGUR_MESSAGE_INTERACTION_ENDPOINT_PATH = (
 SAGUR_MESSAGE_INTERACTION_SCHEMA_VERSION = 1
 SAGUR_MESSAGE_INTERACTION_MAX_BATCH_ITEMS = 100
 SAGUR_MESSAGE_INTERACTION_MAX_BODY_BYTES = 65_536
+SAGUR_MESSAGE_INTERACTION_MAX_RESPONSE_BYTES = 262_144
 
 _SUCCESSFUL_RESULTS = frozenset({"accepted", "duplicate", "rating_already_recorded"})
 _PERMANENT_ITEM_RESULTS = frozenset(
@@ -73,6 +74,10 @@ class SagurMessageInteractionHttpOutcome:
     error_code: str | None = None
     error_text: str | None = None
     retry_after_seconds: float | None = None
+
+
+class SagurMessageInteractionResponseTooLargeError(RuntimeError):
+    """Ответ SAGUR превышает локальный предел безопасного чтения."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +168,7 @@ class SagurMessageInteractionHttpClient:
     endpoint_path: str
     hmac_secret: str
     timeout_seconds: float = 20.0
+    max_response_bytes: int = SAGUR_MESSAGE_INTERACTION_MAX_RESPONSE_BYTES
     require_https: bool = True
     now_factory: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
     request_id_factory: Callable[[], UUID] = uuid4
@@ -179,6 +185,8 @@ class SagurMessageInteractionHttpClient:
             raise ValueError("HMAC-секрет пакетной доставки SAGUR не задан.")
         if self.timeout_seconds <= 0:
             raise ValueError("Тайм-аут HTTP должен быть больше нуля.")
+        if self.max_response_bytes <= 0:
+            raise ValueError("Предел ответа SAGUR должен быть больше нуля.")
         parsed = urlsplit(normalized_base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("Базовый адрес SAGUR должен быть абсолютным HTTP(S)-адресом.")
@@ -258,7 +266,10 @@ class SagurMessageInteractionHttpClient:
                 data=request.body,
                 headers=headers,
             ) as response:
-                raw_body = await response.read()
+                raw_body = await _read_response_body_limited(
+                    response,
+                    max_bytes=self.max_response_bytes,
+                )
                 data = _decode_response_object(raw_body)
                 return SagurMessageInteractionHttpOutcome(
                     http_status=response.status,
@@ -270,6 +281,15 @@ class SagurMessageInteractionHttpClient:
                         now=self.now_factory(),
                     ),
                 )
+        except SagurMessageInteractionResponseTooLargeError:
+            return SagurMessageInteractionHttpOutcome(
+                http_status=None,
+                error_code="response_too_large",
+                error_text=(
+                    "Ответ SAGUR превысил локальный предел "
+                    f"{self.max_response_bytes} байт."
+                ),
+            )
         except (TimeoutError, aiohttp.ClientError) as error:
             return SagurMessageInteractionHttpOutcome(
                 http_status=None,
@@ -770,6 +790,24 @@ def _decode_response_object(raw_body: bytes) -> Mapping[str, Any] | None:
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     return decoded if isinstance(decoded, Mapping) else None
+
+
+async def _read_response_body_limited(
+    response: aiohttp.ClientResponse,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Читает ответ потоково и останавливается сразу после превышения предела."""
+
+    if response.content_length is not None and response.content_length > max_bytes:
+        raise SagurMessageInteractionResponseTooLargeError
+
+    body = bytearray()
+    async for chunk in response.content.iter_chunked(min(max_bytes + 1, 65_536)):
+        body.extend(chunk)
+        if len(body) > max_bytes:
+            raise SagurMessageInteractionResponseTooLargeError
+    return bytes(body)
 
 
 def _parse_retry_after(value: str | None, *, now: datetime) -> float | None:

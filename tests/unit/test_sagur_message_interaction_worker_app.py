@@ -157,6 +157,7 @@ def test_enabled_worker_builds_dependencies_and_shuts_down_on_cancellation(
         "endpoint_path": "/events",
         "hmac_secret": "secret",
         "timeout_seconds": 20.0,
+        "max_response_bytes": 262_144,
         "require_https": True,
     }
     processor = captured["processor"]

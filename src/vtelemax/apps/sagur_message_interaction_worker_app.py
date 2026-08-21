@@ -93,6 +93,7 @@ async def run_sagur_message_interaction_worker(settings: AppSettings | None = No
         endpoint_path=app_settings.sagur_message_interaction_sync_endpoint,
         hmac_secret=hmac_secret,
         timeout_seconds=app_settings.sagur_message_interaction_sync_http_timeout_seconds,
+        max_response_bytes=app_settings.sagur_message_interaction_sync_max_response_bytes,
         require_https=app_settings.sagur_message_interaction_sync_require_https,
     )
     processor = SagurMessageInteractionDeliveryProcessor(

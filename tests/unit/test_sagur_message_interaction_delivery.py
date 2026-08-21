@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from vtelemax.adapters.sagur_message_interaction_delivery import (
     SAGUR_MESSAGE_INTERACTION_ENDPOINT_PATH,
+    SAGUR_MESSAGE_INTERACTION_MAX_RESPONSE_BYTES,
     PeriodicSagurMessageInteractionWorker,
     SagurMessageInteractionBatchRequest,
     SagurMessageInteractionDeliveryProcessor,
@@ -31,6 +32,7 @@ from vtelemax.adapters.sagur_message_interaction_delivery import (
     _optional_text,
     _parse_successful_batch_response,
     _parse_retry_after,
+    _read_response_body_limited,
     _safe_error_text,
     build_sagur_message_interaction_batch_request,
     format_rfc3339_utc,
@@ -291,6 +293,12 @@ def test_canonical_request_path_includes_query(
             "hmac_secret": "secret",
             "timeout_seconds": 0,
         },
+        {
+            "base_url": "https://example.test",
+            "endpoint_path": "/events",
+            "hmac_secret": "secret",
+            "max_response_bytes": 0,
+        },
     ],
 )
 def test_http_client_rejects_unsafe_configuration(kwargs: dict[str, object]) -> None:
@@ -343,13 +351,24 @@ def test_retry_after_supports_seconds_and_http_date(
 
 
 @dataclass(slots=True)
+class _FakeResponseContent:
+    raw_body: bytes
+
+    async def iter_chunked(self, chunk_size: int):
+        for start in range(0, len(self.raw_body), chunk_size):
+            yield self.raw_body[start : start + chunk_size]
+
+
+@dataclass(slots=True)
 class _FakeResponse:
     status: int
     raw_body: bytes
     headers: dict[str, str]
+    content_length: int | None = None
+    content: _FakeResponseContent = field(init=False)
 
-    async def read(self) -> bytes:
-        return self.raw_body
+    def __post_init__(self) -> None:
+        self.content = _FakeResponseContent(self.raw_body)
 
 
 @dataclass(slots=True)
@@ -472,6 +491,57 @@ def test_http_client_reuses_one_session_for_multiple_requests(
     assert session_creations == 1
     assert fake_session.post_calls == 2
     assert fake_session.close_calls == 1
+
+
+@pytest.mark.parametrize("declared_length", [SAGUR_MESSAGE_INTERACTION_MAX_RESPONSE_BYTES + 1])
+def test_http_client_rejects_response_declared_above_limit(
+    declared_length: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = _FakeResponse(
+        status=200,
+        raw_body=b"not-read",
+        headers={},
+        content_length=declared_length,
+    )
+    fake_session = _FakeClientSession(_AsyncContext(value=response), {})
+    monkeypatch.setattr(
+        delivery_module.aiohttp,
+        "ClientSession",
+        lambda *, timeout: fake_session,
+    )
+    client = SagurMessageInteractionHttpClient(
+        base_url="https://example.test",
+        endpoint_path="/events",
+        hmac_secret="secret",
+        max_response_bytes=SAGUR_MESSAGE_INTERACTION_MAX_RESPONSE_BYTES,
+    )
+
+    async def _send_and_close() -> SagurMessageInteractionHttpOutcome:
+        outcome = await client.send(client.prepare((_task(),)))
+        await client.close()
+        return outcome
+
+    outcome = asyncio.run(_send_and_close())
+
+    assert outcome.http_status is None
+    assert outcome.error_code == "response_too_large"
+    assert str(SAGUR_MESSAGE_INTERACTION_MAX_RESPONSE_BYTES) in (outcome.error_text or "")
+
+
+def test_limited_response_reader_rejects_chunked_body_above_limit() -> None:
+    response = _FakeResponse(
+        status=200,
+        raw_body=b"123456",
+        headers={},
+        content_length=None,
+    )
+
+    with pytest.raises(delivery_module.SagurMessageInteractionResponseTooLargeError):
+        asyncio.run(_read_response_body_limited(response, max_bytes=5))  # type: ignore[arg-type]
+
+    exact = _FakeResponse(status=200, raw_body=b"12345", headers={}, content_length=None)
+    assert asyncio.run(_read_response_body_limited(exact, max_bytes=5)) == b"12345"  # type: ignore[arg-type]
 
 
 def test_real_http_client_converts_network_error_to_retryable_outcome(
@@ -658,6 +728,15 @@ def test_decision_update_rolls_back_database_error(monkeypatch: pytest.MonkeyPat
             ),
             "retry_scheduled",
             "network_error",
+        ),
+        (
+            SagurMessageInteractionHttpOutcome(
+                http_status=None,
+                error_code="response_too_large",
+                error_text="response limit exceeded",
+            ),
+            "retry_scheduled",
+            "response_too_large",
         ),
         (
             SagurMessageInteractionHttpOutcome(

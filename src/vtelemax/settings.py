@@ -235,6 +235,11 @@ class AppSettings(BaseSettings):
         alias="SAGUR_MESSAGE_INTERACTION_SYNC_HTTP_TIMEOUT_SECONDS",
         gt=0,
     )
+    sagur_message_interaction_sync_max_response_bytes: int = Field(
+        default=262_144,
+        alias="SAGUR_MESSAGE_INTERACTION_SYNC_MAX_RESPONSE_BYTES",
+        gt=0,
+    )
     sagur_message_interaction_sync_retry_base_seconds: float = Field(
         default=30.0,
         alias="SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_BASE_SECONDS",

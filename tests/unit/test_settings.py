@@ -204,6 +204,7 @@ def test_settings_reads_sagur_message_interaction_delivery_values() -> None:
         SAGUR_MESSAGE_INTERACTION_SYNC_BATCH_SIZE=42,
         SAGUR_MESSAGE_INTERACTION_SYNC_SCHEDULE_MINUTES=2.5,
         SAGUR_MESSAGE_INTERACTION_SYNC_HTTP_TIMEOUT_SECONDS=19,
+        SAGUR_MESSAGE_INTERACTION_SYNC_MAX_RESPONSE_BYTES=123456,
         SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_BASE_SECONDS=20,
         SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_MAX_SECONDS=900,
         SAGUR_MESSAGE_INTERACTION_SYNC_LOCK_TIMEOUT_SECONDS=180,
@@ -216,6 +217,7 @@ def test_settings_reads_sagur_message_interaction_delivery_values() -> None:
     assert settings.sagur_message_interaction_sync_batch_size == 42
     assert settings.sagur_message_interaction_sync_schedule_minutes == 2.5
     assert settings.sagur_message_interaction_sync_http_timeout_seconds == 19
+    assert settings.sagur_message_interaction_sync_max_response_bytes == 123456
     assert settings.sagur_message_interaction_sync_retry_base_seconds == 20
     assert settings.sagur_message_interaction_sync_retry_max_seconds == 900
     assert settings.sagur_message_interaction_sync_lock_timeout_seconds == 180
@@ -239,6 +241,7 @@ def test_settings_uses_common_hmac_secret_for_message_interactions() -> None:
         {"SAGUR_MESSAGE_INTERACTION_SYNC_BATCH_SIZE": 101},
         {"SAGUR_MESSAGE_INTERACTION_SYNC_SCHEDULE_MINUTES": 0},
         {"SAGUR_MESSAGE_INTERACTION_SYNC_HTTP_TIMEOUT_SECONDS": 0},
+        {"SAGUR_MESSAGE_INTERACTION_SYNC_MAX_RESPONSE_BYTES": 0},
         {
             "SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_BASE_SECONDS": 60,
             "SAGUR_MESSAGE_INTERACTION_SYNC_RETRY_MAX_SECONDS": 30,
