@@ -410,7 +410,6 @@ class SagurMessageInteractionDeliveryProcessor:
     ) -> SagurMessageInteractionBatchRequest:
         request_id = self.http_client.request_id_factory()
         sent_at = self.http_client.now_factory()
-        selected_count = 1
         selected_request = build_sagur_message_interaction_batch_request(
             tasks[:1],
             request_id=request_id,
@@ -424,10 +423,7 @@ class SagurMessageInteractionDeliveryProcessor:
             )
             if len(candidate.body) > self.max_body_bytes:
                 break
-            selected_count = count
             selected_request = candidate
-        if selected_count == 1:
-            return selected_request
         return selected_request
 
     async def _send_with_splitting(
