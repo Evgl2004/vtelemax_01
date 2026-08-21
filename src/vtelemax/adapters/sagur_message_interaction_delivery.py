@@ -166,6 +166,7 @@ class SagurMessageInteractionHttpClient:
     require_https: bool = True
     now_factory: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
     request_id_factory: Callable[[], UUID] = uuid4
+    _session: aiohttp.ClientSession | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         normalized_base_url = self.base_url.strip().rstrip("/")
@@ -208,6 +209,25 @@ class SagurMessageInteractionHttpClient:
             sent_at=self.now_factory(),
         )
 
+    async def close(self) -> None:
+        """Закрывает принадлежащий клиенту HTTP-сеанс и его пул соединений."""
+
+        session = self._session
+        self._session = None
+        if session is not None and not session.closed:
+            await session.close()
+
+    def _get_or_create_session(self) -> aiohttp.ClientSession:
+        """Лениво создаёт один HTTP-сеанс на время жизни работника."""
+
+        session = self._session
+        if session is None or session.closed:
+            session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
+            )
+            self._session = session
+        return session
+
     async def send(
         self,
         request: SagurMessageInteractionBatchRequest,
@@ -231,26 +251,25 @@ class SagurMessageInteractionHttpClient:
             "X-Vtelemax-Timestamp": timestamp,
             "X-Vtelemax-Signature": signature,
         }
-        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    self.endpoint,
-                    data=request.body,
-                    headers=headers,
-                ) as response:
-                    raw_body = await response.read()
-                    data = _decode_response_object(raw_body)
-                    return SagurMessageInteractionHttpOutcome(
-                        http_status=response.status,
-                        data=data,
-                        error_code=_optional_text(data.get("code")) if data else None,
-                        error_text=_optional_text(data.get("message")) if data else None,
-                        retry_after_seconds=_parse_retry_after(
-                            response.headers.get("Retry-After"),
-                            now=self.now_factory(),
-                        ),
-                    )
+            session = self._get_or_create_session()
+            async with session.post(
+                self.endpoint,
+                data=request.body,
+                headers=headers,
+            ) as response:
+                raw_body = await response.read()
+                data = _decode_response_object(raw_body)
+                return SagurMessageInteractionHttpOutcome(
+                    http_status=response.status,
+                    data=data,
+                    error_code=_optional_text(data.get("code")) if data else None,
+                    error_text=_optional_text(data.get("message")) if data else None,
+                    retry_after_seconds=_parse_retry_after(
+                        response.headers.get("Retry-After"),
+                        now=self.now_factory(),
+                    ),
+                )
         except (TimeoutError, aiohttp.ClientError) as error:
             return SagurMessageInteractionHttpOutcome(
                 http_status=None,

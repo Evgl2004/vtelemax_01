@@ -370,16 +370,18 @@ class _AsyncContext:
 class _FakeClientSession:
     response_context: _AsyncContext
     captured: dict[str, object]
-
-    async def __aenter__(self) -> _FakeClientSession:
-        return self
-
-    async def __aexit__(self, *_args: object) -> None:
-        return None
+    closed: bool = False
+    post_calls: int = 0
+    close_calls: int = 0
 
     def post(self, endpoint: str, *, data: bytes, headers: dict[str, str]) -> _AsyncContext:
+        self.post_calls += 1
         self.captured.update(endpoint=endpoint, data=data, headers=headers)
         return self.response_context
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self.closed = True
 
 
 def test_real_http_client_signs_actual_bytes_and_reads_retry_after(
@@ -406,7 +408,12 @@ def test_real_http_client_signs_actual_bytes_and_reads_retry_after(
     )
     request = client.prepare((_task(),))
 
-    outcome = asyncio.run(client.send(request))
+    async def _send_and_close() -> SagurMessageInteractionHttpOutcome:
+        outcome = await client.send(request)
+        await client.close()
+        return outcome
+
+    outcome = asyncio.run(_send_and_close())
 
     assert outcome == SagurMessageInteractionHttpOutcome(
         http_status=429,
@@ -427,6 +434,44 @@ def test_real_http_client_signs_actual_bytes_and_reads_retry_after(
         timestamp=str(int(_NOW.timestamp())),
         payload_body=request.body,
     )
+    assert fake_session.post_calls == 1
+    assert fake_session.close_calls == 1
+
+
+def test_http_client_reuses_one_session_for_multiple_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    response = _FakeResponse(status=200, raw_body=b'{"ok":true}', headers={})
+    fake_session = _FakeClientSession(_AsyncContext(value=response), captured)
+    session_creations = 0
+
+    def _client_session(*, timeout: object) -> _FakeClientSession:
+        nonlocal session_creations
+        assert timeout is not None
+        session_creations += 1
+        return fake_session
+
+    monkeypatch.setattr(delivery_module.aiohttp, "ClientSession", _client_session)
+    client = SagurMessageInteractionHttpClient(
+        base_url="https://example.test",
+        endpoint_path="/events",
+        hmac_secret="secret",
+        now_factory=lambda: _NOW,
+        request_id_factory=lambda: _REQUEST_IDS[0],
+    )
+
+    async def _send_twice_and_close() -> None:
+        await client.send(client.prepare((_task(),)))
+        await client.send(client.prepare((_task(),)))
+        await client.close()
+        await client.close()
+
+    asyncio.run(_send_twice_and_close())
+
+    assert session_creations == 1
+    assert fake_session.post_calls == 2
+    assert fake_session.close_calls == 1
 
 
 def test_real_http_client_converts_network_error_to_retryable_outcome(
@@ -450,7 +495,12 @@ def test_real_http_client_converts_network_error_to_retryable_outcome(
         request_id_factory=lambda: _REQUEST_IDS[0],
     )
 
-    outcome = asyncio.run(client.send(client.prepare((_task(),))))
+    async def _send_and_close() -> SagurMessageInteractionHttpOutcome:
+        outcome = await client.send(client.prepare((_task(),)))
+        await client.close()
+        return outcome
+
+    outcome = asyncio.run(_send_and_close())
 
     assert outcome.http_status is None
     assert outcome.error_code == "network_error"

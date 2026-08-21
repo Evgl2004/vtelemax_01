@@ -124,6 +124,7 @@ async def run_sagur_message_interaction_worker(settings: AppSettings | None = No
         worker_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await worker_task
+        await http_client.close()
         app_logger.info("Работник доставки нажатий SAGUR завершён.")
 
 

@@ -99,16 +99,28 @@ class _FakeWorker:
         self.stopped = True
 
 
+@dataclass(slots=True)
+class _FakeHttpClient:
+    parameters: dict[str, object]
+    closed: bool = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 def test_enabled_worker_builds_dependencies_and_shuts_down_on_cancellation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = _settings()
     captured: dict[str, object] = {}
     fake_worker: _FakeWorker | None = None
+    fake_http_client: _FakeHttpClient | None = None
 
-    def _http_client(**kwargs: object) -> object:
+    def _http_client(**kwargs: object) -> _FakeHttpClient:
+        nonlocal fake_http_client
         captured["http"] = kwargs
-        return object()
+        fake_http_client = _FakeHttpClient(kwargs)
+        return fake_http_client
 
     def _processor(**kwargs: object) -> object:
         captured["processor"] = kwargs
@@ -139,6 +151,7 @@ def test_enabled_worker_builds_dependencies_and_shuts_down_on_cancellation(
     asyncio.run(_run_and_cancel())
 
     assert fake_worker is not None and fake_worker.stopped
+    assert fake_http_client is not None and fake_http_client.closed
     assert captured["http"] == {
         "base_url": "https://example.test",
         "endpoint_path": "/events",
