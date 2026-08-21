@@ -178,7 +178,7 @@ sagur-message-interaction-worker
 - `request_id`;
 - число элементов и размер тела;
 - HTTP-статус и длительность;
-- итоговые количества доставленных, повторяемых и заблокированных строк.
+- итоговые количества доставленных, повторяемых и заблокированных строк;
 - количество активных строк и возраст самого старого активного события.
 
 Снимок активной очереди читается одним агрегатным запросом после прохода
@@ -194,12 +194,24 @@ HMAC-секрет, подпись, полное тело запроса и со�
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 `
+  tests/unit/test_sagur_message_interactions.py `
+  tests/unit/test_sagur_message_interaction_service.py `
+  tests/unit/test_sagur_message_interactions_repository.py `
   tests/unit/test_sagur_message_interaction_delivery.py `
   tests/unit/test_sagur_message_interaction_worker_app.py `
+  tests/unit/test_telegram_sagur_message_interactions.py `
+  tests/unit/test_vk_sagur_message_interactions.py `
+  tests/unit/test_max_sagur_message_interactions.py `
+  --cov=vtelemax.core.sagur_message_interactions `
+  --cov=vtelemax.adapters.sagur_message_interactions `
+  --cov=vtelemax.infrastructure.postgres.sagur_message_interactions_repository `
+  --cov=vtelemax.adapters.telegram.sagur_message_interactions `
+  --cov=vtelemax.adapters.vk.sagur_message_interactions `
+  --cov=vtelemax.adapters.max.sagur_message_interactions `
   --cov=vtelemax.adapters.sagur_message_interaction_delivery `
   --cov=vtelemax.adapters.vtelemax_outbound_hmac `
   --cov=vtelemax.apps.sagur_message_interaction_worker_app `
-  --cov-branch --cov-report=term-missing -q
+  --cov-branch --cov-report=term-missing --cov-fail-under=100 -q
 ```
 
 Проверены положительные и отрицательные сценарии сериализации, общей HMAC-
@@ -208,25 +220,17 @@ powershell -ExecutionPolicy Bypass -File scripts/run_pytest.ps1 `
 предельного размера, экспоненциального повтора, восстановления зависшей
 блокировки, транзакционного отката, ограничения частоты и мягкой остановки.
 
-Фактический результат целевого прогона:
+Фактический результат целевого прогона всех новых модулей:
 
 ```text
-72 passed
-449 statements, 126 branches, 100% coverage
-```
-
-Объединённый прогон всей доработки, включая три платформы, хранение, навигацию,
-пакетный отправитель и настройки:
-
-```text
-393 passed
-1225 statements, 344 branches, 100% coverage
+262 passed
+1288 statements, 362 branches, 100% coverage
 ```
 
 Полный регрессионный прогон репозитория через тот же проектный скрипт:
 
 ```text
-836 passed, 11 skipped, 3 warnings
+853 passed, 11 skipped, 3 warnings
 ```
 
 Одиннадцать пропусков — существующие живые проверки PostgreSQL, которые
