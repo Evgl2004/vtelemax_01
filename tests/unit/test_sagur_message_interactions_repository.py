@@ -280,6 +280,47 @@ def test_due_queue_transitions_cover_success_retry_and_permanent_block() -> None
     assert blocked.delivery_attempts == 1
 
 
+def test_active_queue_observation_excludes_completed_history() -> None:
+    session, repository = _build_repository()
+    oldest_active_id = _record(repository)
+    newest_active_id = _record(repository, platform_callback_id="newest")
+    delivered_id = _record(repository, platform_callback_id="delivered")
+
+    oldest_active = session.get(SagurMessageInteractionEventRow, oldest_active_id)
+    newest_active = session.get(SagurMessageInteractionEventRow, newest_active_id)
+    delivered = session.get(SagurMessageInteractionEventRow, delivered_id)
+    assert oldest_active is not None and newest_active is not None and delivered is not None
+    oldest_active.occurred_at = (_NOW - timedelta(hours=1)).replace(tzinfo=None)
+    newest_active.occurred_at = (_NOW - timedelta(minutes=5)).replace(tzinfo=None)
+    delivered.occurred_at = (_NOW - timedelta(days=30)).replace(tzinfo=None)
+    assert repository.mark_processing(
+        [delivered_id],
+        lease_id=_LEASE_IDS[0],
+        now_utc=_NOW,
+    ) == 1
+    assert repository.mark_delivered(
+        delivered_id,
+        lease_id=_LEASE_IDS[0],
+        result="accepted",
+        now_utc=_NOW,
+    )
+    session.commit()
+
+    observation = repository.read_active_queue_observation()
+
+    assert observation.active_count == 2
+    assert observation.oldest_occurred_at == _NOW - timedelta(hours=1)
+
+
+def test_active_queue_observation_is_empty_without_active_rows() -> None:
+    _session, repository = _build_repository()
+
+    observation = repository.read_active_queue_observation()
+
+    assert observation.active_count == 0
+    assert observation.oldest_occurred_at is None
+
+
 @pytest.mark.parametrize("result", ["duplicate", "rating_already_recorded"])
 def test_all_confirmed_sagur_results_finish_delivery(result: str) -> None:
     session, repository = _build_repository()

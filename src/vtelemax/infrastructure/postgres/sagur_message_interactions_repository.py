@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import literal, select, update
+from sqlalchemy import func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from vtelemax.core.sagur_message_interactions import (
     SagurMessageInteractionEvent,
     SagurMessageInteractionIngress,
     SagurMessageInteractionInsertResult,
+    SagurMessageInteractionQueueObservation,
     SagurMessageInteractionUserActionStatus,
 )
 
@@ -138,6 +139,32 @@ class SQLAlchemySagurMessageInteractionsRepository:
                 delivery_attempts=row.delivery_attempts + 1,
             )
             for row in rows
+        )
+
+    def read_active_queue_observation(self) -> SagurMessageInteractionQueueObservation:
+        """Считает только активные строки и время самого старого нажатия.
+
+        Предикат совпадает с частичным индексом активной очереди. Доставленные и
+        заблокированные исторические строки в агрегатную выборку не входят.
+        """
+
+        statement = select(
+            func.count(SagurMessageInteractionEventRow.event_id),
+            func.min(SagurMessageInteractionEventRow.occurred_at),
+        ).where(
+            SagurMessageInteractionEventRow.delivery_status.in_(
+                (
+                    SagurMessageInteractionDeliveryStatus.PENDING.value,
+                    SagurMessageInteractionDeliveryStatus.RETRY_SCHEDULED.value,
+                )
+            )
+        )
+        active_count, oldest_occurred_at = self._session.execute(statement).one()
+        return SagurMessageInteractionQueueObservation(
+            active_count=int(active_count or 0),
+            oldest_occurred_at=(
+                _aware_utc(oldest_occurred_at) if oldest_occurred_at is not None else None
+            ),
         )
 
     def mark_processing(

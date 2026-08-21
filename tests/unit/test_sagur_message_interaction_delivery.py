@@ -27,6 +27,7 @@ from vtelemax.adapters.sagur_message_interaction_delivery import (
     SagurMessageInteractionProcessingResult,
     _EventDecision,
     _decode_response_object,
+    _oldest_event_age_seconds,
     _optional_text,
     _parse_successful_batch_response,
     _parse_retry_after,
@@ -42,6 +43,7 @@ from vtelemax.adapters.vtelemax_outbound_hmac import (
 from vtelemax.core.sagur_message_interactions import (
     SagurMessageInteractionDeliveryTask,
     SagurMessageInteractionIngress,
+    SagurMessageInteractionQueueObservation,
 )
 from vtelemax.infrastructure.postgres.sagur_message_interactions_repository import (
     SQLAlchemySagurMessageInteractionsRepository,
@@ -889,10 +891,21 @@ def test_processor_rejects_invalid_configuration(kwargs: dict[str, object]) -> N
 class _FakeProcessor:
     results: deque[SagurMessageInteractionProcessingResult]
     calls: int = 0
+    observation: SagurMessageInteractionQueueObservation = field(
+        default_factory=lambda: SagurMessageInteractionQueueObservation(
+            active_count=0,
+            oldest_occurred_at=None,
+        )
+    )
+    observation_calls: int = 0
 
     async def process_once(self) -> SagurMessageInteractionProcessingResult:
         self.calls += 1
         return self.results.popleft()
+
+    def read_queue_observation(self) -> SagurMessageInteractionQueueObservation:
+        self.observation_calls += 1
+        return self.observation
 
 
 def test_periodic_worker_drains_due_batches_and_supports_shutdown() -> None:
@@ -912,7 +925,63 @@ def test_periodic_worker_drains_due_batches_and_supports_shutdown() -> None:
 
     assert result == SagurMessageInteractionProcessingResult(selected=3, delivered=2, blocked=1)
     assert processor.calls == 3
+    assert processor.observation_calls == 1
     assert worker._stop_event.is_set()
+
+
+def test_periodic_worker_reports_oldest_active_event_age() -> None:
+    processor = _FakeProcessor(
+        deque([SagurMessageInteractionProcessingResult()]),
+        observation=SagurMessageInteractionQueueObservation(
+            active_count=7,
+            oldest_occurred_at=_NOW - timedelta(seconds=125),
+        ),
+    )
+    worker = PeriodicSagurMessageInteractionWorker(  # type: ignore[arg-type]
+        processor=processor,
+        interval_seconds=1,
+        now_factory=lambda: _NOW,
+    )
+
+    asyncio.run(worker.process_due_events())
+
+    assert processor.observation_calls == 1
+    assert _oldest_event_age_seconds(processor.observation, now=_NOW) == 125
+
+
+def test_periodic_worker_contains_queue_observation_error() -> None:
+    @dataclass(slots=True)
+    class _ObservationFailingProcessor:
+        async def process_once(self) -> SagurMessageInteractionProcessingResult:
+            return SagurMessageInteractionProcessingResult()
+
+        def read_queue_observation(self) -> SagurMessageInteractionQueueObservation:
+            raise RuntimeError("observation failed")
+
+    worker = PeriodicSagurMessageInteractionWorker(  # type: ignore[arg-type]
+        processor=_ObservationFailingProcessor(),
+        interval_seconds=1,
+    )
+
+    assert asyncio.run(worker.process_due_events()) == SagurMessageInteractionProcessingResult()
+
+
+def test_oldest_event_age_is_none_for_empty_queue_and_zero_for_future_event() -> None:
+    assert _oldest_event_age_seconds(None, now=_NOW) is None
+    empty = SagurMessageInteractionQueueObservation(active_count=0, oldest_occurred_at=None)
+    assert _oldest_event_age_seconds(empty, now=_NOW) is None
+    future = SagurMessageInteractionQueueObservation(
+        active_count=1,
+        oldest_occurred_at=_NOW + timedelta(seconds=1),
+    )
+    assert _oldest_event_age_seconds(future, now=_NOW) == 0
+
+    naive = SagurMessageInteractionQueueObservation(
+        active_count=1,
+        oldest_occurred_at=_NOW.replace(tzinfo=None),
+    )
+    with pytest.raises(ValueError, match="часовой пояс"):
+        _oldest_event_age_seconds(naive, now=_NOW)
 
 
 def test_periodic_worker_skips_overlapping_pass_and_validates_interval() -> None:

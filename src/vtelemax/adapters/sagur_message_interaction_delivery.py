@@ -19,7 +19,10 @@ import aiohttp
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from vtelemax.core.sagur_message_interactions import SagurMessageInteractionDeliveryTask
+from vtelemax.core.sagur_message_interactions import (
+    SagurMessageInteractionDeliveryTask,
+    SagurMessageInteractionQueueObservation,
+)
 from vtelemax.infrastructure.postgres.sagur_message_interactions_repository import (
     SQLAlchemySagurMessageInteractionsRepository,
 )
@@ -289,6 +292,16 @@ class SagurMessageInteractionDeliveryProcessor:
         if self.minimum_request_interval_seconds < 0:
             raise ValueError("Минимальный интервал запросов не может быть отрицательным.")
 
+    def read_queue_observation(self) -> SagurMessageInteractionQueueObservation:
+        """Читает низконагрузочный снимок активной очереди в отдельной сессии."""
+
+        session = self.session_factory()
+        try:
+            repository = SQLAlchemySagurMessageInteractionsRepository(session)
+            return repository.read_active_queue_observation()
+        finally:
+            session.close()
+
     async def process_once(self) -> SagurMessageInteractionProcessingResult:
         """Обрабатывает один готовый пакет; внешний HTTP выполняется без транзакции БД."""
 
@@ -528,6 +541,7 @@ class PeriodicSagurMessageInteractionWorker:
     processor: SagurMessageInteractionDeliveryProcessor
     interval_seconds: float = 300.0
     lock: asyncio.Lock | None = None
+    now_factory: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
     _stop_event: asyncio.Event = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -584,23 +598,63 @@ class PeriodicSagurMessageInteractionWorker:
                 component="sagur_message_interaction_worker",
                 stage="process_due_events",
             ).exception("Ошибка обработки очереди нажатий SAGUR.")
+        observation = self._read_queue_observation_safely()
+        oldest_age_seconds = _oldest_event_age_seconds(
+            observation,
+            now=self.now_factory(),
+        )
         logger.bind(
             component="sagur_message_interaction_worker",
             stage="process_due_events",
         ).info(
             "Проход доставки нажатий SAGUR завершён. selected={selected}, "
-            "delivered={delivered}, retry={retry}, blocked={blocked}, requests={requests}.",
+            "delivered={delivered}, retry={retry}, blocked={blocked}, requests={requests}, "
+            "active={active}, oldest_age_seconds={oldest_age_seconds}.",
             selected=total.selected,
             delivered=total.delivered,
             retry=total.retry_scheduled,
             blocked=total.blocked,
             requests=total.http_requests,
+            active=observation.active_count if observation is not None else None,
+            oldest_age_seconds=oldest_age_seconds,
         )
         return total
+
+    def _read_queue_observation_safely(
+        self,
+    ) -> SagurMessageInteractionQueueObservation | None:
+        """Не позволяет диагностическому чтению остановить доставку событий."""
+
+        try:
+            return self.processor.read_queue_observation()
+        except Exception:  # noqa: BLE001
+            logger.bind(
+                component="sagur_message_interaction_worker",
+                stage="queue_observation",
+            ).exception("Не удалось прочитать состояние активной очереди нажатий SAGUR.")
+            return None
 
     async def _wait_for_next_tick(self) -> None:
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
+
+
+def _oldest_event_age_seconds(
+    observation: SagurMessageInteractionQueueObservation | None,
+    *,
+    now: datetime,
+) -> int | None:
+    """Возвращает неотрицательный возраст старейшего активного события."""
+
+    if observation is None or observation.oldest_occurred_at is None:
+        return None
+    if now.tzinfo is None or observation.oldest_occurred_at.tzinfo is None:
+        raise ValueError("Дата-время наблюдения за очередью должно содержать часовой пояс.")
+    age_seconds = (
+        now.astimezone(timezone.utc)
+        - observation.oldest_occurred_at.astimezone(timezone.utc)
+    ).total_seconds()
+    return max(int(age_seconds), 0)
 
 
 def _parse_successful_batch_response(

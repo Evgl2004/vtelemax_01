@@ -139,6 +139,14 @@ class SagurMessageInteractionDeliveryTask:
     delivery_attempts: int
 
 
+@dataclass(frozen=True, slots=True)
+class SagurMessageInteractionQueueObservation:
+    """Минимальный снимок активной очереди без чтения завершённой истории."""
+
+    active_count: int
+    oldest_occurred_at: datetime | None
+
+
 def _json_object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     """Собирает объект JSON и отклоняет неоднозначные повторяющиеся ключи."""
 
