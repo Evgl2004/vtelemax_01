@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import vtelemax.adapters.sagur_message_interaction_delivery as delivery_module
@@ -1014,6 +1014,43 @@ def test_request_pacing_waits_before_second_http_attempt() -> None:
 def test_processor_rejects_invalid_configuration(kwargs: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         _processor(_session_factory(), _FakeHttpClient(deque()), **kwargs)
+
+
+def test_processor_reads_active_queue_observation() -> None:
+    factory = _session_factory()
+    _insert_events(factory, 2)
+    processor = _processor(factory, _FakeHttpClient(deque()))
+
+    observation = processor.read_queue_observation()
+
+    assert observation.active_count == 2
+    assert observation.oldest_occurred_at == _NOW - timedelta(seconds=2)
+
+
+def test_processor_ignores_decision_from_different_lease() -> None:
+    factory = _session_factory()
+    event_id = _insert_events(factory, 1)[0]
+    processor = _processor(factory, _FakeHttpClient(deque()))
+    request = processor._claim_request()
+    assert request is not None
+    active_lease_id = UUID(request.request_id)
+    stale_lease_id = uuid4()
+    assert stale_lease_id != active_lease_id
+    decision = _EventDecision(
+        task=request.tasks[0],
+        state="delivered",
+        code="accepted",
+    )
+
+    processor._apply_decisions((decision,), lease_id=stale_lease_id)
+
+    with factory() as session:
+        delivery_status = session.scalar(
+            select(SagurMessageInteractionEventRow.delivery_status).where(
+                SagurMessageInteractionEventRow.event_id == event_id
+            )
+        )
+        assert delivery_status == "processing"
 
 
 @dataclass(slots=True)
