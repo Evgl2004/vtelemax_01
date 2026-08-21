@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS sagur_message_interaction_events (
     delivery_attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMPTZ NOT NULL,
     locked_at TIMESTAMPTZ,
+    delivery_lease_id UUID,
     delivery_result VARCHAR(64),
     delivered_at TIMESTAMPTZ,
     delivery_error_code VARCHAR(128),

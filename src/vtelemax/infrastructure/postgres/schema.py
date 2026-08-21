@@ -561,6 +561,10 @@ class SagurMessageInteractionEventRow(Base):
     delivery_attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_lease_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+    )
     delivery_result: Mapped[str | None] = mapped_column(String(64), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivery_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)

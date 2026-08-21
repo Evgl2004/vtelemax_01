@@ -175,6 +175,7 @@ def test_migration_0019_creates_sagur_message_interaction_events_registry() -> N
     assert "UNIQUE (PLATFORM, BOT_SCOPE, PLATFORM_CALLBACK_ID)" in upper
     assert "USER_ACTION_STATUS VARCHAR(32)" in upper
     assert "DELIVERY_STATUS VARCHAR(32)" in upper
+    assert "DELIVERY_LEASE_ID UUID" in upper
     assert "WHERE DELIVERY_STATUS IN ('PENDING', 'RETRY_SCHEDULED')" in upper
     assert "WHERE DELIVERY_STATUS = 'PROCESSING'" in upper
     assert (

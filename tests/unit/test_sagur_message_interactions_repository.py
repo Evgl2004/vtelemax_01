@@ -25,6 +25,10 @@ _EVENT_IDS = (
     UUID("aaaaaaaa-0000-0000-0000-000000000003"),
     UUID("aaaaaaaa-0000-0000-0000-000000000004"),
 )
+_LEASE_IDS = (
+    UUID("bbbbbbbb-0000-0000-0000-000000000001"),
+    UUID("bbbbbbbb-0000-0000-0000-000000000002"),
+)
 
 
 def _build_repository() -> tuple[Session, SQLAlchemySagurMessageInteractionsRepository]:
@@ -226,14 +230,27 @@ def test_due_queue_transitions_cover_success_retry_and_permanent_block() -> None
     tasks = repository.select_due_events_for_update(limit=500, now_utc=_NOW)
     assert [task.event_id for task in tasks] == [accepted_id, retry_id, blocked_id]
     assert all(task.delivery_attempts == 1 for task in tasks)
-    assert repository.mark_processing([task.event_id for task in tasks], now_utc=_NOW) == 3
-    assert repository.mark_processing([], now_utc=_NOW) == 0
+    assert (
+        repository.mark_processing(
+            [task.event_id for task in tasks],
+            lease_id=_LEASE_IDS[0],
+            now_utc=_NOW,
+        )
+        == 3
+    )
+    assert repository.mark_processing([], lease_id=_LEASE_IDS[0], now_utc=_NOW) == 0
     session.commit()
 
     response_time = _NOW + timedelta(seconds=2)
-    assert repository.mark_delivered(accepted_id, result="accepted", now_utc=response_time)
+    assert repository.mark_delivered(
+        accepted_id,
+        lease_id=_LEASE_IDS[0],
+        result="accepted",
+        now_utc=response_time,
+    )
     assert repository.schedule_retry(
         retry_id,
+        lease_id=_LEASE_IDS[0],
         error_code="temporary",
         error_text="временная ошибка",
         next_attempt_at=_NOW + timedelta(seconds=30),
@@ -241,6 +258,7 @@ def test_due_queue_transitions_cover_success_retry_and_permanent_block() -> None
     )
     assert repository.mark_blocked(
         blocked_id,
+        lease_id=_LEASE_IDS[0],
         error_code="interaction_not_found",
         error_text="интерактивность не найдена",
         now_utc=response_time,
@@ -256,6 +274,7 @@ def test_due_queue_transitions_cover_success_retry_and_permanent_block() -> None
     assert retry.delivery_status == "retry_scheduled"
     assert retry.delivery_attempts == 1
     assert retry.locked_at is None
+    assert retry.delivery_lease_id is None
     assert blocked.delivery_status == "blocked"
     assert blocked.delivery_attempts == 1
 
@@ -264,8 +283,14 @@ def test_due_queue_transitions_cover_success_retry_and_permanent_block() -> None
 def test_all_confirmed_sagur_results_finish_delivery(result: str) -> None:
     session, repository = _build_repository()
     event_id = _record(repository)
+    repository.mark_processing([event_id], lease_id=_LEASE_IDS[0], now_utc=_NOW)
 
-    assert repository.mark_delivered(event_id, result=result, now_utc=_NOW)
+    assert repository.mark_delivered(
+        event_id,
+        lease_id=_LEASE_IDS[0],
+        result=result,
+        now_utc=_NOW,
+    )
     session.commit()
 
     row = session.get(SagurMessageInteractionEventRow, event_id)
@@ -278,14 +303,23 @@ def test_unknown_success_result_is_rejected() -> None:
     _session, repository = _build_repository()
 
     with pytest.raises(ValueError, match="Неподдерживаемый"):
-        repository.mark_delivered(_EVENT_IDS[0], result="rejected", now_utc=_NOW)
+        repository.mark_delivered(
+            _EVENT_IDS[0],
+            lease_id=_LEASE_IDS[0],
+            result="rejected",
+            now_utc=_NOW,
+        )
 
 
 def test_stale_processing_is_released_but_fresh_lock_is_preserved() -> None:
     session, repository = _build_repository()
     stale_id = _record(repository)
     fresh_id = _record(repository, platform_callback_id="fresh")
-    repository.mark_processing([stale_id, fresh_id], now_utc=_NOW)
+    repository.mark_processing(
+        [stale_id, fresh_id],
+        lease_id=_LEASE_IDS[0],
+        now_utc=_NOW,
+    )
     stale = session.get(SagurMessageInteractionEventRow, stale_id)
     fresh = session.get(SagurMessageInteractionEventRow, fresh_id)
     assert stale is not None and fresh is not None
@@ -305,7 +339,53 @@ def test_stale_processing_is_released_but_fresh_lock_is_preserved() -> None:
     assert stale.delivery_status == "retry_scheduled"
     assert stale.next_attempt_at == _NOW.replace(tzinfo=None)
     assert stale.locked_at is None
+    assert stale.delivery_lease_id is None
     assert fresh.delivery_status == "processing"
+    assert fresh.delivery_lease_id == _LEASE_IDS[0]
+
+
+def test_late_result_from_released_lease_cannot_overwrite_new_attempt() -> None:
+    """Проверяет защиту новой попытки от запоздавшего результата старого работника."""
+
+    session, repository = _build_repository()
+    event_id = _record(repository)
+    repository.mark_processing(
+        [event_id],
+        lease_id=_LEASE_IDS[0],
+        now_utc=_NOW - timedelta(minutes=10),
+    )
+    session.commit()
+
+    assert repository.release_stale_processing(lock_timeout_seconds=60, now_utc=_NOW) == 1
+    assert repository.mark_processing(
+        [event_id],
+        lease_id=_LEASE_IDS[1],
+        now_utc=_NOW,
+    ) == 1
+    session.commit()
+
+    assert not repository.mark_delivered(
+        event_id,
+        lease_id=_LEASE_IDS[0],
+        result="accepted",
+        now_utc=_NOW + timedelta(seconds=1),
+    )
+    session.commit()
+    row = session.get(SagurMessageInteractionEventRow, event_id)
+    assert row is not None
+    assert row.delivery_status == "processing"
+    assert row.delivery_lease_id == _LEASE_IDS[1]
+
+    assert repository.mark_delivered(
+        event_id,
+        lease_id=_LEASE_IDS[1],
+        result="accepted",
+        now_utc=_NOW + timedelta(seconds=2),
+    )
+    session.commit()
+    session.refresh(row)
+    assert row.delivery_status == "delivered"
+    assert row.delivery_lease_id is None
 
 
 def test_naive_clock_is_interpreted_as_utc() -> None:

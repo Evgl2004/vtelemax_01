@@ -302,11 +302,11 @@ class SagurMessageInteractionDeliveryProcessor:
                 code="payload_too_large",
                 text="Один элемент превышает локальный предел тела пакетного запроса.",
             )
-            self._apply_decisions((decision,))
+            self._apply_decisions((decision,), lease_id=UUID(request.request_id))
             return SagurMessageInteractionProcessingResult(selected=1, blocked=1)
 
         decisions, http_requests = await self._send_with_splitting(request)
-        self._apply_decisions(decisions)
+        self._apply_decisions(decisions, lease_id=UUID(request.request_id))
         return SagurMessageInteractionProcessingResult(
             selected=len(request.tasks),
             delivered=sum(item.state == "delivered" for item in decisions),
@@ -335,7 +335,11 @@ class SagurMessageInteractionDeliveryProcessor:
 
             request = self._largest_fitting_request(tasks)
             event_ids = tuple(task.event_id for task in request.tasks)
-            marked = repository.mark_processing(event_ids, now_utc=self.now_factory())
+            marked = repository.mark_processing(
+                event_ids,
+                lease_id=UUID(request.request_id),
+                now_utc=self.now_factory(),
+            )
             if marked != len(event_ids):
                 raise RuntimeError("Не все выбранные события переведены в состояние processing.")
             session.commit()
@@ -451,35 +455,56 @@ class SagurMessageInteractionDeliveryProcessor:
             )
         return _parse_successful_batch_response(request=request, data=outcome.data)
 
-    def _apply_decisions(self, decisions: Sequence[_EventDecision]) -> None:
+    def _apply_decisions(
+        self,
+        decisions: Sequence[_EventDecision],
+        *,
+        lease_id: UUID,
+    ) -> None:
         session = self.session_factory()
         try:
             repository = SQLAlchemySagurMessageInteractionsRepository(session)
             now = self.now_factory()
+            ignored_stale = 0
             for decision in decisions:
                 if decision.state == "delivered":
-                    repository.mark_delivered(
+                    applied = repository.mark_delivered(
                         decision.task.event_id,
+                        lease_id=lease_id,
                         result=decision.code,
                         now_utc=now,
                     )
                 elif decision.state == "blocked":
-                    repository.mark_blocked(
+                    applied = repository.mark_blocked(
                         decision.task.event_id,
+                        lease_id=lease_id,
                         error_code=decision.code,
                         error_text=decision.text,
                         now_utc=now,
                     )
                 else:
                     delay_seconds = self._retry_delay_seconds(decision)
-                    repository.schedule_retry(
+                    applied = repository.schedule_retry(
                         decision.task.event_id,
+                        lease_id=lease_id,
                         error_code=decision.code,
                         error_text=decision.text,
                         next_attempt_at=now + timedelta(seconds=delay_seconds),
                         now_utc=now,
                     )
+                if not applied:
+                    ignored_stale += 1
             session.commit()
+            if ignored_stale:
+                logger.bind(
+                    component="sagur_message_interaction_delivery",
+                    stage="stale_result_ignored",
+                ).warning(
+                    "Запоздавший результат старой аренды не применён. "
+                    "lease_id={lease_id}, count={count}.",
+                    lease_id=str(lease_id),
+                    count=ignored_stale,
+                )
         except Exception:
             session.rollback()
             raise

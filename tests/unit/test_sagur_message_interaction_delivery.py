@@ -487,7 +487,7 @@ def test_processor_applies_partial_results_independently() -> None:
         )
     )
     decisions, count = asyncio.run(processor._send_with_splitting(request))
-    processor._apply_decisions(decisions)
+    processor._apply_decisions(decisions, lease_id=UUID(request.request_id))
 
     assert count == 1
     with factory() as session:
@@ -532,7 +532,11 @@ def test_stale_processing_event_is_released_and_delivered() -> None:
     event_id = _insert_events(factory, 1)[0]
     with factory() as session:
         repository = SQLAlchemySagurMessageInteractionsRepository(session)
-        repository.mark_processing([event_id], now_utc=_NOW - timedelta(minutes=10))
+        repository.mark_processing(
+            [event_id],
+            lease_id=_REQUEST_IDS[0],
+            now_utc=_NOW - timedelta(minutes=10),
+        )
         session.commit()
     client = _FakeHttpClient(
         deque([SagurMessageInteractionHttpOutcome(http_status=200, data={"dynamic": True})])
@@ -551,7 +555,7 @@ def test_claim_rolls_back_when_processing_marker_count_is_inconsistent(
     monkeypatch.setattr(
         SQLAlchemySagurMessageInteractionsRepository,
         "mark_processing",
-        lambda self, event_ids, now_utc=None: 0,
+        lambda self, event_ids, lease_id, now_utc=None: 0,
     )
 
     with pytest.raises(RuntimeError, match="Не все выбранные"):
@@ -585,7 +589,10 @@ def test_decision_update_rolls_back_database_error(monkeypatch: pytest.MonkeyPat
     decision = _EventDecision(task=_task(event_id=event_id), state="delivered", code="accepted")
 
     with pytest.raises(RuntimeError, match="write failed"):
-        _processor(factory, _FakeHttpClient(deque()))._apply_decisions((decision,))
+        _processor(factory, _FakeHttpClient(deque()))._apply_decisions(
+            (decision,),
+            lease_id=_REQUEST_IDS[0],
+        )
 
 
 @pytest.mark.parametrize(

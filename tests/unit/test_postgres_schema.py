@@ -155,6 +155,7 @@ def test_sagur_message_interaction_events_constraints_and_hot_indexes_are_strict
     assert indexes["ix_sagur_message_interaction_events_processing"].dialect_options[
         "postgresql"
     ]["where"] is not None
+    assert "delivery_lease_id" in SagurMessageInteractionEventRow.__table__.columns
 
 
 def test_foreign_keys_point_to_persons_table() -> None:

@@ -144,9 +144,10 @@ class SQLAlchemySagurMessageInteractionsRepository:
         self,
         event_ids: Sequence[UUID],
         *,
+        lease_id: UUID,
         now_utc: datetime | None = None,
     ) -> int:
-        """Помечает выбранный непустой набор начатой попыткой доставки."""
+        """Закрепляет выбранный набор за одной уникальной попыткой доставки."""
 
         if not event_ids:
             return 0
@@ -166,6 +167,7 @@ class SQLAlchemySagurMessageInteractionsRepository:
                 delivery_status=SagurMessageInteractionDeliveryStatus.PROCESSING.value,
                 delivery_attempts=SagurMessageInteractionEventRow.delivery_attempts + 1,
                 locked_at=now,
+                delivery_lease_id=lease_id,
                 updated_at=now,
             )
         )
@@ -176,6 +178,7 @@ class SQLAlchemySagurMessageInteractionsRepository:
         self,
         event_id: UUID,
         *,
+        lease_id: UUID,
         result: str,
         now_utc: datetime | None = None,
     ) -> bool:
@@ -184,12 +187,14 @@ class SQLAlchemySagurMessageInteractionsRepository:
         if result not in _SUCCESSFUL_DELIVERY_RESULTS:
             raise ValueError("Неподдерживаемый успешный результат SAGUR.")
         now = _utc_now(now_utc)
-        return self._update_one(
+        return self._update_claimed_one(
             event_id,
+            lease_id=lease_id,
             delivery_status=SagurMessageInteractionDeliveryStatus.DELIVERED.value,
             delivery_result=result,
             delivered_at=now,
             locked_at=None,
+            delivery_lease_id=None,
             delivery_error_code=None,
             delivery_error_text=None,
             updated_at=now,
@@ -199,6 +204,7 @@ class SQLAlchemySagurMessageInteractionsRepository:
         self,
         event_id: UUID,
         *,
+        lease_id: UUID,
         error_code: str,
         error_text: str,
         next_attempt_at: datetime,
@@ -207,11 +213,13 @@ class SQLAlchemySagurMessageInteractionsRepository:
         """Сохраняет временную ошибку и планирует следующую попытку без удаления."""
 
         now = _utc_now(now_utc)
-        return self._update_one(
+        return self._update_claimed_one(
             event_id,
+            lease_id=lease_id,
             delivery_status=SagurMessageInteractionDeliveryStatus.RETRY_SCHEDULED.value,
             next_attempt_at=_aware_utc(next_attempt_at),
             locked_at=None,
+            delivery_lease_id=None,
             delivery_error_code=str(error_code)[:128],
             delivery_error_text=_trim_error_text(error_text),
             updated_at=now,
@@ -221,6 +229,7 @@ class SQLAlchemySagurMessageInteractionsRepository:
         self,
         event_id: UUID,
         *,
+        lease_id: UUID,
         error_code: str,
         error_text: str,
         now_utc: datetime | None = None,
@@ -228,10 +237,12 @@ class SQLAlchemySagurMessageInteractionsRepository:
         """Переводит постоянный отказ в диагностируемое состояние без удаления."""
 
         now = _utc_now(now_utc)
-        return self._update_one(
+        return self._update_claimed_one(
             event_id,
+            lease_id=lease_id,
             delivery_status=SagurMessageInteractionDeliveryStatus.BLOCKED.value,
             locked_at=None,
+            delivery_lease_id=None,
             delivery_error_code=str(error_code)[:128],
             delivery_error_text=_trim_error_text(error_text),
             updated_at=now,
@@ -300,6 +311,7 @@ class SQLAlchemySagurMessageInteractionsRepository:
                 delivery_status=SagurMessageInteractionDeliveryStatus.RETRY_SCHEDULED.value,
                 next_attempt_at=now,
                 locked_at=None,
+                delivery_lease_id=None,
                 updated_at=now,
             )
         )
@@ -341,6 +353,28 @@ class SQLAlchemySagurMessageInteractionsRepository:
         statement = (
             update(SagurMessageInteractionEventRow)
             .where(SagurMessageInteractionEventRow.event_id == event_id)
+            .values(**values)
+        )
+        result = self._session.execute(statement)
+        return bool(result.rowcount)
+
+    def _update_claimed_one(
+        self,
+        event_id: UUID,
+        *,
+        lease_id: UUID,
+        **values: object,
+    ) -> bool:
+        """Изменяет доставку только пока строкой владеет указанная аренда."""
+
+        statement = (
+            update(SagurMessageInteractionEventRow)
+            .where(
+                SagurMessageInteractionEventRow.event_id == event_id,
+                SagurMessageInteractionEventRow.delivery_status
+                == SagurMessageInteractionDeliveryStatus.PROCESSING.value,
+                SagurMessageInteractionEventRow.delivery_lease_id == lease_id,
+            )
             .values(**values)
         )
         result = self._session.execute(statement)
