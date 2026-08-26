@@ -196,13 +196,18 @@ def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
 
     if not settings.is_iiko_configured:
         logger.bind(platform="telegram", component="app", stage="startup").warning(
-            "Интеграция iiko отключена: не заданы IIKO_API_KEY/IIKO_ORG_ID."
+            "Интеграция iiko отключена: не заполнены настройки выбранной авторизации."
         )
         return None
 
     return IikoLoyaltyGateway(
-        api_key=settings.iiko_api_key,
         organization_id=settings.iiko_org_id,
+        api_key=settings.iiko_api_key,
+        auth_version=settings.iiko_auth_version,
+        app_id=settings.iiko_app_id,
+        client_secret=settings.iiko_client_secret,
+        cloud_api_key=settings.iiko_cloud_api_key,
+        auth_url=settings.iiko_auth_url,
         base_url=settings.iiko_base_url,
     )
 

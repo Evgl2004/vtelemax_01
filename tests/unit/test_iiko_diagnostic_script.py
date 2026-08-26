@@ -116,3 +116,99 @@ def test_build_sql_limits_phone_check_to_target_person_when_phone_missing() -> N
 
     assert "OR ('' = '' AND ph.person_id IN (SELECT person_id FROM target))" in sql
     assert "WHERE ('' = '' OR ph.phone_e164 = '')" not in sql
+
+
+def test_render_iiko_config_masks_new_authentication_parameters() -> None:
+    """Проверяет маскирование новых реквизитов авторизации в отчёте."""
+
+    output = diagnostic_script.render_iiko_config(
+        {
+            "IIKO_AUTH_VERSION": "v2",
+            "IIKO_APP_ID": "application-id",
+            "IIKO_CLIENT_SECRET": "client-secret-value",
+            "IIKO_CLOUD_API_KEY": "cloud-api-key-value",
+            "IIKO_ORG_ID": "organization-id",
+            "IIKO_AUTH_URL": "https://example.test/api/v2/access_token",
+        }
+    )
+
+    assert "IIKO_AUTH_VERSION=v2" in output
+    assert "application-id" not in output
+    assert "client-secret-value" not in output
+    assert "cloud-api-key-value" not in output
+    assert "organization-id" not in output
+    assert "IIKO_AUTH_URL=https://example.test/api/v2/access_token" in output
+
+
+def test_live_iiko_probe_can_explicitly_use_v2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Проверяет отдельный диагностический запрос через новую авторизацию."""
+
+    calls: list[dict[str, object]] = []
+    responses = [
+        {"token": "v2-token"},
+        {
+            "id": "customer-1",
+            "walletBalances": [{"balance": 125}],
+            "cards": [{"number": "card-1"}],
+        },
+    ]
+
+    def fake_post_json(
+        *,
+        url: str,
+        payload: dict[str, object],
+        token: str | None,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        calls.append(
+            {
+                "url": url,
+                "payload": payload,
+                "token": token,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        return responses.pop(0)
+
+    monkeypatch.setattr(diagnostic_script, "post_json", fake_post_json)
+    args = argparse.Namespace(
+        phone_e164="+79120000000",
+        iiko_auth_version="v2",
+    )
+    env_values = {
+        "IIKO_AUTH_VERSION": "v1",
+        "IIKO_APP_ID": "app-id",
+        "IIKO_CLIENT_SECRET": "client-secret",
+        "IIKO_CLOUD_API_KEY": "cloud-key",
+        "IIKO_ORG_ID": "org-1",
+        "IIKO_AUTH_URL": "https://example.test/api/v2/access_token",
+        "IIKO_BASE_URL": "https://example.test/api/1",
+    }
+
+    output = diagnostic_script.live_iiko_probe(args, env_values)
+
+    assert '"customer_id_present": true' in output
+    assert calls == [
+        {
+            "url": "https://example.test/api/v2/access_token",
+            "payload": {
+                "appId": "app-id",
+                "clientSecret": "client-secret",
+                "apiKey": "cloud-key",
+            },
+            "token": None,
+            "timeout_seconds": 10,
+        },
+        {
+            "url": "https://example.test/api/1/loyalty/iiko/customer/info",
+            "payload": {
+                "phone": "+79120000000",
+                "type": "phone",
+                "organizationId": "org-1",
+            },
+            "token": "v2-token",
+            "timeout_seconds": 10,
+        },
+    ]

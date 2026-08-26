@@ -41,24 +41,50 @@ class IikoLoyaltyGateway(LoyaltyGateway):
     def __init__(
         self,
         *,
-        api_key: str,
         organization_id: str,
+        api_key: str = "",
+        auth_version: str = "v1",
+        app_id: str = "",
+        client_secret: str = "",
+        cloud_api_key: str = "",
+        auth_url: str = "https://api-ru.iiko.services/api/v2/access_token",
         base_url: str = "https://api-ru.iiko.services/api/1",
         timeout_seconds: float = 10.0,
     ) -> None:
         self._logger = logger.bind(component="iiko_gateway")
+        self._auth_version = str(auth_version).strip().lower()
         self._api_key = str(api_key).strip()
+        self._app_id = str(app_id).strip()
+        self._client_secret = str(client_secret).strip()
+        self._cloud_api_key = str(cloud_api_key).strip()
         self._organization_id = str(organization_id).strip()
+        self._auth_url = str(auth_url).strip()
         self._base_url = str(base_url).strip().rstrip("/")
         self._timeout_seconds = float(timeout_seconds)
         self._access_token_state: _AccessTokenState | None = None
 
-        if not self._api_key:
-            raise ValueError("Параметр IIKO_API_KEY не может быть пустым.")
+        if self._auth_version not in {"v1", "v2"}:
+            raise ValueError("Параметр IIKO_AUTH_VERSION должен иметь значение v1 или v2.")
         if not self._organization_id:
             raise ValueError("Параметр IIKO_ORG_ID не может быть пустым.")
         if not self._base_url:
             raise ValueError("Параметр IIKO_BASE_URL не может быть пустым.")
+        if self._auth_version == "v1" and not self._api_key:
+            raise ValueError("Для авторизации iiko v1 требуется параметр IIKO_API_KEY.")
+        if self._auth_version == "v2":
+            missing_parameters = [
+                name
+                for name, value in (
+                    ("IIKO_APP_ID", self._app_id),
+                    ("IIKO_CLIENT_SECRET", self._client_secret),
+                    ("IIKO_CLOUD_API_KEY", self._cloud_api_key),
+                    ("IIKO_AUTH_URL", self._auth_url),
+                )
+                if not value
+            ]
+            if missing_parameters:
+                names = ", ".join(missing_parameters)
+                raise ValueError(f"Для авторизации iiko v2 не заданы параметры: {names}.")
 
     def get_customer_info(self, phone_e164: str) -> LoyaltyCustomer | None:
         """Возвращает данные клиента iiko по номеру телефона."""
@@ -288,16 +314,58 @@ class IikoLoyaltyGateway(LoyaltyGateway):
         if self._access_token_state is not None and datetime.now(tz=timezone.utc) < self._access_token_state.expires_at_utc:
             return self._access_token_state.token
 
-        status_code, body, raw_text = self._post_json(
+        if self._auth_version == "v2":
+            return self._get_access_token_v2()
+        return self._get_access_token_v1()
+
+    def _get_access_token_v1(self) -> str:
+        """Получает маркер через старую авторизацию iiko Cloud API."""
+
+        return self._request_access_token(
             path="/access_token",
             payload={"apiLogin": self._api_key},
-            token=None,
         )
+
+    def _get_access_token_v2(self) -> str:
+        """Получает маркер через новую авторизацию iiko Cloud API."""
+
+        return self._request_access_token(
+            path="/api/v2/access_token",
+            payload={
+                "appId": self._app_id,
+                "clientSecret": self._client_secret,
+                "apiKey": self._cloud_api_key,
+            },
+            request_url=self._auth_url,
+        )
+
+    def _request_access_token(
+        self,
+        *,
+        path: str,
+        payload: dict[str, Any],
+        request_url: str | None = None,
+    ) -> str:
+        """Выполняет выбранный запрос авторизации и сохраняет полученный маркер."""
+
+        if request_url is None:
+            status_code, body, raw_text = self._post_json(
+                path=path,
+                payload=payload,
+                token=None,
+            )
+        else:
+            status_code, body, raw_text = self._post_json(
+                path=path,
+                payload=payload,
+                token=None,
+                request_url=request_url,
+            )
         if status_code != 200:
             raise LoyaltyGatewayError(
                 f"Ошибка получения access token iiko (HTTP {status_code}): {raw_text or 'empty response'}",
                 reason_code="access_token_http_error",
-                endpoint="/access_token",
+                endpoint=path,
                 status_code=status_code,
                 is_transient=self._is_transient_http_status(status_code),
             )
@@ -307,7 +375,7 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             raise LoyaltyGatewayError(
                 "iiko вернул пустой access token.",
                 reason_code="access_token_empty",
-                endpoint="/access_token",
+                endpoint=path,
                 status_code=status_code,
                 is_transient=False,
             )
@@ -324,6 +392,7 @@ class IikoLoyaltyGateway(LoyaltyGateway):
         path: str,
         payload: dict[str, Any],
         token: str | None,
+        request_url: str | None = None,
     ) -> tuple[int, dict[str, Any], str]:
         """Выполняет POST-запрос и возвращает `(status_code, json_body, raw_text)`."""
 
@@ -332,7 +401,7 @@ class IikoLoyaltyGateway(LoyaltyGateway):
             headers["Authorization"] = f"Bearer {token}"
 
         request = Request(
-            url=f"{self._base_url}{path}",
+            url=request_url or f"{self._base_url}{path}",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers=headers,
             method="POST",

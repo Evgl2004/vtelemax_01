@@ -295,9 +295,20 @@ class AppSettings(BaseSettings):
         alias="PROFILE_SYNC_MAX_ATTEMPTS",
         gt=0,
     )
+    iiko_auth_version: str = Field(default="v1", alias="IIKO_AUTH_VERSION")
     iiko_api_key: str = Field(default="", alias="IIKO_API_KEY")
+    iiko_app_id: str = Field(default="", alias="IIKO_APP_ID")
+    iiko_client_secret: str = Field(default="", alias="IIKO_CLIENT_SECRET")
+    iiko_cloud_api_key: str = Field(default="", alias="IIKO_CLOUD_API_KEY")
     iiko_org_id: str = Field(default="", alias="IIKO_ORG_ID")
-    iiko_base_url: str = Field(default="https://api-ru.iiko.services/api/1", alias="IIKO_BASE_URL")
+    iiko_auth_url: str = Field(
+        default="https://api-ru.iiko.services/api/v2/access_token",
+        alias="IIKO_AUTH_URL",
+    )
+    iiko_base_url: str = Field(
+        default="https://api-ru.iiko.services/api/1",
+        alias="IIKO_BASE_URL",
+    )
 
     @property
     def postgres_sqlalchemy_dsn(self) -> str:
@@ -336,7 +347,18 @@ class AppSettings(BaseSettings):
     def is_iiko_configured(self) -> bool:
         """Показывает, включена ли интеграция с iiko для разделов лояльности."""
 
-        return bool(self.iiko_api_key.strip() and self.iiko_org_id.strip())
+        auth_version = self.iiko_auth_version.strip().lower()
+        if auth_version == "v1":
+            return bool(self.iiko_api_key.strip() and self.iiko_org_id.strip())
+        if auth_version == "v2":
+            return bool(
+                self.iiko_app_id.strip()
+                and self.iiko_client_secret.strip()
+                and self.iiko_cloud_api_key.strip()
+                and self.iiko_org_id.strip()
+                and self.iiko_auth_url.strip()
+            )
+        return False
 
     @property
     def sagur_registration_events_hmac_secret(self) -> str:

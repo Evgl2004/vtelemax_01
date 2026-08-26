@@ -68,8 +68,13 @@ def build_iiko_gateway(settings: AppSettings) -> IikoLoyaltyGateway | None:
     if not settings.is_iiko_configured:
         return None
     return IikoLoyaltyGateway(
-        api_key=settings.iiko_api_key,
         organization_id=settings.iiko_org_id,
+        api_key=settings.iiko_api_key,
+        auth_version=settings.iiko_auth_version,
+        app_id=settings.iiko_app_id,
+        client_secret=settings.iiko_client_secret,
+        cloud_api_key=settings.iiko_cloud_api_key,
+        auth_url=settings.iiko_auth_url,
         base_url=settings.iiko_base_url,
     )
 
@@ -112,8 +117,8 @@ async def run_profile_sync_worker(settings: AppSettings | None = None) -> None:
     iiko_gateway = build_iiko_gateway(app_settings)
     if iiko_gateway is None:
         app_logger.warning(
-            "Profile sync worker запущен без iiko-конфигурации. "
-            "Укажите IIKO_API_KEY и IIKO_ORG_ID либо выключите PROFILE_SYNC_ENABLED."
+            "Работник синхронизации профилей запущен без настроенной интеграции iiko. "
+            "Заполните настройки выбранной авторизации либо выключите PROFILE_SYNC_ENABLED."
         )
         await _wait_for_shutdown_signal(component="profile_sync_worker_app")
         return
@@ -171,4 +176,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

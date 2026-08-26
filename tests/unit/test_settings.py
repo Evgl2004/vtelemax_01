@@ -80,6 +80,7 @@ def test_settings_detects_iiko_configuration_enabled() -> None:
 
     settings = AppSettings(IIKO_API_KEY="test-key", IIKO_ORG_ID="org-1")
 
+    assert settings.iiko_auth_version == "v1"
     assert settings.is_iiko_configured is True
 
 
@@ -87,6 +88,64 @@ def test_settings_detects_iiko_configuration_disabled() -> None:
     """Проверяет, что флаг iiko выключен при отсутствии обязательных полей."""
 
     settings = AppSettings(IIKO_API_KEY=" ", IIKO_ORG_ID="")
+
+    assert settings.is_iiko_configured is False
+
+
+def test_settings_detects_iiko_v2_configuration_enabled() -> None:
+    """Проверяет включение iiko при полном наборе новой авторизации."""
+
+    settings = AppSettings(
+        IIKO_AUTH_VERSION="v2",
+        IIKO_APP_ID="app-id",
+        IIKO_CLIENT_SECRET="client-secret",
+        IIKO_CLOUD_API_KEY="cloud-api-key",
+        IIKO_ORG_ID="org-1",
+    )
+
+    assert settings.is_iiko_configured is True
+
+
+@pytest.mark.parametrize(
+    "missing_parameter",
+    [
+        "IIKO_APP_ID",
+        "IIKO_CLIENT_SECRET",
+        "IIKO_CLOUD_API_KEY",
+        "IIKO_ORG_ID",
+        "IIKO_AUTH_URL",
+    ],
+)
+def test_settings_disables_iiko_for_incomplete_v2_configuration(
+    missing_parameter: str,
+) -> None:
+    """Проверяет сохранение текущего поведения при неполном наборе v2."""
+
+    values = {
+        "IIKO_AUTH_VERSION": "v2",
+        "IIKO_APP_ID": "app-id",
+        "IIKO_CLIENT_SECRET": "client-secret",
+        "IIKO_CLOUD_API_KEY": "cloud-api-key",
+        "IIKO_ORG_ID": "org-1",
+    }
+    values[missing_parameter] = " "
+
+    settings = AppSettings(**values)
+
+    assert settings.is_iiko_configured is False
+
+
+def test_settings_disables_iiko_for_unknown_auth_version() -> None:
+    """Проверяет отключение шлюза при неизвестной версии без остановки настроек."""
+
+    settings = AppSettings(
+        IIKO_AUTH_VERSION="v3",
+        IIKO_API_KEY="legacy-key",
+        IIKO_APP_ID="app-id",
+        IIKO_CLIENT_SECRET="client-secret",
+        IIKO_CLOUD_API_KEY="cloud-api-key",
+        IIKO_ORG_ID="org-1",
+    )
 
     assert settings.is_iiko_configured is False
 

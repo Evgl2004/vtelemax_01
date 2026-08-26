@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_PROJECT_DIR = "/var/www/vtelemax"
 DEFAULT_BASE_URL = "https://api-ru.iiko.services/api/1"
+DEFAULT_AUTH_URL = "https://api-ru.iiko.services/api/v2/access_token"
 SAFE_PLATFORMS = {"telegram", "vk", "max"}
 DEFAULT_ERROR_CODE = "IIKO-BAL-001"
 KNOWN_IIKO_ERROR_CODES: dict[str, str] = {
@@ -71,6 +72,15 @@ def parse_args() -> argparse.Namespace:
         "--live-iiko-readonly",
         action="store_true",
         help="Дополнительно выполнить read-only запрос customer/info в iiko.",
+    )
+    parser.add_argument(
+        "--iiko-auth-version",
+        choices=("v1", "v2"),
+        default=None,
+        help=(
+            "Версия авторизации только для проверочного запроса. "
+            "По умолчанию используется IIKO_AUTH_VERSION из окружения."
+        ),
     )
     return parser.parse_args()
 
@@ -179,8 +189,13 @@ def render_iiko_config(env_values: dict[str, str]) -> str:
     """Возвращает безопасное представление iiko-конфига."""
 
     keys = [
+        "IIKO_AUTH_VERSION",
         "IIKO_API_KEY",
+        "IIKO_APP_ID",
+        "IIKO_CLIENT_SECRET",
+        "IIKO_CLOUD_API_KEY",
         "IIKO_ORG_ID",
+        "IIKO_AUTH_URL",
         "IIKO_BASE_URL",
         "PROFILE_SYNC_ENABLED",
         "PROFILE_SYNC_INTERVAL_SECONDS",
@@ -190,7 +205,13 @@ def render_iiko_config(env_values: dict[str, str]) -> str:
     lines = []
     for key in keys:
         value = env_values.get(key, "")
-        if key in {"IIKO_API_KEY", "IIKO_ORG_ID"}:
+        if key in {
+            "IIKO_API_KEY",
+            "IIKO_APP_ID",
+            "IIKO_CLIENT_SECRET",
+            "IIKO_CLOUD_API_KEY",
+            "IIKO_ORG_ID",
+        }:
             lines.append(f"{key}={mask_value(value)}")
         else:
             lines.append(f"{key}={value or '<default>'}")
@@ -501,16 +522,41 @@ def live_iiko_probe(args: argparse.Namespace, env_values: dict[str, str]) -> str
     if not args.phone_e164:
         return "Пропущено: не задан --phone-e164."
 
-    api_key = env_values.get("IIKO_API_KEY", "")
+    requested_auth_version = getattr(args, "iiko_auth_version", None)
+    auth_version = str(
+        requested_auth_version or env_values.get("IIKO_AUTH_VERSION", "v1") or "v1"
+    ).strip().lower()
     org_id = env_values.get("IIKO_ORG_ID", "")
     base_url = env_values.get("IIKO_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
-    if not api_key or not org_id:
-        return "Пропущено: IIKO_API_KEY/IIKO_ORG_ID не заданы в .env."
+
+    if auth_version == "v1":
+        api_key = env_values.get("IIKO_API_KEY", "")
+        if not api_key or not org_id:
+            return "Пропущено: для авторизации iiko v1 не заданы IIKO_API_KEY/IIKO_ORG_ID."
+        auth_url = f"{base_url}/access_token"
+        auth_payload = {"apiLogin": api_key}
+    elif auth_version == "v2":
+        app_id = env_values.get("IIKO_APP_ID", "")
+        client_secret = env_values.get("IIKO_CLIENT_SECRET", "")
+        cloud_api_key = env_values.get("IIKO_CLOUD_API_KEY", "")
+        if not app_id or not client_secret or not cloud_api_key or not org_id:
+            return (
+                "Пропущено: для авторизации iiko v2 не заданы IIKO_APP_ID, "
+                "IIKO_CLIENT_SECRET, IIKO_CLOUD_API_KEY или IIKO_ORG_ID."
+            )
+        auth_url = env_values.get("IIKO_AUTH_URL", DEFAULT_AUTH_URL)
+        auth_payload = {
+            "appId": app_id,
+            "clientSecret": client_secret,
+            "apiKey": cloud_api_key,
+        }
+    else:
+        return f"Пропущено: неизвестная версия авторизации iiko {auth_version!r}."
 
     try:
         token_body = post_json(
-            url=f"{base_url}/access_token",
-            payload={"apiLogin": api_key},
+            url=auth_url,
+            payload=auth_payload,
             token=None,
             timeout_seconds=10,
         )
