@@ -22,6 +22,38 @@ SQL выполняется внутри `BEGIN READ ONLY`, поэтому рас
 Live-probe вызывает только `customer/info`; операции create/update/card issue
 скрипт не выполняет.
 
+## Выбор версии авторизации
+
+Для проверочного запроса скрипт по умолчанию использует `IIKO_AUTH_VERSION` из
+`.env`. Если переменная отсутствует, выбирается совместимый режим `v1`.
+
+Чтобы проверить `v2`, пока рабочие процессы ещё используют `v1`, передайте
+`--iiko-auth-version v2`. В `.env` должны быть заполнены:
+
+- `IIKO_APP_ID`;
+- `IIKO_CLIENT_SECRET`;
+- `IIKO_CLOUD_API_KEY`;
+- `IIKO_ORG_ID`;
+- `IIKO_AUTH_URL` можно оставить со значением по умолчанию.
+
+Пример отдельной проверки новой авторизации:
+
+```bash
+sudo python3 scripts/diagnose_iiko_balance_incident.py \
+  --platform telegram \
+  --external-id 5833652675 \
+  --phone-e164 +79829303027 \
+  --error-code IIKO-BAL-001 \
+  --incident-local "2026-05-19 12:05:41" \
+  --window-minutes 10 \
+  --live-iiko-readonly \
+  --iiko-auth-version v2 \
+  --report-path /tmp/iiko_auth_v2_check.txt
+```
+
+Флаг изменяет версию только для этого запуска скрипта и не переключает приложения.
+При ошибке `v2` автоматического запроса через `v1` нет.
+
 ## Известные коды
 
 | Код | Значение |

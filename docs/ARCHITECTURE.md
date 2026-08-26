@@ -85,7 +85,10 @@
 5. Добавлена точка входа MAX-приложения: `apps/max_app.py`.
 6. Во всех приложениях подключены use-case поддержки/модерации (создание тикета, маршрутизация ответа, карточка тикета, список открытых тикетов, выборка pending и фиксация статуса доставки).
 7. Во всех приложениях и роутерах добавлены этапные логи взаимодействий (входящие события, onboarding, модерация, pending-доставка).
-8. В `AppSettings` добавлены параметры интеграции с iiko (`IIKO_API_KEY`, `IIKO_ORG_ID`, `IIKO_BASE_URL`) и флаг `is_iiko_configured`.
+8. В `AppSettings` добавлены параметры интеграции с iiko, временный выбор
+   `IIKO_AUTH_VERSION=v1|v2` и признак `is_iiko_configured`. Для `v1` проверяются
+   `IIKO_API_KEY` и `IIKO_ORG_ID`, для `v2` — `IIKO_APP_ID`,
+   `IIKO_CLIENT_SECRET`, `IIKO_CLOUD_API_KEY` и `IIKO_ORG_ID`.
 9. Во всех приложениях подключены loyalty-use-case (`GetLoyaltyBalanceUseCase`, `GetVirtualCardUseCase`) с единым iiko-шлюзом.
 
 ## 3. Строгая идентификация (Strict Identity)
