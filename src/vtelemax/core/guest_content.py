@@ -75,43 +75,35 @@ MAILING_CONSENT_URLS = {
 BUTTON_PERSONAL_DATA_CONSENT_LINK = "📄 Согласие на ПД"
 BUTTON_PRIVACY_POLICY_LINK = "📄 Политика конфиденциальности"
 BUTTON_DELIVERY_GRUZINKA_NANI = "💃 Грузинка Нани"
-BUTTON_DELIVERY_SUSAMI = "🍷 Сами Сусами"
 BUTTON_DELIVERY_CHINA = "🍜 Чина"
 BUTTON_DELIVERY_UZBECHKA = "☀️ Узбечка"
 DELIVERY_URL_GRUZINKA_NANI = "https://gruzinka.rest.market/"
-DELIVERY_URL_SUSAMI = "https://susami.rest.market/"
 DELIVERY_URL_CHINA = "https://china.rest.market/"
 DELIVERY_URL_UZBECHKA = "https://uzbechka.rest.market/"
 
 # Кнопки и URL для бизнес-ланча
 BUTTON_BUSINESS_LUNCH = "🍽️ Бизнес-ланч"
 BUTTON_BUSINESS_LUNCH_GRUZINKA_NANI = "💃 Грузинка Нани"
-BUTTON_BUSINESS_LUNCH_SUSAMI = "🍷 Сами Сусами"
 BUTTON_BUSINESS_LUNCH_CHINA = "🍜 Чина"
 BUTTON_BUSINESS_LUNCH_UZBECHKA = "☀️ Узбечка"
 BUSINESS_LUNCH_URL_GRUZINKA_NANI = "https://rest-nani.ru/BL.jpg"
-BUSINESS_LUNCH_URL_SUSAMI = "https://rest-susami.ru/BL.jpg"
 BUSINESS_LUNCH_URL_CHINA = "https://rest-china.ru/BL.jpg"
 BUSINESS_LUNCH_URL_UZBECHKA = "https://rest-uzbechka.ru/BL.jpg"
 
 # Кнопки и URL для бронирования столиков
 BUTTON_TABLE_BOOKING = "🪑 Бронь стола"
 BUTTON_TABLE_BOOKING_GRUZINKA_NANI = "💃 Грузинка Нани"
-BUTTON_TABLE_BOOKING_SUSAMI = "🍷 Сами Сусами"
 BUTTON_TABLE_BOOKING_CHINA = "🍜 Чина"
 BUTTON_TABLE_BOOKING_UZBECHKA = "☀️ Узбечка"
 TABLE_BOOKING_URL_GRUZINKA_NANI = "https://gruzinka.restoplace.ws/"
-TABLE_BOOKING_URL_SUSAMI = "https://susami.restoplace.ws/"
 TABLE_BOOKING_URL_CHINA = "https://china.restoplace.ws/"
 TABLE_BOOKING_URL_UZBECHKA = "https://usbechka.restoplace.ws/"
 
 # Кнопки и URL для отзывов по заведениям
 BUTTON_FEEDBACK_GRUZINKA = "💃 Грузинка"
-BUTTON_FEEDBACK_SUSAMI = "🍷 Сами Сусами"
 BUTTON_FEEDBACK_CHINA = "🍜 Чина"
 BUTTON_FEEDBACK_UZBECHKA = "☀️ Узбечка"
 FEEDBACK_URL_GRUZINKA = "https://rdata.one/nwKl"
-FEEDBACK_URL_SUSAMI = "https://rdata.one/pwKl"
 FEEDBACK_URL_CHINA = "https://rdata.one/xxKl"
 FEEDBACK_URL_UZBECHKA = "https://rdata.one/vxKl"
 
@@ -373,11 +365,6 @@ def build_delivery_screen() -> MenuScreenContract:
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_DELIVERY_SUSAMI,
-                url=DELIVERY_URL_SUSAMI,
-            ),
-            MenuButtonContract(
-                action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_DELIVERY_CHINA,
                 url=DELIVERY_URL_CHINA,
             ),
@@ -405,11 +392,6 @@ def build_business_lunch_screen() -> MenuScreenContract:
                 action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_BUSINESS_LUNCH_GRUZINKA_NANI,
                 url=BUSINESS_LUNCH_URL_GRUZINKA_NANI,
-            ),
-            MenuButtonContract(
-                action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_BUSINESS_LUNCH_SUSAMI,
-                url=BUSINESS_LUNCH_URL_SUSAMI,
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
@@ -443,11 +425,6 @@ def build_table_booking_screen() -> MenuScreenContract:
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_TABLE_BOOKING_SUSAMI,
-                url=TABLE_BOOKING_URL_SUSAMI,
-            ),
-            MenuButtonContract(
-                action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_TABLE_BOOKING_CHINA,
                 url=TABLE_BOOKING_URL_CHINA,
             ),
@@ -475,11 +452,6 @@ def build_feedback_venues_screen() -> MenuScreenContract:
                 action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_FEEDBACK_GRUZINKA,
                 url=FEEDBACK_URL_GRUZINKA,
-            ),
-            MenuButtonContract(
-                action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_FEEDBACK_SUSAMI,
-                url=FEEDBACK_URL_SUSAMI,
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,
@@ -571,11 +543,6 @@ def build_support_feedback_screen() -> MenuScreenContract:
                 action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_FEEDBACK_GRUZINKA,
                 url=FEEDBACK_URL_GRUZINKA,
-            ),
-            MenuButtonContract(
-                action=GuestMenuAction.OPEN_DOCS,
-                label=BUTTON_FEEDBACK_SUSAMI,
-                url=FEEDBACK_URL_SUSAMI,
             ),
             MenuButtonContract(
                 action=GuestMenuAction.OPEN_DOCS,

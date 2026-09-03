@@ -110,25 +110,24 @@ def test_build_iiko_sync_retry_keyboard_contains_retry_button() -> None:
 
 
 def test_build_support_feedback_keyboard_contains_link_and_back_button() -> None:
-    """Проверяет клавиатуру экрана «Оставить отзыв»: 4 ссылки на заведения и кнопка возврата в меню."""
+    """Проверяет клавиатуру экрана «Оставить отзыв»: 3 ссылки на заведения и кнопка возврата в меню."""
 
     keyboard = build_support_feedback_inline_keyboard()
 
-    assert len(keyboard.inline_keyboard) == 5  # 4 заведения + назад
+    assert len(keyboard.inline_keyboard) == 4  # 3 заведения + назад
     # Проверяем кнопки заведений
     expected_urls = {
         "https://rdata.one/nwKl",
-        "https://rdata.one/pwKl",
         "https://rdata.one/xxKl",
         "https://rdata.one/vxKl",
     }
-    actual_urls = {row[0].url for row in keyboard.inline_keyboard[:4]}
+    actual_urls = {row[0].url for row in keyboard.inline_keyboard[:3]}
     assert actual_urls == expected_urls
     # Проверяем, что callback_data у ссылок None
-    for row in keyboard.inline_keyboard[:4]:
+    for row in keyboard.inline_keyboard[:3]:
         assert row[0].callback_data is None
     # Проверяем кнопку "Назад в меню"
-    back_button = keyboard.inline_keyboard[4][0]
+    back_button = keyboard.inline_keyboard[3][0]
     assert back_button.text == "🔙 Назад в меню"
     assert back_button.url is None
     assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value

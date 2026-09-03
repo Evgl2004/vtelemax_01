@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from vtelemax.core import (
     GuestMenuAction,
+    build_business_lunch_screen,
+    build_table_booking_screen,
     build_help_screen,
     build_iiko_sync_retry_screen,
     build_delivery_screen,
@@ -148,11 +150,10 @@ def test_support_feedback_screen_uses_actual_review_link() -> None:
     screen = build_support_feedback_screen()
 
     assert "https://rdata.one/Nyyl" not in screen.text
-    assert len(screen.buttons) == 5  # 4 заведения + кнопка "Назад в меню"
-    # Проверяем, что первые четыре кнопки — это ссылки на отзывы заведений
+    assert len(screen.buttons) == 4  # 3 заведения + кнопка "Назад в меню"
+    # Проверяем, что первые три кнопки — это ссылки на отзывы заведений
     expected_urls = {
         "https://rdata.one/nwKl",
-        "https://rdata.one/pwKl",
         "https://rdata.one/xxKl",
         "https://rdata.one/vxKl",
     }
@@ -164,21 +165,35 @@ def test_support_feedback_screen_uses_actual_review_link() -> None:
 
 
 def test_delivery_screen_contains_expected_links() -> None:
-    """Проверяет, что экран «Доставка» содержит 4 ссылки и кнопку возврата."""
+    """Проверяет, что экран «Доставка» содержит 3 ссылки и кнопку возврата."""
 
     screen = build_delivery_screen()
     urls = [button.url for button in screen.buttons]
 
     assert screen.screen_id == "delivery"
-    assert len(screen.buttons) == 5
-    assert urls[:4] == [
+    assert len(screen.buttons) == 4
+    assert urls[:3] == [
         "https://gruzinka.rest.market/",
-        "https://susami.rest.market/",
         "https://china.rest.market/",
         "https://uzbechka.rest.market/",
     ]
-    assert screen.buttons[4].action == GuestMenuAction.BACK_TO_MAIN
-    assert screen.buttons[4].url is None
+    assert screen.buttons[3].action == GuestMenuAction.BACK_TO_MAIN
+    assert screen.buttons[3].url is None
+
+
+def test_guest_venue_screens_do_not_include_susami() -> None:
+    """Проверяет отсутствие закрываемого бренда во всех пользовательских экранах заведений."""
+
+    screens = (
+        build_delivery_screen(),
+        build_business_lunch_screen(),
+        build_table_booking_screen(),
+        build_support_feedback_screen(),
+    )
+
+    for screen in screens:
+        assert all("Сами Сусами" not in button.label for button in screen.buttons)
+        assert all("susami" not in (button.url or "").lower() for button in screen.buttons)
 
 
 def test_vacancies_screen_returns_to_profile_after_menu_swap() -> None:

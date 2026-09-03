@@ -54,11 +54,9 @@ from vtelemax.core import (
     BUTTON_VACANCIES,
     BUTTON_VIRTUAL_CARD,
     BUTTON_FEEDBACK_GRUZINKA,
-    BUTTON_FEEDBACK_SUSAMI,
     BUTTON_FEEDBACK_CHINA,
     BUTTON_FEEDBACK_UZBECHKA,
     FEEDBACK_URL_GRUZINKA,
-    FEEDBACK_URL_SUSAMI,
     FEEDBACK_URL_CHINA,
     FEEDBACK_URL_UZBECHKA,
     GuestMenuAction,
@@ -298,7 +296,6 @@ def build_support_feedback_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=BUTTON_FEEDBACK_GRUZINKA, url=FEEDBACK_URL_GRUZINKA)],
-            [InlineKeyboardButton(text=BUTTON_FEEDBACK_SUSAMI, url=FEEDBACK_URL_SUSAMI)],
             [InlineKeyboardButton(text=BUTTON_FEEDBACK_CHINA, url=FEEDBACK_URL_CHINA)],
             [InlineKeyboardButton(text=BUTTON_FEEDBACK_UZBECHKA, url=FEEDBACK_URL_UZBECHKA)],
             [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))],
