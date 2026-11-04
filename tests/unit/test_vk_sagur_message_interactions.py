@@ -87,14 +87,18 @@ class _FakeMessages:
     def __init__(self, event: "_FakeEvent", source_message: Any) -> None:
         self.event = event
         self.source_message = source_message
-        self.fetch_response: Any = SimpleNamespace(items=[source_message])
+        self.fetch_response: Any = {"response": {"items": [source_message]}}
         self.fetch_calls: list[dict[str, Any]] = []
         self.send_calls: list[dict[str, Any]] = []
 
-    async def get_by_conversation_message_id(self, **kwargs: Any) -> Any:
+    async def request(self, method: str, data: dict[str, Any]) -> Any:
+        assert method == "messages.getByConversationMessageId"
         self.event.timeline.append("fetch_message")
-        self.fetch_calls.append(kwargs)
+        self.fetch_calls.append(data)
         return self.fetch_response
+
+    async def edit(self, **kwargs: Any) -> bool:
+        return await self.event.edit_message(**kwargs)
 
     async def send(self, **kwargs: Any) -> int:
         self.event.timeline.append("send_message")
@@ -134,8 +138,11 @@ class _FakeEvent:
             keyboard=_keyboard(),
             attachments=[],
         )
-        self.messages = _FakeMessages(self, source_message or default_message)
-        self.ctx_api = SimpleNamespace(messages=self.messages)
+        message = source_message or default_message
+        message.peer_id = self.peer_id
+        message.conversation_message_id = self.conversation_message_id
+        self.messages = _FakeMessages(self, message)
+        self.ctx_api = SimpleNamespace(messages=self.messages, request=self.messages.request)
 
     def get_payload_json(self) -> Any:
         return self._payload
@@ -152,11 +159,12 @@ class _FakeEvent:
             raise self.answer_error
         self.snackbars.append(text)
 
-    async def edit_message(self, **kwargs: Any) -> None:
+    async def edit_message(self, **kwargs: Any) -> bool:
         self.timeline.append("edit_message")
         if self.edit_error is not None:
             raise self.edit_error
         self.edits.append(kwargs)
+        return True
 
 
 @dataclass
@@ -381,6 +389,8 @@ async def test_rating_order_is_record_answer_fetch_edit_and_mark() -> None:
         "mark_succeeded",
     ]
     assert event.answers == 1
+    assert event.edits[0]["peer_id"] == event.peer_id
+    assert event.edits[0]["cmid"] == event.conversation_message_id
     assert event.edits[0]["message"] == "Сообщение с фото"
     assert event.edits[0]["attachment"] == "photo-1_2_key"
     assert event.edits[0]["keep_forward_messages"] is True
@@ -580,7 +590,7 @@ async def test_rating_platform_failures_are_recorded_and_keep_keyboard(failure: 
     )
     event = _FakeEvent(payload=_payload("l"), timeline=timeline, source_message=source_message)
     if failure == "ambiguous_fetch":
-        event.messages.fetch_response = SimpleNamespace(items=[])
+        event.messages.fetch_response = {"response": {"items": []}}
     service = _Service(timeline)
 
     await handle_vk_sagur_interaction(

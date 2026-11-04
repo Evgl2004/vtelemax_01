@@ -13,6 +13,8 @@ import pytest
 from maxapi import Dispatcher, Router
 from maxapi.types import CallbackButton
 from maxapi.types.attachments.buttons.attachment_button import AttachmentButton
+from maxapi.methods.types.edited_message import EditedMessage
+from maxapi.methods.types.sended_callback import SendedCallback
 from maxapi.types.updates.message_callback import MessageCallback
 
 from vtelemax.adapters.max.identity_adapter import MaxAdapterResponse
@@ -98,11 +100,12 @@ class _FakeMessage:
         if with_edit:
             self.edit = self._edit
 
-    async def _edit(self, **kwargs: Any) -> None:
+    async def _edit(self, **kwargs: Any) -> EditedMessage:
         self.timeline.append("edit_message")
         if self.edit_error is not None:
             raise self.edit_error
         self.edits.append(kwargs)
+        return EditedMessage(success=True)
 
 
 class _FakeBot:
@@ -121,11 +124,12 @@ class _FakeBot:
         self.callback_calls: list[dict[str, Any]] = []
         self.send_calls: list[dict[str, Any]] = []
 
-    async def send_callback(self, **kwargs: Any) -> None:
+    async def send_callback(self, **kwargs: Any) -> SendedCallback:
         self.timeline.append("answer")
         if self.answer_error is not None:
             raise self.answer_error
         self.callback_calls.append(kwargs)
+        return SendedCallback(success=True)
 
     async def send_message(self, **kwargs: Any) -> None:
         self.timeline.append("send_message")
@@ -154,12 +158,6 @@ class _FakeEvent:
         )
         self.message = message or _FakeMessage(self.timeline)
         self.bot = bot or _FakeBot(self.timeline)
-
-    async def answer(self, notification: str = "") -> None:
-        self.timeline.append("answer")
-        if self.bot.answer_error is not None:
-            raise self.bot.answer_error
-        self.bot.callback_calls.append({"notification": notification})
 
 
 @dataclass
@@ -470,7 +468,10 @@ async def test_invalid_payload_is_answered_without_database_write() -> None:
 
     assert service.ingress == []
     assert event.bot.callback_calls == [
-        {"notification": "Кнопка содержит некорректные служебные данные."}
+        {
+            "callback_id": "max.callback.id.000001",
+            "notification": "Кнопка содержит некорректные служебные данные.",
+        }
     ]
 
 
@@ -575,7 +576,7 @@ async def test_missing_answer_method_is_contained_and_action_continues() -> None
 
     timeline: list[str] = []
     event = _FakeEvent(timeline=timeline)
-    event.answer = None  # type: ignore[method-assign]
+    event.bot.send_callback = None  # type: ignore[method-assign]
 
     await handle_max_sagur_interaction(
         event,  # type: ignore[arg-type]
@@ -667,9 +668,12 @@ async def test_missing_ingress_identity_is_reported_as_storage_failure(
     )
 
     assert "edit_message" not in timeline
-    assert bot.callback_calls[-1]["notification"] == (
-        "Не удалось сохранить нажатие. Повторите попытку."
-    )
+    if callback_id:
+        assert bot.callback_calls[-1]["notification"] == (
+            "Не удалось сохранить нажатие. Повторите попытку."
+        )
+    else:
+        assert bot.callback_calls == []
 
 
 def test_router_contains_one_filtered_handler() -> None:

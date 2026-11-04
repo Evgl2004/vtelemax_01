@@ -26,6 +26,7 @@ from vtelemax.core.sagur_message_interactions import (
     SagurButtonPayload,
     SagurButtonPayloadError,
     SagurMessageInteractionIngress,
+    SagurMessageKeyboardError,
     remove_sagur_rating_buttons_from_rows,
     parse_sagur_button_payload,
 )
@@ -119,11 +120,13 @@ async def _perform_rating_action(
         clicked_payload=payload,
         payload_getter=lambda button: button.callback_data,
     )
-    await message.edit_reply_markup(
+    result = await message.edit_reply_markup(
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[list(row) for row in updated_rows],
         )
     )
+    if result is False:
+        raise SagurMessageKeyboardError("telegram_message_edit_rejected")
 
 
 async def _perform_navigation_action(

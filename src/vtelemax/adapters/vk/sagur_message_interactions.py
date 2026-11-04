@@ -117,13 +117,20 @@ def _attachment_reference(attachment: Any) -> str:
     value = _extract_field(attachment, field_name)
     owner_id = _extract_field(value, owner_field)
     media_id = _extract_field(value, id_field)
-    if type(owner_id) is not int or type(media_id) is not int:
+    if type(owner_id) is not int or owner_id == 0 or type(media_id) is not int or media_id <= 0:
         raise SagurMessageKeyboardError("vk_attachment_identifier_invalid")
 
     result = f"{attachment_type}{owner_id}_{media_id}"
     access_key = _extract_field(value, "access_key")
-    if isinstance(access_key, str) and access_key:
-        result = f"{result}_{access_key}"
+    if access_key is not None:
+        if (
+            not isinstance(access_key, str)
+            or "," in access_key
+            or any(char.isspace() for char in access_key)
+        ):
+            raise SagurMessageKeyboardError("vk_attachment_access_key_invalid")
+        if access_key:
+            result = f"{result}_{access_key}"
     return result
 
 
@@ -186,25 +193,33 @@ async def _fetch_source_message(event: MessageEvent) -> Any:
 
     peer_id = getattr(event, "peer_id", None)
     conversation_message_id = getattr(event, "conversation_message_id", None)
-    messages_api = getattr(getattr(event, "ctx_api", None), "messages", None)
-    fetcher = getattr(messages_api, "get_by_conversation_message_id", None)
+    request = getattr(getattr(event, "ctx_api", None), "request", None)
     if (
         type(peer_id) is not int
         or type(conversation_message_id) is not int
-        or not callable(fetcher)
+        or conversation_message_id <= 0
+        or not callable(request)
     ):
         raise SagurMessageKeyboardError("vk_message_lookup_unavailable")
 
-    response = await fetcher(
-        peer_id=peer_id,
-        conversation_message_ids=[conversation_message_id],
+    # Типизированная модель SDK теряет поле link в кнопках open_link.
+    response = await request(
+        "messages.getByConversationMessageId",
+        {"peer_id": peer_id, "conversation_message_ids": [conversation_message_id]},
     )
-    items = _extract_field(response, "items")
-    if items is None and isinstance(response, Mapping):
-        items = _extract_field(response.get("response"), "items")
+    items = _extract_field(_extract_field(response, "response"), "items")
     if not isinstance(items, Sequence) or isinstance(items, (str, bytes)) or len(items) != 1:
         raise SagurMessageKeyboardError("vk_message_lookup_ambiguous")
-    return items[0]
+    message = items[0]
+    if (
+        _extract_field(message, "peer_id") != peer_id
+        or _extract_field(message, "conversation_message_id") != conversation_message_id
+        or any(
+            _extract_field(message, flag) for flag in ("is_cropped", "deleted", "is_unavailable")
+        )
+    ):
+        raise SagurMessageKeyboardError("vk_message_lookup_mismatch")
+    return message
 
 
 async def _perform_rating_action(
@@ -230,7 +245,11 @@ async def _perform_rating_action(
     }
     if attachment_value is not None:
         kwargs["attachment"] = attachment_value
-    await event.edit_message(**kwargs)
+    result = await event.ctx_api.messages.edit(
+        peer_id=event.peer_id, cmid=event.conversation_message_id, **kwargs
+    )
+    if result is not True:
+        raise SagurMessageKeyboardError("vk_message_edit_rejected")
 
 
 async def _perform_navigation_action(

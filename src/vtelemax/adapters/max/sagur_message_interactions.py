@@ -10,8 +10,11 @@ from uuid import UUID
 
 from loguru import logger
 from maxapi import Router
+from maxapi.enums.attachment import AttachmentType
 from maxapi.enums.parse_mode import ParseMode
+from maxapi.enums.upload_type import UploadType
 from maxapi.filters.filter import BaseFilter
+from maxapi.types.attachments.upload import AttachmentPayload, AttachmentUpload
 from maxapi.types.updates.message_callback import MessageCallback
 
 from vtelemax.adapters.max.identity_adapter import MaxIdentityAdapter
@@ -102,8 +105,23 @@ def build_max_attachments_without_rating(
         buttons=[list(row) for row in updated_rows],
     )
     updated_keyboard = _copy_with_update(keyboard, payload=updated_payload)
-    result = list(attachments)
-    result[keyboard_index] = updated_keyboard
+    result = []
+    for index, attachment in enumerate(attachments):
+        try:
+            attachment_type = AttachmentType(_normalized_type(_extract_field(attachment, "type")))
+        except ValueError as error:
+            raise SagurMessageKeyboardError("max_attachment_type_unsupported") from error
+        if index == keyboard_index:
+            result.append(updated_keyboard)
+        elif attachment_type == AttachmentType.IMAGE:
+            token = _extract_field(_extract_field(attachment, "payload"), "token")
+            if not isinstance(token, str) or not token.strip():
+                raise SagurMessageKeyboardError("max_image_token_unavailable")
+            result.append(
+                AttachmentUpload(type=UploadType.IMAGE, payload=AttachmentPayload(token=token))
+            )
+        else:
+            result.append(attachment)
     return result
 
 
@@ -156,12 +174,16 @@ async def _answer_safely(event: MessageCallback, *, notification: str = "") -> b
     """Подтверждает callback штатным методом MAX и локализует ошибку API."""
 
     try:
-        answer = getattr(event, "answer", None)
+        answer = getattr(getattr(event, "bot", None), "send_callback", None)
         if not callable(answer):
-            raise ValueError("MAX не предоставил метод подтверждения callback-события.")
-        # Штатный answer сохраняет исходное сообщение в callback-ответе.
-        # Низкоуровневый пустой ответ `{}` платформа отклоняет.
-        await answer(notification)
+            raise ValueError("MAX не предоставил метод подтверждения нажатия.")
+        # Ответ с message может восстановить старые вложения при повторе события.
+        result = await answer(
+            callback_id=_callback_id(event),
+            notification=notification or "Нажатие принято.",
+        )
+        if not result.success:
+            raise ValueError("MAX отклонил подтверждение нажатия.")
     except Exception as error:  # noqa: BLE001
         logger.bind(
             platform="max",
@@ -196,11 +218,13 @@ async def _perform_rating_action(
         attachments,
         clicked_payload=payload,
     )
-    await edit_message(
+    result = await edit_message(
         text=text,
         attachments=updated_attachments,
         notify=False,
     )
+    if result is None or not result.success:
+        raise SagurMessageKeyboardError("max_message_edit_rejected")
 
 
 def _resolve_parse_mode(value: str | None) -> ParseMode | None:
@@ -345,8 +369,7 @@ async def handle_max_sagur_interaction(
         await _answer_safely(event)
         return
 
-    # Подтверждение выполняется перед отдельным редактированием. Иначе
-    # callback-ответ с исходной клавиатурой способен перезаписать результат.
+    # Сначала подтверждаем нажатие, затем выполняем пользовательское действие.
     await _answer_safely(event)
     attempted_at = utc_now()
     try:
