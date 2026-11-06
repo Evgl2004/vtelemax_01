@@ -18,6 +18,7 @@ from vtelemax.core import (
     resolve_guest_menu_action,
     build_vacancies_screen,
 )
+from vtelemax.core.guest_content import build_feedback_venues_screen
 
 
 def test_main_menu_screen_contains_prototype_buttons() -> None:
@@ -144,24 +145,25 @@ def test_profile_screen_hides_enable_notifications_button_when_active() -> None:
     assert GuestMenuAction.PROFILE_NOTIFICATIONS_ENABLE not in actions
 
 
-def test_support_feedback_screen_uses_actual_review_link() -> None:
-    """Проверяет, что ссылка отзыва вынесена в кнопку, а не отображается в тексте."""
+def test_feedback_screens_use_actual_review_links() -> None:
+    """Проверяет адреса обоих экранов отзывов, порядок заведений и повторное открытие."""
 
-    screen = build_support_feedback_screen()
+    for build_screen in (build_feedback_venues_screen, build_support_feedback_screen):
+        screen = build_screen()
 
-    assert "https://rdata.one/Nyyl" not in screen.text
-    assert len(screen.buttons) == 4  # 3 заведения + кнопка "Назад в меню"
-    # Проверяем, что первые три кнопки — это ссылки на отзывы заведений
-    expected_urls = {
-        "https://rdata.one/nwKl",
-        "https://rdata.one/xxKl",
-        "https://rdata.one/vxKl",
-    }
-    actual_urls = {button.url for button in screen.buttons if button.url}
-    assert actual_urls == expected_urls
-    # Последняя кнопка — "Назад в меню" без URL
-    assert screen.buttons[-1].action == GuestMenuAction.BACK_TO_MAIN
-    assert screen.buttons[-1].url is None
+        assert "https://rdata.one/" not in screen.text
+        assert len(screen.buttons) == 4
+        assert [(button.label, button.url) for button in screen.buttons[:3]] == [
+            ("💃 Грузинка", "https://rdata.one/p3Caab"),
+            ("🍜 Чина", "https://rdata.one/xxKl"),
+            ("☀️ Узбечка", "https://rdata.one/vxKl"),
+        ]
+        assert all(button.action == GuestMenuAction.OPEN_DOCS for button in screen.buttons[:3])
+        back_button = screen.buttons[-1]
+        assert back_button.label == "🔙 Назад в меню"
+        assert back_button.action == GuestMenuAction.BACK_TO_MAIN
+        assert back_button.url is None
+        assert build_screen() == screen
 
 
 def test_delivery_screen_contains_expected_links() -> None:

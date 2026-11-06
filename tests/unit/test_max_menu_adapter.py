@@ -89,28 +89,30 @@ def test_max_start_contact_screen_has_request_contact_button() -> None:
 
 
 def test_max_support_feedback_screen_contains_link_and_back_button() -> None:
-    """Проверяет, что в MAX-экране отзыва есть 4 кнопки-ссылки на заведения и кнопка возврата в меню."""
+    """Проверяет три ссылки отзывов MAX, возврат в меню и повторное открытие."""
 
     adapter = MaxGuestMenuAdapter()
     screen = adapter.build_support_feedback_screen()
 
-    assert len(screen.rows) == 5  # 4 заведения + назад
-    # Проверяем кнопки заведений
-    expected_urls = {
-        "https://rdata.one/nwKl",
-        "https://rdata.one/pwKl",
-        "https://rdata.one/xxKl",
-        "https://rdata.one/vxKl",
-    }
-    actual_urls = {row[0].url for row in screen.rows[:4]}
-    assert actual_urls == expected_urls
-    # Проверяем, что payload у ссылок OPEN_DOCS
-    for row in screen.rows[:4]:
+    assert len(screen.rows) == 4
+    assert all(len(row) == 1 for row in screen.rows)
+    assert [(row[0].label, row[0].url) for row in screen.rows[:3]] == [
+        ("💃 Грузинка", "https://rdata.one/p3Caab"),
+        ("🍜 Чина", "https://rdata.one/xxKl"),
+        ("☀️ Узбечка", "https://rdata.one/vxKl"),
+    ]
+    # Кнопки ссылок сохраняют действие открытия документа.
+    for row in screen.rows[:3]:
         assert row[0].payload == build_max_payload(GuestMenuAction.OPEN_DOCS)
-    # Проверяем кнопку "Назад в меню"
-    back_button = screen.rows[4][0]
+    back_button = screen.rows[-1][0]
+    assert back_button.label == "🔙 Назад в меню"
     assert back_button.url is None
     assert back_button.payload == build_max_payload(GuestMenuAction.BACK_TO_MAIN)
+
+    back_action = resolve_action_from_max_payload(back_button.payload)
+    assert back_action == GuestMenuAction.BACK_TO_MAIN
+    assert adapter.resolve_action_screen(back_action) == adapter.build_main_menu_screen()
+    assert adapter.resolve_action_screen(GuestMenuAction.SUPPORT_FEEDBACK) == screen
 
 
 def test_max_support_question_screen_has_back_to_main_button() -> None:

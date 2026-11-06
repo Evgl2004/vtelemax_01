@@ -114,15 +114,13 @@ def test_build_support_feedback_keyboard_contains_link_and_back_button() -> None
 
     keyboard = build_support_feedback_inline_keyboard()
 
-    assert len(keyboard.inline_keyboard) == 4  # 3 заведения + назад
-    # Проверяем кнопки заведений
-    expected_urls = {
-        "https://rdata.one/nwKl",
-        "https://rdata.one/xxKl",
-        "https://rdata.one/vxKl",
-    }
-    actual_urls = {row[0].url for row in keyboard.inline_keyboard[:3]}
-    assert actual_urls == expected_urls
+    assert len(keyboard.inline_keyboard) == 4
+    assert all(len(row) == 1 for row in keyboard.inline_keyboard)
+    assert [(row[0].text, row[0].url) for row in keyboard.inline_keyboard[:3]] == [
+        ("💃 Грузинка", "https://rdata.one/p3Caab"),
+        ("🍜 Чина", "https://rdata.one/xxKl"),
+        ("☀️ Узбечка", "https://rdata.one/vxKl"),
+    ]
     # Проверяем, что callback_data у ссылок None
     for row in keyboard.inline_keyboard[:3]:
         assert row[0].callback_data is None
@@ -132,22 +130,32 @@ def test_build_support_feedback_keyboard_contains_link_and_back_button() -> None
     assert back_button.url is None
     assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value
 
+    main_keyboard = build_main_menu_inline_keyboard()
+    feedback_button = next(
+        button
+        for row in main_keyboard.inline_keyboard
+        for button in row
+        if button.text == "✍️ Оставить отзыв"
+    )
+    assert feedback_button.callback_data == GuestMenuAction.SUPPORT_FEEDBACK.value
+    assert build_support_feedback_inline_keyboard() == keyboard
+
 
 def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
     """Проверяет, что в подменю «Доставка» есть URL-кнопки и возврат в меню."""
 
     keyboard = build_delivery_inline_keyboard()
 
-    assert len(keyboard.inline_keyboard) == 5
+    assert len(keyboard.inline_keyboard) == 4
     first_button = keyboard.inline_keyboard[0][0]
     assert first_button.text == "💃 Грузинка Нани"
     assert first_button.url == "https://gruzinka.rest.market/"
     assert first_button.callback_data is None
-    for row in keyboard.inline_keyboard[:4]:
+    for row in keyboard.inline_keyboard[:3]:
         button = row[0]
         assert button.url is not None
         assert button.callback_data is None
-    back_button = keyboard.inline_keyboard[4][0]
+    back_button = keyboard.inline_keyboard[3][0]
     assert back_button.text == "🔙 Назад в меню"
     assert back_button.url is None
     assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value

@@ -103,7 +103,7 @@ TABLE_BOOKING_URL_UZBECHKA = "https://usbechka.restoplace.ws/"
 BUTTON_FEEDBACK_GRUZINKA = "💃 Грузинка"
 BUTTON_FEEDBACK_CHINA = "🍜 Чина"
 BUTTON_FEEDBACK_UZBECHKA = "☀️ Узбечка"
-FEEDBACK_URL_GRUZINKA = "https://rdata.one/nwKl"
+FEEDBACK_URL_GRUZINKA = "https://rdata.one/p3Caab"
 FEEDBACK_URL_CHINA = "https://rdata.one/xxKl"
 FEEDBACK_URL_UZBECHKA = "https://rdata.one/vxKl"
 
