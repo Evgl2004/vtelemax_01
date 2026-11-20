@@ -51,6 +51,34 @@ def test_vk_main_menu_contains_expected_first_buttons() -> None:
     assert screen.rows[5][0].label == "👤 Профиль"
 
 
+def test_vk_table_booking_contains_expected_links_and_returns_to_main_menu() -> None:
+    """Проверяет кнопки бронирования ВКонтакте, возврат и повторное открытие."""
+
+    adapter = VkGuestMenuAdapter()
+    screen = adapter.resolve_action_screen(GuestMenuAction.TABLE_BOOKING)
+
+    assert screen.screen_id == "table_booking"
+    assert all(len(row) == 1 for row in screen.rows)
+    assert [(row[0].label, row[0].url) for row in screen.rows] == [
+        ("💃 Грузинка Нани", "https://nani.restoplace.ws/"),
+        ("🍜 Чина", "https://china.restoplace.ws/"),
+        ("☀️ Узбечка", "https://usbechka.restoplace.ws/"),
+        ("🔙 Назад в меню", None),
+    ]
+    assert all(row[0].payload == {"cmd": GuestMenuAction.OPEN_DOCS.value} for row in screen.rows[:3])
+
+    back_action = resolve_action_from_vk_payload(screen.rows[-1][0].payload)
+    assert back_action == GuestMenuAction.BACK_TO_MAIN
+    main_menu = adapter.resolve_action_screen(back_action)
+    assert main_menu == adapter.build_main_menu_screen()
+    booking_button = next(
+        button for row in main_menu.rows for button in row if button.label == "🪑 Бронь стола"
+    )
+    booking_action = resolve_action_from_vk_payload(booking_button.payload)
+    assert booking_action == GuestMenuAction.TABLE_BOOKING
+    assert adapter.resolve_action_screen(booking_action) == screen
+
+
 def test_vk_support_menu_respects_my_tickets_flag() -> None:
     """Проверяет условную кнопку 'Мои обращения' в VK-меню поддержки."""
 

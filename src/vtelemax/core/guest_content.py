@@ -95,7 +95,7 @@ BUTTON_TABLE_BOOKING = "🪑 Бронь стола"
 BUTTON_TABLE_BOOKING_GRUZINKA_NANI = "💃 Грузинка Нани"
 BUTTON_TABLE_BOOKING_CHINA = "🍜 Чина"
 BUTTON_TABLE_BOOKING_UZBECHKA = "☀️ Узбечка"
-TABLE_BOOKING_URL_GRUZINKA_NANI = "https://gruzinka.restoplace.ws/"
+TABLE_BOOKING_URL_GRUZINKA_NANI = "https://nani.restoplace.ws/"
 TABLE_BOOKING_URL_CHINA = "https://china.restoplace.ws/"
 TABLE_BOOKING_URL_UZBECHKA = "https://usbechka.restoplace.ws/"
 

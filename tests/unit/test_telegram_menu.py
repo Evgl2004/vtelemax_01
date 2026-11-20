@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from unittest.mock import create_autospec
+
+from vtelemax.adapters.telegram import TelegramIdentityAdapter
 from vtelemax.adapters.telegram.menu import (
     GUEST_MESSAGE_CLOSE_CALLBACK,
     MOD_CLOSE_PREFIX,
@@ -39,6 +42,7 @@ from vtelemax.adapters.telegram.menu import (
     build_rules_consent_inline_keyboard,
     build_support_feedback_inline_keyboard,
     build_support_menu_inline_keyboard,
+    build_table_booking_inline_keyboard,
     build_user_tickets_pagination_keyboard,
 )
 from vtelemax.core import (
@@ -47,9 +51,11 @@ from vtelemax.core import (
     BUTTON_PRIVACY_POLICY_LINK,
     BUTTON_PROFILE_EDIT_CANCEL,
     BUTTON_RETRY_IIKO_SYNC,
+    GetPersonByAccountTransactionalUseCase,
     OpenSupportTicketSummary,
     PERSONAL_DATA_CONSENT_URLS,
     PRIVACY_POLICY_URLS,
+    RegisterOrAttachAccountTransactionalUseCase,
     SupportTicketStatus,
     GuestMenuAction,
 )
@@ -159,6 +165,44 @@ def test_build_delivery_keyboard_contains_links_and_back_button() -> None:
     assert back_button.text == "🔙 Назад в меню"
     assert back_button.url is None
     assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value
+
+
+def test_table_booking_keyboard_contains_expected_links_and_returns_to_main_menu() -> None:
+    """Проверяет кнопки бронирования Telegram, возврат и повторное открытие."""
+
+    lookup_use_case = create_autospec(GetPersonByAccountTransactionalUseCase, instance=True)
+    lookup_use_case.execute.return_value = None
+    adapter = TelegramIdentityAdapter(
+        create_autospec(RegisterOrAttachAccountTransactionalUseCase, instance=True),
+        lookup_use_case,
+    )
+    main_keyboard = build_main_menu_inline_keyboard()
+    booking_button = next(
+        button
+        for row in main_keyboard.inline_keyboard
+        for button in row
+        if button.text == "🪑 Бронь стола"
+    )
+    assert booking_button.callback_data == GuestMenuAction.TABLE_BOOKING.value
+    booking = adapter.handle_menu_action(1001, booking_button.callback_data)
+    assert booking.status == "table_booking"
+
+    keyboard = build_table_booking_inline_keyboard()
+    assert all(len(row) == 1 for row in keyboard.inline_keyboard)
+    buttons = [row[0] for row in keyboard.inline_keyboard]
+    assert [(button.text, button.url) for button in buttons] == [
+        ("💃 Грузинка Нани", "https://nani.restoplace.ws/"),
+        ("🍜 Чина", "https://china.restoplace.ws/"),
+        ("☀️ Узбечка", "https://usbechka.restoplace.ws/"),
+        ("🔙 Назад в меню", None),
+    ]
+    assert all(button.callback_data is None for button in buttons[:3])
+
+    back_button = buttons[-1]
+    assert back_button.callback_data == GuestMenuAction.BACK_TO_MAIN.value
+    assert adapter.handle_menu_action(1001, back_button.callback_data).status == "menu"
+    assert adapter.handle_menu_action(1001, booking_button.callback_data) == booking
+    assert build_table_booking_inline_keyboard() == keyboard
 
 
 def test_build_main_menu_keyboard_contains_support_question_and_feedback_link() -> None:

@@ -183,6 +183,24 @@ def test_delivery_screen_contains_expected_links() -> None:
     assert screen.buttons[3].url is None
 
 
+def test_table_booking_screen_contains_expected_links_and_back_action() -> None:
+    """Проверяет общий экран бронирования и действия открытия и возврата."""
+
+    screen = build_table_booking_screen()
+
+    assert screen.screen_id == "table_booking"
+    assert [(button.label, button.url, button.action) for button in screen.buttons] == [
+        ("💃 Грузинка Нани", "https://nani.restoplace.ws/", GuestMenuAction.OPEN_DOCS),
+        ("🍜 Чина", "https://china.restoplace.ws/", GuestMenuAction.OPEN_DOCS),
+        ("☀️ Узбечка", "https://usbechka.restoplace.ws/", GuestMenuAction.OPEN_DOCS),
+        ("🔙 Назад в меню", None, GuestMenuAction.BACK_TO_MAIN),
+    ]
+    assert "https://gruzinka.restoplace.ws/" not in screen.text
+    assert resolve_guest_menu_action("🪑 Бронь стола") == GuestMenuAction.TABLE_BOOKING
+    assert resolve_guest_menu_action(screen.buttons[-1].label) == GuestMenuAction.BACK_TO_MAIN
+    assert build_table_booking_screen() == screen
+
+
 def test_guest_venue_screens_do_not_include_susami() -> None:
     """Проверяет отсутствие закрываемого бренда во всех пользовательских экранах заведений."""
 
