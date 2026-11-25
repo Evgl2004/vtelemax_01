@@ -62,24 +62,29 @@ from vtelemax.core import (
 
 
 def test_build_rules_consent_keyboard_contains_docs_and_accept_buttons() -> None:
-    """Проверяет, что клавиатура правил содержит две кнопки документов и кнопку согласия."""
+    """Проверяет, что три документа предшествуют отдельному действию согласия."""
 
     keyboard = build_rules_consent_inline_keyboard()
 
     assert keyboard.inline_keyboard
-    assert len(keyboard.inline_keyboard) == 3
+    assert len(keyboard.inline_keyboard) == 4
 
     personal_data_row = keyboard.inline_keyboard[0]
     privacy_policy_row = keyboard.inline_keyboard[1]
-    accept_row = keyboard.inline_keyboard[2]
+    loyalty_rules_row = keyboard.inline_keyboard[2]
+    accept_row = keyboard.inline_keyboard[3]
     assert len(personal_data_row) == 1
     assert len(privacy_policy_row) == 1
+    assert len(loyalty_rules_row) == 1
     assert len(accept_row) == 1
 
     personal_data_button = personal_data_row[0]
     privacy_policy_button = privacy_policy_row[0]
     accept_button = accept_row[0]
 
+    assert loyalty_rules_row[0].text == "📘 Правила лояльности"
+    assert loyalty_rules_row[0].url == "https://sagur.24vds.ru/loyalty-rules/"
+    assert loyalty_rules_row[0].callback_data is None
     assert personal_data_button.text == BUTTON_PERSONAL_DATA_CONSENT_LINK
     assert personal_data_button.url == PERSONAL_DATA_CONSENT_URLS["telegram"]
 
@@ -328,8 +333,18 @@ def test_build_profile_inline_keyboard_depends_on_notifications_status() -> None
     active_texts = [button.text for row in active_keyboard.inline_keyboard for button in row]
     declined_texts = [button.text for row in declined_keyboard.inline_keyboard for button in row]
 
-    assert "✅ Получать уведомления!" not in active_texts
-    assert "✅ Получать уведомления!" in declined_texts
+    assert active_texts == [
+        "✏️ Редактировать профиль",
+        "📘 Правила лояльности",
+        "💼 Вакансии",
+        "🔙 Назад в меню",
+    ]
+    assert declined_texts == ["✅ Получать уведомления!", *active_texts]
+    for keyboard in (active_keyboard, declined_keyboard):
+        assert all(len(row) == 1 for row in keyboard.inline_keyboard)
+        button = keyboard.inline_keyboard[-3][0]
+        assert button.url == "https://sagur.24vds.ru/loyalty-rules/short/"
+        assert button.callback_data is None
 
 
 def test_build_coupon_keyboards_use_expected_callbacks() -> None:

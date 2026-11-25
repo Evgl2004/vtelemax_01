@@ -124,8 +124,8 @@ class OnboardingFlowService:
             state=OnboardingState.WAITING_RULES_CONSENT,
             status="rules_consent_pending",
             message=(
-                "Чтобы продолжить регистрацию, нажмите кнопку «✅ Согласен» "
-                "после ознакомления с условиями."
+                "Чтобы продолжить регистрацию, ознакомься с документами о персональных данных "
+                "и нажми «✅ Согласен»."
             ),
         )
 
@@ -161,7 +161,7 @@ class OnboardingFlowService:
 
     @staticmethod
     def _is_rules_consent(raw_text: str) -> bool:
-        """Проверяет, что пользователь подтвердил согласие с правилами."""
+        """Распознаёт ответ о согласии на обработку персональных данных и с политикой конфиденциальности."""
 
         normalized = normalize_menu_text(raw_text)
         accepted_variants = {

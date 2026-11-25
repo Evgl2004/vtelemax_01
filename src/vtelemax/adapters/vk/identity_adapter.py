@@ -549,10 +549,7 @@ class VkIdentityAdapter:
                 self._state_by_user_id[vk_user_id] = _STATE_WAITING_RULES_CONSENT
                 rules_screen = self._menu_adapter.build_start_rules_screen()
                 return VkAdapterResponse(
-                    text=(
-                        "Чтобы продолжить, сначала подтвердите согласие с правилами.\n\n"
-                        f"{rules_screen.text}"
-                    ),
+                    text=rules_screen.text,
                     screen=rules_screen,
                 )
             main_screen = self._menu_adapter.build_main_menu_screen(
@@ -2762,7 +2759,7 @@ class VkIdentityAdapter:
             rules_screen = self._menu_adapter.build_start_rules_screen()
             return VkAdapterResponse(
                 text=(
-                    "Раздел доступен после регистрации. Сначала подтвердите согласие с правилами.\n\n"
+                    "Раздел доступен после регистрации.\n\n"
                     f"{rules_screen.text}"
                 ),
                 screen=rules_screen,

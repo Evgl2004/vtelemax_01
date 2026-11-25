@@ -37,7 +37,7 @@ def test_render_vk_keyboard_returns_none_for_screen_without_buttons() -> None:
 
 
 def test_render_vk_start_rules_keyboard_contains_inline_buttons() -> None:
-    """Проверяет, что для onboarding-экрана правил рендерится inline-клавиатура."""
+    """Проверяет ссылку на полные правила и отдельное действие согласия в JSON ВК."""
 
     adapter = VkGuestMenuAdapter()
     screen = adapter.build_start_rules_screen()
@@ -47,7 +47,14 @@ def test_render_vk_start_rules_keyboard_contains_inline_buttons() -> None:
     assert keyboard_json is not None
     parsed = json.loads(keyboard_json)
     assert parsed["inline"] is True
-    assert len(parsed["buttons"]) == 3
+    assert [len(row) for row in parsed["buttons"]] == [1, 1, 1, 1]
+    _, _, [rules], [accept] = parsed["buttons"]
+    assert rules["action"]["type"] == "open_link"
+    assert rules["action"]["label"] == "📘 Правила лояльности"
+    assert rules["action"]["link"] == "https://sagur.24vds.ru/loyalty-rules/"
+    assert "color" not in rules
+    assert accept["action"]["type"] == "callback"
+    assert json.loads(accept["action"]["payload"]) == {"cmd": "accept_rules"}
 
 
 def test_vk_keyboard_button_colors() -> None:

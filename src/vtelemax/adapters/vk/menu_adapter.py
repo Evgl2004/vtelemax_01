@@ -41,6 +41,7 @@ from vtelemax.core import (
     build_table_booking_screen,
     build_vacancies_screen,
 )
+from vtelemax.core.guest_content import LOYALTY_RULES_SHORT_URL
 
 from .payloads import build_vk_payload
 
@@ -247,9 +248,22 @@ class VkGuestMenuAdapter:
             notifications_allowed=notifications_allowed,
             notifications_allowed_at=notifications_allowed_at,
         )
-        rows: list[tuple[VkButton, ...]] = [(_to_vk_button(button),) for button in screen.buttons]
         effective_miniapp_url = (miniapp_url_override or self._vk_phone_verification_miniapp_url).strip()
-        if self._is_vk_miniapp_phone_verification_enabled(effective_miniapp_url):
+        show_miniapp_buttons = self._is_vk_miniapp_phone_verification_enabled(effective_miniapp_url)
+        rows: list[tuple[VkButton, ...]] = []
+        for button in screen.buttons:
+            vk_button = _to_vk_button(button)
+            if (
+                show_miniapp_buttons
+                and not notifications_allowed
+                and button.action == GuestMenuAction.VACANCIES
+                and rows[-1][0].url == LOYALTY_RULES_SHORT_URL
+            ):
+                rows[-1] = (*rows[-1], vk_button)
+            else:
+                rows.append((vk_button,))
+
+        if show_miniapp_buttons:
             rows.append(
                 (
                     VkButton(

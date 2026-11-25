@@ -69,6 +69,7 @@ from vtelemax.core import (
     build_delivery_screen,
     build_table_booking_screen,
 )
+from vtelemax.core.guest_content import BUTTON_LOYALTY_RULES_LINK, LOYALTY_RULES_FULL_URL, LOYALTY_RULES_SHORT_URL
 
 RULES_ACCEPT_CALLBACK = "rules_accept"
 NOTIFY_YES_CALLBACK = "notify_yes"
@@ -134,7 +135,7 @@ def build_contact_request_keyboard() -> ReplyKeyboardMarkup:
 
 
 def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
-    """Создает inline-клавиатуру шага согласия с правилами."""
+    """Создаёт встроенную клавиатуру шага согласия на обработку персональных данных."""
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -150,6 +151,7 @@ def build_rules_consent_inline_keyboard() -> InlineKeyboardMarkup:
                     url=PRIVACY_POLICY_URLS["telegram"],
                 )
             ],
+            [InlineKeyboardButton(text=BUTTON_LOYALTY_RULES_LINK, url=LOYALTY_RULES_FULL_URL)],
             [InlineKeyboardButton(text=BUTTON_ACCEPT_RULES, callback_data=RULES_ACCEPT_CALLBACK)],
         ]
     )
@@ -388,6 +390,7 @@ def build_profile_inline_keyboard(*, notifications_allowed: bool) -> InlineKeybo
     rows.extend(
         [
             [InlineKeyboardButton(text=BUTTON_PROFILE_EDIT, callback_data=_action_callback(GuestMenuAction.PROFILE_EDIT))],
+            [InlineKeyboardButton(text=BUTTON_LOYALTY_RULES_LINK, url=LOYALTY_RULES_SHORT_URL)],
             [InlineKeyboardButton(text=BUTTON_VACANCIES, callback_data=_action_callback(GuestMenuAction.VACANCIES))],
             [InlineKeyboardButton(text=BUTTON_BACK_TO_MAIN, callback_data=_action_callback(GuestMenuAction.BACK_TO_MAIN))],
         ]

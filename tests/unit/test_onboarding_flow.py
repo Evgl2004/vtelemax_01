@@ -40,7 +40,8 @@ def test_onboarding_rules_reject_keeps_waiting_state() -> None:
 
     assert transition.state == OnboardingState.WAITING_RULES_CONSENT
     assert transition.status == "rules_consent_pending"
-    assert "нажмите кнопку" in transition.message.lower()
+    assert "документами о персональных данных" in transition.message
+    assert "нажми «✅ Согласен»" in transition.message
 
 
 def test_onboarding_begin_legacy_requests_phone_confirmation() -> None:

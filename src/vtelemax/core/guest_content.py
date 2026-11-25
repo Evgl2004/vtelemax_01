@@ -74,6 +74,9 @@ MAILING_CONSENT_URLS = {
 }
 BUTTON_PERSONAL_DATA_CONSENT_LINK = "📄 Согласие на ПД"
 BUTTON_PRIVACY_POLICY_LINK = "📄 Политика конфиденциальности"
+BUTTON_LOYALTY_RULES_LINK = "📘 Правила лояльности"
+LOYALTY_RULES_FULL_URL = "https://sagur.24vds.ru/loyalty-rules/"
+LOYALTY_RULES_SHORT_URL = "https://sagur.24vds.ru/loyalty-rules/short/"
 BUTTON_DELIVERY_GRUZINKA_NANI = "💃 Грузинка Нани"
 BUTTON_DELIVERY_CHINA = "🍜 Чина"
 BUTTON_DELIVERY_UZBECHKA = "☀️ Узбечка"
@@ -200,9 +203,10 @@ def build_start_rules_screen(platform: str = "telegram") -> MenuScreenContract:
         text=(
             "👋 Здравствуй Друг!\n\n"
             "Добро пожаловать к нам в гости!\n\n"
-            "📜 Для начала нам необходимо получить твоё согласие на обработку персональных данных "
-            "и согласие с политикой конфиденциальности.\n\n"
-            "👉 Прошу ознакомиться с документами по ссылкам ниже и нажать кнопку «✅ Согласен»."
+            "📜 Для продолжения регистрации ознакомься с документами о персональных данных. "
+            "Нажимая «✅ Согласен», ты даёшь согласие на обработку персональных данных "
+            "и подтверждаешь согласие с политикой конфиденциальности.\n\n"
+            "📘 Здесь же можно открыть документ «Правила программы лояльности»."
         ),
         buttons=(
             MenuButtonContract(
@@ -214,6 +218,11 @@ def build_start_rules_screen(platform: str = "telegram") -> MenuScreenContract:
                 action=GuestMenuAction.OPEN_DOCS,
                 label=BUTTON_PRIVACY_POLICY_LINK,
                 url=PRIVACY_POLICY_URLS[platform],
+            ),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_LOYALTY_RULES_LINK,
+                url=LOYALTY_RULES_FULL_URL,
             ),
             MenuButtonContract(action=GuestMenuAction.ACCEPT_RULES, label=BUTTON_ACCEPT_RULES),
         ),
@@ -706,6 +715,11 @@ def build_profile_screen(
     buttons.extend(
         [
             MenuButtonContract(action=GuestMenuAction.PROFILE_EDIT, label=BUTTON_PROFILE_EDIT),
+            MenuButtonContract(
+                action=GuestMenuAction.OPEN_DOCS,
+                label=BUTTON_LOYALTY_RULES_LINK,
+                url=LOYALTY_RULES_SHORT_URL,
+            ),
             MenuButtonContract(action=GuestMenuAction.VACANCIES, label=BUTTON_VACANCIES),
             MenuButtonContract(action=GuestMenuAction.BACK_TO_MAIN, label=BUTTON_BACK_TO_MAIN),
         ]
